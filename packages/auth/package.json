@@ -1,0 +1,24 @@
+{
+  "name": "@gitpal/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@gitpal/db": "workspace:*",
+    "@gitpal/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@gitpal/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

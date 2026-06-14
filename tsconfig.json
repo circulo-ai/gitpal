@@ -1,0 +1,3 @@
+{
+  "extends": "@gitpal/config/tsconfig.base.json"
+}

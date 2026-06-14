@@ -1,43 +1,45 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 
 import "../index.css";
-import Header from "@/components/header";
+import AppShell from "@/components/app-shell";
 import Providers from "@/components/providers";
-import { cn } from "@gitpal/ui/lib/utils";
-
-const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
 const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+	variable: "--font-geist-sans",
+	subsets: ["latin"],
 });
 
 const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+	variable: "--font-geist-mono",
+	subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "gitpal",
-  description: "gitpal",
+	title: {
+		default: "GitPal",
+		template: "%s | GitPal",
+	},
+	description:
+		"Open source AI code review for GitHub and GitLab, with BYOK, enterprise SSO, and self-hosted deployments.",
 };
 
 export default function RootLayout({
-  children,
+	children,
 }: Readonly<{
-  children: React.ReactNode;
+	children: React.ReactNode;
 }>) {
-  return (
-    <html lang="en" suppressHydrationWarning className={cn("font-sans", inter.variable)}>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <Providers>
-          <div className="grid grid-rows-[auto_1fr] h-svh">
-            <Header />
-            {children}
-          </div>
-        </Providers>
-      </body>
-    </html>
-  );
+	return (
+			<html
+				lang="en"
+				suppressHydrationWarning
+				className={`${geistSans.variable} ${geistMono.variable}`}
+			>
+			<body className="antialiased">
+				<Providers>
+					<AppShell>{children}</AppShell>
+				</Providers>
+			</body>
+			</html>
+	);
 }

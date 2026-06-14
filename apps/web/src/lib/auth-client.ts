@@ -1,6 +1,8 @@
 import { env } from "@gitpal/env/web";
+import { genericOAuthClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
-  baseURL: env.NEXT_PUBLIC_SERVER_URL,
+	baseURL: env.NEXT_PUBLIC_SERVER_URL,
+	plugins: [genericOAuthClient()],
 });

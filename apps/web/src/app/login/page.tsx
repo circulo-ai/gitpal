@@ -1,16 +1,30 @@
-"use client";
-
-import { useState } from "react";
-
-import SignInForm from "@/components/sign-in-form";
-import SignUpForm from "@/components/sign-up-form";
+import AuthPage from "@/components/auth-page";
 
 export default function LoginPage() {
-  const [showSignIn, setShowSignIn] = useState(false);
-
-  return showSignIn ? (
-    <SignInForm onSwitchToSignUp={() => setShowSignIn(false)} />
-  ) : (
-    <SignUpForm onSwitchToSignIn={() => setShowSignIn(true)} />
-  );
+	return (
+		<AuthPage
+			availability={{
+				github: {
+					cloud: Boolean(
+						process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET,
+					),
+					enterprise: Boolean(
+						process.env.GITHUB_ENTERPRISE_URL &&
+							process.env.GITHUB_ENTERPRISE_CLIENT_ID &&
+							process.env.GITHUB_ENTERPRISE_CLIENT_SECRET,
+					),
+				},
+				gitlab: {
+					cloud: Boolean(
+						process.env.GITLAB_CLIENT_ID && process.env.GITLAB_CLIENT_SECRET,
+					),
+					enterprise: Boolean(
+						process.env.GITLAB_ENTERPRISE_URL &&
+							process.env.GITLAB_ENTERPRISE_CLIENT_ID &&
+							process.env.GITLAB_ENTERPRISE_CLIENT_SECRET,
+					),
+				},
+			}}
+		/>
+	);
 }

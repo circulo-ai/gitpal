@@ -2,13 +2,13 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "gitpal",
-    short_name: "gitpal",
-    description: "my pwa app",
-    start_url: "/new",
+    name: "GitPal",
+    short_name: "GitPal",
+    description: "Open source AI code review for GitHub and GitLab",
+    start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#000000",
+    background_color: "#0b0910",
+    theme_color: "#0b0910",
     icons: [
       {
         src: "/favicon/web-app-manifest-192x192.png",

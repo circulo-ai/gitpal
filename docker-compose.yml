@@ -68,5 +68,20 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    image: redis
+    container_name: gitpal-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - gitpal_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   gitpal_postgres_data:
+  gitpal_redis_data:

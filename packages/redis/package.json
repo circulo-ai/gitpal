@@ -1,0 +1,28 @@
+{
+	"name": "@gitpal/redis",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"redis:start": "docker compose up -d",
+		"redis:watch": "docker compose up",
+		"redis:stop": "docker compose stop",
+		"redis:down": "docker compose down"
+	},
+	"dependencies": {
+		"@gitpal/env": "workspace:*",
+		"@gitpal/logger": "workspace:*",
+		"@gitpal/utils": "workspace:*",
+		"ioredis": "^5.6.1"
+	},
+	"devDependencies": {
+		"@gitpal/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

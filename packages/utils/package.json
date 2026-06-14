@@ -1,0 +1,17 @@
+{
+	"name": "@gitpal/utils",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {},
+	"devDependencies": {
+		"@gitpal/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

@@ -124,11 +124,10 @@
 	* {
 		@apply border-border outline-ring/50;
 	}
-	body {
-		@apply font-sans bg-[#0b0910] text-white;
-	}
 	html {
-		@apply font-sans;
-		background-color: #0b0910;
+		@apply bg-background font-sans;
+	}
+	body {
+		@apply min-h-svh bg-background font-sans text-foreground;
 	}
 }

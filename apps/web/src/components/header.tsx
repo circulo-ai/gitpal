@@ -1,9 +1,8 @@
 "use client";
 
+import { cn } from "@gitpal/ui/lib/utils";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-import { cn } from "@gitpal/ui/lib/utils";
 
 import { GitPalMark } from "./gitpal-mark";
 import UserMenu from "./user-menu";
@@ -25,16 +24,16 @@ export default function Header() {
 	const links = pathname === "/" ? homeLinks : appLinks;
 
 	return (
-		<header className="sticky top-0 z-50 border-b border-white/10 bg-[#0b0910]/78 backdrop-blur-xl supports-[backdrop-filter]:bg-[#0b0910]/62">
+		<header className="sticky top-0 z-50 border-border/70 border-b bg-background/85 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70">
 			<div className="mx-auto flex h-18 max-w-[1440px] items-center gap-4 px-4 sm:px-6 lg:px-8">
 				<Link href="/" className="flex items-center gap-3">
 					<GitPalMark className="size-9 text-[0.72rem]" />
 					<div className="flex flex-col">
-						<span className="font-semibold text-[0.98rem] tracking-[-0.03em] text-white">
+						<span className="font-semibold text-[0.98rem] text-foreground tracking-[-0.03em]">
 							GitPal
 						</span>
-						<span className="text-[11px] leading-none text-white/42">
-							Open source AI review
+						<span className="text-[11px] text-muted-foreground leading-none">
+							Open source code review
 						</span>
 					</div>
 				</Link>
@@ -45,7 +44,7 @@ export default function Header() {
 							key={link.to}
 							href={link.to}
 							className={cn(
-								"rounded-full px-3 py-2 text-sm text-white/62 transition hover:bg-white/5 hover:text-white",
+								"rounded-full px-3 py-2 text-muted-foreground text-sm transition hover:bg-muted hover:text-foreground",
 							)}
 						>
 							{link.label}

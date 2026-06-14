@@ -16,7 +16,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	}
 
 	return (
-		<div className="dark min-h-svh overflow-x-clip bg-[#0b0910] text-white">
+		<div className="min-h-svh overflow-x-clip bg-background text-foreground">
 			<div className="grid min-h-svh grid-rows-[auto_1fr]">
 				<Header />
 				{children}

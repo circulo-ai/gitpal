@@ -10,14 +10,8 @@ export const env = createEnv({
 		CORS_ORIGIN: z.url(),
 		GITHUB_CLIENT_ID: z.string().optional(),
 		GITHUB_CLIENT_SECRET: z.string().optional(),
-		GITHUB_ENTERPRISE_CLIENT_ID: z.string().optional(),
-		GITHUB_ENTERPRISE_CLIENT_SECRET: z.string().optional(),
-		GITHUB_ENTERPRISE_URL: z.url().optional(),
 		GITLAB_CLIENT_ID: z.string().optional(),
 		GITLAB_CLIENT_SECRET: z.string().optional(),
-		GITLAB_ENTERPRISE_CLIENT_ID: z.string().optional(),
-		GITLAB_ENTERPRISE_CLIENT_SECRET: z.string().optional(),
-		GITLAB_ENTERPRISE_URL: z.url().optional(),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),

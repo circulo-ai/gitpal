@@ -49,6 +49,12 @@
       "skillPath": "skills/hono/SKILL.md",
       "computedHash": "24bad73932f309cec73a5a9171b838f59050990a634d8590c2d2c204507e64f9"
     },
+    "internal-dev-workbench": {
+      "source": "vercel/workflow",
+      "sourceType": "github",
+      "skillPath": "skills/internal-dev-workbench/SKILL.md",
+      "computedHash": "0a95e27fa15772abf98de088375a0f84ab8f183b577b2120903698406ce90bc5"
+    },
     "list-npm-package-content": {
       "source": "vercel/ai",
       "sourceType": "github",
@@ -60,6 +66,12 @@
       "sourceType": "github",
       "skillPath": "skills/major-version-mode/SKILL.md",
       "computedHash": "2de638964b0a1ae6a03c982989467a270d91d7db0547d13c077a718862aa3b9f"
+    },
+    "migrating-to-workflow-sdk": {
+      "source": "vercel/workflow",
+      "sourceType": "github",
+      "skillPath": "skills/migrating-to-workflow-sdk/SKILL.md",
+      "computedHash": "f641182d7988667a46e1549943e3daa29faac412da8716828d99eee5f7b626cb"
     },
     "next-best-practices": {
       "source": "vercel-labs/next-skills",
@@ -78,6 +90,12 @@
       "sourceType": "github",
       "skillPath": "skills/shadcn/SKILL.md",
       "computedHash": "0dc0edeeaec2ae491ae506806517866a3f9bd48d04e0458feb37e0252862891f"
+    },
+    "streamdown": {
+      "source": "vercel/streamdown",
+      "sourceType": "github",
+      "skillPath": "skills/streamdown/SKILL.md",
+      "computedHash": "c842552c75b80abb74ef8f92481d34684c709884dd2df22c2ab3b183aee582fe"
     },
     "turborepo": {
       "source": "vercel/turborepo",
@@ -108,6 +126,18 @@
       "sourceType": "github",
       "skillPath": "skills/web-design-guidelines/SKILL.md",
       "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
+    },
+    "workflow": {
+      "source": "vercel/workflow",
+      "sourceType": "github",
+      "skillPath": "skills/workflow/SKILL.md",
+      "computedHash": "d870ac314303f0b28cfeb8533567ac18df24f6e4d6b874e9f5261b5fddc29210"
+    },
+    "workflow-init": {
+      "source": "vercel/workflow",
+      "sourceType": "github",
+      "skillPath": "skills/workflow-init/SKILL.md",
+      "computedHash": "e74ed0468589670865a7dc1dcf4f8cd21c3dce164e5caa66d74c5800d70dfe68"
     }
   }
 }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { publicProcedure, router } from "../index";
+import { analyticsRouter } from "./analytics";
+import { repositoriesRouter } from "./repositories";
 
 type EnterpriseGitProviderType = "github" | "gitlab";
 
@@ -76,6 +78,8 @@ export const appRouter = router({
 	healthCheck: publicProcedure.query(() => {
 		return "OK";
 	}),
+	analytics: analyticsRouter,
+	repositories: repositoriesRouter,
 	enterpriseGitProvider: router({
 		lookup: publicProcedure
 			.input(enterpriseGitProviderLookupSchema)

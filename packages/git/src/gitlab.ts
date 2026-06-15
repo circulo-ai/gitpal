@@ -539,6 +539,21 @@ export function createGitLabAdapter({
 	const normalizedBaseUrl = normalizeGitHostUrl(baseUrl);
 	const normalizedApiBaseUrl = normalizeBaseUrl(apiBaseUrl);
 
+	async function listRepositories(): Promise<GitRepository[]> {
+		const response = await requestJson<unknown>(
+			`${normalizedApiBaseUrl}/projects?membership=true&simple=true&order_by=last_activity_at&sort=desc&per_page=100`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+			},
+			providerId,
+		);
+
+		const projects = z.array(gitlabProjectSchema).parse(response);
+		return projects.map((project) => mapRepository(project, providerId));
+	}
+
 	async function getRepository(
 		input: GitRepositoryRef,
 	): Promise<GitRepository> {
@@ -767,6 +782,7 @@ export function createGitLabAdapter({
 		apiBaseUrl: normalizedApiBaseUrl,
 		capabilities,
 		webhooks: createGitLabWebhookVerifier(providerId, webhookSecrets),
+		listRepositories,
 		getRepository,
 		listPullRequests,
 		getPullRequest,

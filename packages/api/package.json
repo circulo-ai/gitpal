@@ -1,29 +1,31 @@
 {
-  "name": "@gitpal/api",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {},
+	"name": "@gitpal/api",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {},
 	"dependencies": {
 		"@gitpal/auth": "workspace:*",
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
-		"@workflow/ai": "catalog:",
-		"ai": "catalog:",
+		"@gitpal/git": "workspace:*",
 		"@trpc/client": "catalog:",
 		"@trpc/server": "catalog:",
+		"@workflow/ai": "catalog:",
+		"ai": "catalog:",
 		"dotenv": "catalog:",
+		"drizzle-orm": "catalog:",
 		"zod": "catalog:"
-  },
-  "devDependencies": {
-    "@gitpal/config": "workspace:*",
-    "hono": "catalog:",
-    "typescript": "catalog:"
-  }
+	},
+	"devDependencies": {
+		"@gitpal/config": "workspace:*",
+		"hono": "catalog:",
+		"typescript": "catalog:"
+	}
 }

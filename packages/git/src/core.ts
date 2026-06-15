@@ -150,6 +150,7 @@ export interface GitProviderAdapter {
 	readonly apiBaseUrl: string;
 	readonly capabilities: GitProviderCapabilities;
 	readonly webhooks: GitWebhookAdapter;
+	listRepositories(): Promise<GitRepository[]>;
 	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
 	listPullRequests(
 		input: GitRepositoryRef & { state?: GitPullRequestState },

@@ -1,12 +1,12 @@
 {
-  "name": "server",
-  "type": "module",
+	"name": "server",
+	"type": "module",
 	"main": "src/index.ts",
 	"scripts": {
 		"build": "workflow build && tsdown",
 		"check-types": "workflow build && tsc -b",
 		"compile": "workflow build && bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
-		"dev": "bun run src/dev.ts",
+		"dev": "bun run src/index.ts",
 		"workflow:build": "workflow build",
 		"start": "bun run dist/index.mjs"
 	},
@@ -26,10 +26,10 @@
 		"workflow": "catalog:",
 		"zod": "catalog:"
 	},
-  "devDependencies": {
-    "@gitpal/config": "workspace:*",
-    "@types/bun": "catalog:",
-    "tsdown": "^0.21.9",
-    "typescript": "catalog:"
-  }
+	"devDependencies": {
+		"@gitpal/config": "workspace:*",
+		"@types/bun": "catalog:",
+		"tsdown": "^0.21.9",
+		"typescript": "catalog:"
+	}
 }

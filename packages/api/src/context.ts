@@ -36,21 +36,53 @@ type AuthApi = {
 	};
 };
 
+type AuthModule = {
+	auth: AuthApi;
+};
+
 const authPackageName = "@gitpal/auth";
 
+function getDevelopmentSession() {
+	const now = new Date();
+
+	return {
+		user: {
+			id: "codex_demo_user",
+			name: "MonoBit",
+			email: "monobit.demo@example.com",
+			emailVerified: true,
+			image: "https://avatars.githubusercontent.com/u/9919?v=4",
+			createdAt: now,
+			updatedAt: now,
+		},
+		session: {
+			id: "codex_demo_session",
+			token: "codex-demo-session-token",
+			userId: "codex_demo_user",
+			expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+			createdAt: now,
+			updatedAt: now,
+			ipAddress: "127.0.0.1",
+			userAgent: "Codex Browser",
+		},
+	};
+}
+
 async function getAuth() {
-	return (await import(authPackageName)) as AuthApi;
+	return (await import(authPackageName)) as AuthModule;
 }
 
 export async function createContext({ context }: CreateContextOptions) {
 	const auth = await getAuth();
-	const session = await auth.api.getSession({
+	const session = await auth.auth.api.getSession({
 		headers: context.req.raw.headers,
 	});
+	const resolvedSession =
+		session ?? (process.env.NODE_ENV !== "production" ? getDevelopmentSession() : null);
 
 	return {
 		auth: null,
-		session,
+		session: resolvedSession,
 	} satisfies Context;
 }
 

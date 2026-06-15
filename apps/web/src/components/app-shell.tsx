@@ -6,13 +6,17 @@ import type { ReactNode } from "react";
 import Header from "./header";
 
 const AUTH_ROUTES = ["/login", "/signup"];
+const WORKSPACE_ROUTES = ["/dashboard", "/repositories"];
 
 export default function AppShell({ children }: { children: ReactNode }) {
 	const pathname = usePathname();
 	const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
+	const isWorkspaceRoute = WORKSPACE_ROUTES.some((route) =>
+		pathname.startsWith(route),
+	);
 	const isLandingPage = pathname === "/";
 
-	if (isAuthRoute || isLandingPage) {
+	if (isAuthRoute || isLandingPage || isWorkspaceRoute) {
 		return <>{children}</>;
 	}
 

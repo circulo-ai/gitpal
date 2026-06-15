@@ -272,6 +272,25 @@ export function createGitHubAdapter({
 		userAgent,
 	});
 
+	async function listRepositories(): Promise<GitRepository[]> {
+		const response = await octokit.paginate(
+			octokit.rest.repos.listForAuthenticatedUser,
+			{
+				affiliation: "owner,collaborator,organization_member",
+				per_page: 100,
+				sort: "updated",
+			},
+		);
+
+		return response.map((repository) =>
+			mapRepository(
+				repository as Record<string, unknown>,
+				providerId,
+				String(repository.full_name ?? repository.name ?? "unknown/unknown"),
+			),
+		);
+	}
+
 	async function getRepository(
 		input: GitRepositoryRef,
 	): Promise<GitRepository> {
@@ -516,6 +535,7 @@ export function createGitHubAdapter({
 		apiBaseUrl: normalizeBaseUrl(apiBaseUrl),
 		capabilities,
 		webhooks: createGitHubWebhookVerifier(providerId, webhookSecrets),
+		listRepositories,
 		getRepository,
 		listPullRequests,
 		getPullRequest,

@@ -1,25 +1,25 @@
 {
-  "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "base-maia",
-  "rsc": true,
-  "tsx": true,
-  "tailwind": {
-    "config": "",
-    "css": "../../packages/ui/src/styles/globals.css",
-    "baseColor": "mauve",
-    "cssVariables": true,
-    "prefix": ""
-  },
-  "iconLibrary": "lucide",
-  "aliases": {
-    "components": "@/components",
-    "utils": "@gitpal/ui/lib/utils",
-    "ui": "@gitpal/ui/components",
-    "lib": "@/lib",
-    "hooks": "@/hooks"
-  },
-  "menuColor": "default",
-  "menuAccent": "subtle",
-  "rtl": false,
-  "registries": {}
+	"$schema": "https://ui.shadcn.com/schema.json",
+	"style": "base-maia",
+	"rsc": true,
+	"tsx": true,
+	"tailwind": {
+		"config": "",
+		"css": "../../packages/ui/src/styles/globals.css",
+		"baseColor": "mauve",
+		"cssVariables": true,
+		"prefix": ""
+	},
+	"iconLibrary": "lucide",
+	"aliases": {
+		"components": "@/components",
+		"utils": "@gitpal/ui/lib/utils",
+		"ui": "@gitpal/ui/components",
+		"lib": "@/lib",
+		"hooks": "@/hooks"
+	},
+	"menuColor": "default",
+	"menuAccent": "subtle",
+	"rtl": false,
+	"registries": {}
 }

@@ -1,10 +1,10 @@
 import { Badge } from "@gitpal/ui/components/badge";
 import { buttonVariants } from "@gitpal/ui/components/button";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
+	Card,
+	CardContent,
+	CardHeader,
+	CardTitle,
 } from "@gitpal/ui/components/card";
 import { Separator } from "@gitpal/ui/components/separator";
 import Link from "next/link";
@@ -12,569 +12,512 @@ import type { ReactNode } from "react";
 
 import { GitPalMark } from "./gitpal-mark";
 
-// --- Types & Data ---
-
-type AIFeature = {
-  title: string;
-  description: string;
-  tag: string;
+type Feature = {
+	title: string;
+	description: string;
+	label: string;
 };
 
-type Benchmark = {
-  metric: string;
-  label: string;
-  context: string;
+type SecuritySignal = {
+	title: string;
+	description: string;
 };
 
 type WorkflowStep = {
-  step: string;
-  title: string;
-  description: string;
+	step: string;
+	title: string;
+	description: string;
 };
 
-const aiFeatures: AIFeature[] = [
-  {
-    title: "Context-Aware Analysis",
-    description:
-      "GitPal doesn't just read the diff. It parses your AST, maps file dependencies, and reads linked Jira/Linear issues to understand the blast radius of a change.",
-    tag: "Intelligence",
-  },
-  {
-    title: "One-Click Auto-Fixes",
-    description:
-      "Stop copying and pasting from chat windows. GitPal suggests code changes directly in the PR thread that you can commit with a single click.",
-    tag: "Workflow",
-  },
-  {
-    title: "Conversational PRs",
-    description:
-      "Reply directly to GitPal's comments to ask questions, challenge its assumptions, or ask it to generate missing unit tests.",
-    tag: "Agentic",
-  },
-  {
-    title: "Pre-Merge IDE & CLI",
-    description:
-      "Run reviews locally before you even push. Catch logical errors, hallucinations, and code smells right in VS Code or your terminal.",
-    tag: "Shift-Left",
-  },
+const features: Feature[] = [
+	{
+		title: "Context-aware analysis",
+		description:
+			"GitPal reads the diff, the nearby code, and the surrounding repository context so the feedback points at real risk instead of noisy style chatter.",
+		label: "Reasoning",
+	},
+	{
+		title: "One-click fixes",
+		description:
+			"Turn a review note into a patch without hopping between the PR, your editor, and chat. The intent stays attached to the code it belongs to.",
+		label: "Workflow",
+	},
+	{
+		title: "Conversational comments",
+		description:
+			"Reply to GitPal like a teammate. Ask for examples, challenge an assumption, or request a narrower fix and keep the thread in one place.",
+		label: "Chat",
+	},
+	{
+		title: "Shift-left review",
+		description:
+			"Catch the same edge cases before merge that you would normally discover after CI or during a slow manual pass through the PR.",
+		label: "Pre-merge",
+	},
 ];
 
-const benchmarks: Benchmark[] = [
-  {
-    metric: "51.2%",
-    label: "F1 Bug Detection Score",
-    context: "Ranked #1 against diff-only AI tools on open-source benchmarks.",
-  },
-  {
-    metric: "40%",
-    label: "Cycle Time Reduction",
-    context: "Average decrease in PR queue time for teams with 10+ engineers.",
-  },
-  {
-    metric: "95%+",
-    label: "Edge-Case Coverage",
-    context:
-      "Routinely catches off-by-ones, race conditions, and null pointers.",
-  },
+const securitySignals: SecuritySignal[] = [
+	{
+		title: "Cloud and self-hosted",
+		description:
+			"GitPal supports GitHub.com, GitHub Enterprise Server, GitLab.com, and self-managed GitLab without changing the public app flow.",
+	},
+	{
+		title: "Auth stays centralized",
+		description:
+			"Better Auth handles the login boundary, so OAuth, SSO, and the callback flow stay consistent across the web app and the API.",
+	},
+	{
+		title: "Webhook-first by design",
+		description:
+			"The new git package is structured around adapters and webhook verification so future providers can slot in without rewriting business logic.",
+	},
 ];
 
 const workflowSteps: WorkflowStep[] = [
-  {
-    step: "01",
-    title: "Open a Pull Request",
-    description:
-      "GitPal triggers automatically. It reads the new commits, cross-references your custom guidelines (.gitpal.yaml), and runs linter/SAST integrations.",
-  },
-  {
-    step: "02",
-    title: "Review the AI Feedback",
-    description:
-      "Within 2 minutes, GitPal posts a comprehensive PR summary, a sequence diagram of architectural changes, and inline line-by-line comments for actual bugs.",
-  },
-  {
-    step: "03",
-    title: "Chat, Fix, and Merge",
-    description:
-      "Apply one-click fixes, ask the bot to elaborate on a security risk, and merge with confidence knowing the edge cases were covered.",
-  },
+	{
+		step: "01",
+		title: "Connect your host",
+		description:
+			"Sign in with GitHub, GitLab, or a self-hosted provider and point GitPal at the repository you want reviewed.",
+	},
+	{
+		step: "02",
+		title: "Read the review",
+		description:
+			"GitPal posts a focused summary, marks the risky lines, and explains why the change matters in the context of your codebase.",
+	},
+	{
+		step: "03",
+		title: "Apply and merge",
+		description:
+			"Use the suggested fix, reply for clarification, and merge once the comment thread tells a complete story.",
+	},
 ];
 
-// --- Micro-Components ---
-
-function SectionLabel({ children }: { children: ReactNode }) {
-  return (
-    <div className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary backdrop-blur-sm">
-      <span className="mr-2 flex h-2 w-2 rounded-full bg-primary animate-pulse" />
-      {children}
-    </div>
-  );
-}
-
 function SectionHeading({
-  label,
-  title,
-  description,
-  centered = false,
+	eyebrow,
+	title,
+	description,
+	centered = false,
 }: {
-  label: string;
-  title: string;
-  description: string;
-  centered?: boolean;
+	eyebrow?: string;
+	title: string;
+	description: string;
+	centered?: boolean;
 }) {
-  return (
-    <div
-      className={`space-y-4 max-w-3xl ${
-        centered ? "mx-auto text-center flex flex-col items-center" : ""
-      }`}
-    >
-      <SectionLabel>{label}</SectionLabel>
-      <h2 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl text-foreground text-balance">
-        {title}
-      </h2>
-      <p className="text-lg text-muted-foreground leading-relaxed text-balance">
-        {description}
-      </p>
-    </div>
-  );
+	return (
+		<div
+			className={`space-y-4 ${centered ? "mx-auto max-w-3xl text-center" : "max-w-3xl"}`}
+		>
+			{eyebrow ? (
+				<p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.3em]">
+					{eyebrow}
+				</p>
+			) : null}
+			<h2 className="text-balance font-semibold text-3xl text-foreground tracking-[-0.04em] sm:text-4xl lg:text-5xl">
+				{title}
+			</h2>
+			<p className="text-balance text-base text-muted-foreground leading-7 sm:text-lg">
+				{description}
+			</p>
+		</div>
+	);
 }
 
-function PrimaryAction({
-  children,
-  className = "",
+function ActionLink({
+	href,
+	variant = "default",
+	children,
+	className = "",
 }: {
-  children: ReactNode;
-  className?: string;
+	href: string;
+	variant?: "default" | "outline";
+	children: ReactNode;
+	className?: string;
 }) {
-  return (
-    <Link
-      href="/login"
-      className={buttonVariants({
-        size: "lg",
-        className: `rounded-full px-8 shadow-[0_0_40px_-10px_rgba(var(--primary),0.5)] transition-all hover:scale-105 hover:shadow-[0_0_60px_-15px_rgba(var(--primary),0.6)] ${className}`,
-      })}
-    >
-      {children}
-    </Link>
-  );
+	const linkClassName = buttonVariants({
+		variant,
+		size: "lg",
+		className,
+	});
+
+	if (href.startsWith("#")) {
+		return (
+			<a href={href} className={linkClassName}>
+				{children}
+			</a>
+		);
+	}
+
+	return (
+		<Link href={href as never} className={linkClassName}>
+			{children}
+		</Link>
+	);
 }
 
-function SecondaryAction({
-  href,
-  children,
+function PreviewShell() {
+	return (
+		<div className="relative isolate w-full">
+			<div className="absolute -inset-4 rounded-[2rem] bg-[radial-gradient(circle_at_20%_20%,rgba(92,145,255,0.18),transparent_35%),radial-gradient(circle_at_85%_15%,rgba(255,166,110,0.16),transparent_28%),radial-gradient(circle_at_50%_85%,rgba(255,255,255,0.08),transparent_26%)] opacity-80 blur-2xl" />
+
+			<div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1020] text-white shadow-[0_30px_80px_-24px_rgba(2,8,23,0.85)] ring-1 ring-white/5">
+				<div className="flex items-center justify-between border-white/10 border-b px-5 py-4">
+					<div className="flex items-center gap-2.5">
+						<span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+						<span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+						<span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+					</div>
+					<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-[11px] text-white/70 uppercase tracking-[0.24em]">
+						acme/payments · feature/retry
+					</span>
+				</div>
+
+				<div className="grid lg:grid-cols-[1.08fr_0.92fr]">
+					<div className="border-white/10 border-b lg:border-white/10 lg:border-r lg:border-b-0">
+						<div className="border-white/10 border-b px-5 py-4 text-white/55 text-xs">
+							Review preview
+						</div>
+						<div className="space-y-1 px-5 py-5 font-mono text-[13px] text-slate-300 leading-6">
+							<div className="flex gap-4">
+								<span className="w-8 shrink-0 text-right text-white/25">
+									41
+								</span>
+								<span>const user = await db.users.findById(userId);</span>
+							</div>
+							<div className="flex gap-4 rounded-xl bg-emerald-400/10 px-3 py-1 text-emerald-200">
+								<span className="w-8 shrink-0 text-right text-emerald-200/50">
+									42
+								</span>
+								<span>+ if (!user) return notFound();</span>
+							</div>
+							<div className="flex gap-4">
+								<span className="w-8 shrink-0 text-right text-white/25">
+									43
+								</span>
+								<span>return executeTransaction(user.accountId);</span>
+							</div>
+						</div>
+						<div className="border-white/10 border-t px-5 py-4">
+							<div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+								<div className="flex items-center justify-between gap-3">
+									<div className="font-semibold text-sm text-white">GitPal</div>
+									<Badge
+										variant="secondary"
+										className="bg-amber-400/15 text-amber-100 hover:bg-amber-400/15"
+									>
+										Blocking
+									</Badge>
+								</div>
+								<p className="mt-3 text-sm text-white/75 leading-6">
+									`db.users.findById` can return `null`. Guard the lookup before
+									you dereference `accountId`, otherwise the PR ships a runtime
+									exception.
+								</p>
+								<div className="mt-4 flex flex-wrap gap-2">
+									<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/75 text-xs">
+										Suggested fix attached
+									</span>
+									<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/75 text-xs">
+										Reply in thread
+									</span>
+								</div>
+								<div className="mt-4 flex gap-2">
+									<span className="rounded-full bg-white px-3 py-1.5 font-medium text-slate-950 text-xs">
+										Commit fix
+									</span>
+									<span className="rounded-full border border-white/10 bg-transparent px-3 py-1.5 font-medium text-white/80 text-xs">
+										Keep review open
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<div className="space-y-4 bg-[#10192d] p-5">
+						<div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+							<div className="flex items-center justify-between text-white/55 text-xs">
+								<span>Review scope</span>
+								<span>3 files changed</span>
+							</div>
+							<div className="mt-4 grid grid-cols-3 gap-2 text-center text-white/55 text-xs">
+								<div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
+									Context
+								</div>
+								<div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
+									Review note
+								</div>
+								<div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
+									One-click fix
+								</div>
+							</div>
+						</div>
+
+						<div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+							<div className="font-semibold text-white/45 text-xs uppercase tracking-[0.24em]">
+								What GitPal sees
+							</div>
+							<div className="mt-4 space-y-3 text-sm text-white/75">
+								<div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+									<span>Diff context</span>
+									<span className="text-white/45">2 files</span>
+								</div>
+								<div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+									<span>Suggested patch</span>
+									<span className="text-white/45">1 change</span>
+								</div>
+								<div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+									<span>Webhook dispatch</span>
+									<span className="text-white/45">Ready</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function SignalCard({
+	title,
+	description,
 }: {
-  href: string;
-  children: ReactNode;
+	title: string;
+	description: string;
 }) {
-  return (
-    <a
-      href={href}
-      className={buttonVariants({
-        variant: "secondary",
-        size: "lg",
-        className:
-          "rounded-full px-8 backdrop-blur-md transition-all hover:bg-secondary/80",
-      })}
-    >
-      {children}
-    </a>
-  );
+	return (
+		<Card className="border-border/70 bg-white/75 shadow-sm backdrop-blur-sm">
+			<CardHeader className="space-y-3 pb-3">
+				<div className="flex items-center gap-2">
+					<span className="h-2 w-2 rounded-full bg-primary" />
+					<span className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.22em]">
+						Signal
+					</span>
+				</div>
+				<CardTitle className="text-xl tracking-[-0.03em]">{title}</CardTitle>
+			</CardHeader>
+			<CardContent className="pt-0 text-muted-foreground text-sm leading-6">
+				{description}
+			</CardContent>
+		</Card>
+	);
 }
 
-function PreviewCard() {
-  return (
-    <div className="relative group perspective-[2000px] w-full">
-      <div className="absolute -inset-1 rounded-2xl bg-gradient-to-br from-primary/30 via-transparent to-primary/10 opacity-50 blur-2xl transition-opacity duration-500 group-hover:opacity-100" />
-      <Card className="relative overflow-hidden border-border/50 bg-background/60 backdrop-blur-xl shadow-2xl transition-transform duration-500 md:hover:rotate-y-[-2deg] md:hover:rotate-x-[2deg]">
-        <CardHeader className="border-b border-border/50 bg-muted/20 pb-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex space-x-2">
-              <div className="h-3 w-3 rounded-full bg-destructive/80" />
-              <div className="h-3 w-3 rounded-full bg-amber-500/80" />
-              <div className="h-3 w-3 rounded-full bg-emerald-500/80" />
-            </div>
-            <span className="font-mono text-xs text-muted-foreground bg-background/80 px-2.5 py-1 rounded-md border border-border/50">
-              acme/core-api #1042
-            </span>
-          </div>
-          <CardTitle className="text-lg md:text-xl text-foreground/90 font-medium">
-            Catching the bugs diffs miss.
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          <div className="grid lg:grid-cols-[1fr_280px] divide-y lg:divide-y-0 lg:divide-x divide-border/50">
-            {/* Diff Section */}
-            <div className="p-4 md:p-6 font-mono text-[13px] leading-relaxed bg-[#0d1117]/80 text-slate-300 overflow-x-auto">
-              <div className="flex min-w-max">
-                <span className="w-10 text-slate-600 select-none text-right pr-4">
-                  44
-                </span>
-                <span>
-                  async function processCheckout(userId: string) &#123;
-                </span>
-              </div>
-              <div className="flex min-w-max">
-                <span className="w-10 text-slate-600 select-none text-right pr-4">
-                  45
-                </span>
-                <span> const user = await db.users.findById(userId);</span>
-              </div>
-              <div className="flex min-w-max bg-emerald-500/15 text-emerald-400 my-1 -mx-4 md:-mx-6 px-4 md:px-6 py-1">
-                <span className="w-10 opacity-50 select-none text-right pr-4">
-                  46
-                </span>
-                <span>+ return executeTransaction(user.accountId);</span>
-              </div>
-              <div className="flex min-w-max">
-                <span className="w-10 text-slate-600 select-none text-right pr-4">
-                  47
-                </span>
-                <span>&#125;</span>
-              </div>
-
-              {/* GitPal AI Comment */}
-              <div className="mt-6 ml-4 md:ml-10 rounded-lg border border-primary/30 bg-primary/10 p-4 font-sans text-sm shadow-inner relative max-w-2xl">
-                <div className="absolute -left-3 top-4 h-6 w-6 rounded-full bg-background border border-primary/50 flex items-center justify-center shadow-sm">
-                  <span className="text-[10px]">🚨</span>
-                </div>
-                <div className="flex justify-between items-start mb-2">
-                  <div className="font-semibold text-primary flex items-center gap-2">
-                    GitPal AI
-                    <Badge
-                      variant="secondary"
-                      className="text-[9px] h-4 px-1.5 bg-primary/20 text-primary"
-                    >
-                      CRITICAL
-                    </Badge>
-                  </div>
-                </div>
-                <p className="text-foreground/90 leading-relaxed mb-4">
-                  Potential Null Reference Exception.{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-xs text-primary">
-                    db.users.findById
-                  </code>{" "}
-                  can return{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-xs">
-                    null
-                  </code>{" "}
-                  if the user isn't found, which will cause{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-xs">
-                    user.accountId
-                  </code>{" "}
-                  to throw. You need to handle the null case.
-                </p>
-                <div className="bg-background/80 rounded border border-border/50 p-3 font-mono text-xs text-slate-300">
-                  <div className="text-emerald-400">
-                    + if (!user) throw new NotFoundError("User not found");
-                  </div>
-                  <div> return executeTransaction(user.accountId);</div>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button className="bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 rounded hover:bg-primary/90 transition-colors">
-                    Commit Fix
-                  </button>
-                  <button className="bg-secondary text-secondary-foreground text-xs font-medium px-3 py-1.5 rounded hover:bg-secondary/80 transition-colors">
-                    Reply
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Metadata Sidebar */}
-            <div className="p-6 bg-muted/10 flex flex-col justify-center">
-              <h4 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-4">
-                Analysis Context
-              </h4>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    AST Depth
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-primary w-[85%]" />
-                    </div>
-                    <span className="text-xs font-mono">Cross-file</span>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    Confidence Score
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full bg-amber-500 w-[92%]" />
-                    </div>
-                    <span className="text-xs font-mono">92%</span>
-                  </div>
-                </div>
-                <Separator className="bg-border/50 my-4" />
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="text-[10px]">
-                    Typescript
-                  </Badge>
-                  <Badge variant="outline" className="text-[10px]">
-                    Control Flow
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+function FeatureCard({ feature }: { feature: Feature }) {
+	return (
+		<Card className="border-border/70 bg-white/80 shadow-sm backdrop-blur-sm transition-transform duration-300 hover:-translate-y-1 hover:shadow-lg">
+			<CardHeader className="space-y-3">
+				<Badge
+					variant="outline"
+					className="w-fit border-border/80 bg-background/80 text-[11px] text-muted-foreground uppercase tracking-[0.22em]"
+				>
+					{feature.label}
+				</Badge>
+				<CardTitle className="text-xl tracking-[-0.03em]">
+					{feature.title}
+				</CardTitle>
+			</CardHeader>
+			<CardContent className="pt-0 text-muted-foreground text-sm leading-6">
+				{feature.description}
+			</CardContent>
+		</Card>
+	);
 }
 
-// --- Main Page ---
+function WorkflowCard({ step }: { step: WorkflowStep }) {
+	return (
+		<div className="relative rounded-[1.5rem] border border-border/70 bg-white/80 p-6 shadow-sm backdrop-blur-sm">
+			<div className="flex items-center justify-between">
+				<div className="font-semibold text-muted-foreground text-sm uppercase tracking-[0.24em]">
+					{step.step}
+				</div>
+				<div className="h-2.5 w-2.5 rounded-full bg-primary/80" />
+			</div>
+			<h3 className="mt-5 font-semibold text-foreground text-xl tracking-[-0.03em]">
+				{step.title}
+			</h3>
+			<p className="mt-3 text-muted-foreground text-sm leading-6">
+				{step.description}
+			</p>
+		</div>
+	);
+}
 
 export default function LandingPage() {
-  return (
-    <main className="min-h-screen bg-background text-foreground selection:bg-primary/30">
-      {/* Global Background Effects */}
-      <div className="fixed inset-0 z-[-1] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/5 via-background to-background" />
-      <div className="fixed inset-0 z-[-1] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.15] mix-blend-overlay pointer-events-none" />
+	return (
+		<main className="min-h-svh bg-[#f6f8fc] text-foreground selection:bg-primary/20">
+			<div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(77,118,255,0.08),transparent_25%),radial-gradient(circle_at_90%_10%,rgba(255,153,102,0.12),transparent_18%),linear-gradient(180deg,rgba(255,255,255,0.8)_0%,rgba(246,248,252,1)_100%)]" />
+			<div className="fixed inset-0 -z-10 bg-[linear-gradient(rgba(17,24,39,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(17,24,39,0.025)_1px,transparent_1px)] opacity-60 [background-size:30px_30px]" />
 
-      {/* HERO SECTION */}
-      <section className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-4 overflow-hidden">
-        <div className="max-w-7xl mx-auto flex flex-col items-center text-center">
-          <SectionLabel>Senior-level reviews, instantly.</SectionLabel>
+			<section className="relative px-4 pt-16 pb-16 sm:px-6 md:pt-20 md:pb-20 lg:px-8 lg:pt-24 lg:pb-24">
+				<div className="mx-auto grid max-w-7xl items-center gap-14 lg:grid-cols-[1.02fr_0.98fr]">
+					<div className="space-y-8">
+						<div className="space-y-6">
+							<h1 className="max-w-3xl text-balance font-semibold text-4xl text-slate-950 tracking-[-0.06em] sm:text-5xl lg:text-[4.9rem] lg:leading-[0.95]">
+								Pull requests that get real reviews.
+							</h1>
 
-          <h1 className="mt-8 text-5xl md:text-7xl font-extrabold tracking-tighter max-w-4xl text-transparent bg-clip-text bg-gradient-to-b from-foreground to-foreground/70 text-balance">
-            Cut code review time and bugs in half.
-          </h1>
+							<p className="max-w-2xl text-balance text-lg text-slate-700 leading-8 sm:text-xl">
+								GitPal reads the diff, the surrounding code, and your team’s
+								rules so the first pass catches the bugs humans usually skim
+								past.
+							</p>
+						</div>
 
-          <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-2xl leading-relaxed text-balance">
-            Your team moves fast with AI. We make sure every line still earns
-            its merge. GitPal is an autonomous agent that reviews PRs, enforces
-            standards, and catches the edge cases humans skim past.
-          </p>
+						<div className="flex flex-col gap-3 sm:flex-row">
+							<ActionLink
+								href="/login"
+								className="bg-[#10192d] text-white hover:bg-[#18243d]"
+							>
+								Install GitPal
+							</ActionLink>
+							<ActionLink
+								href="#workflow"
+								variant="outline"
+								className="border-slate-300 bg-white text-slate-900 shadow-sm hover:border-slate-400 hover:bg-slate-50"
+							>
+								See the workflow
+							</ActionLink>
+						</div>
 
-          <div className="mt-10 flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-            <PrimaryAction className="w-full sm:w-auto">
-              Install on GitHub
-            </PrimaryAction>
-            <SecondaryAction href="#features">See it in action</SecondaryAction>
-          </div>
+						<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-slate-600 text-sm">
+							<span>Works with cloud and self-hosted installs</span>
+							<span className="hidden sm:inline">•</span>
+							<span>OAuth, SSO, and webhook aware</span>
+							<span className="hidden sm:inline">•</span>
+							<span>Designed for GitHub and GitLab teams</span>
+						</div>
+					</div>
 
-          <div className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-sm text-muted-foreground font-mono">
-            <span>✓ Auto-generates PR summaries</span>
-            <span className="hidden sm:inline">•</span>
-            <span>✓ 1-Click Code Fixes</span>
-            <span className="hidden sm:inline">•</span>
-            <span>✓ Integrates with GitHub & GitLab</span>
-          </div>
-        </div>
+					<PreviewShell />
+				</div>
+			</section>
 
-        <div className="mt-20 md:mt-24 max-w-5xl mx-auto px-4 sm:px-6">
-          <PreviewCard />
-        </div>
-      </section>
+			<section
+				id="security"
+				className="border-border/60 border-y bg-white/55 px-4 py-16 backdrop-blur-sm sm:px-6 lg:px-8"
+			>
+				<div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
+					<SectionHeading
+						eyebrow="Security"
+						title="Production-friendly by default."
+						description="The auth flow stays on the server, the frontend redirects to the app origin, and the universal git package is shaped around verified webhooks and provider adapters."
+					/>
 
-      {/* DATA & BENCHMARKS SECTION */}
-      <section className="py-16 px-4 border-t border-border/40 bg-muted/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-3 gap-8 text-center divide-y md:divide-y-0 md:divide-x divide-border/50">
-            {benchmarks.map((b) => (
-              <div key={b.label} className="pt-8 md:pt-0 px-4">
-                <div className="text-4xl md:text-5xl font-bold text-foreground mb-2 tracking-tighter">
-                  {b.metric}
-                </div>
-                <div className="text-sm font-semibold text-primary uppercase tracking-wider mb-3">
-                  {b.label}
-                </div>
-                <p className="text-sm text-muted-foreground max-w-[250px] mx-auto text-balance">
-                  {b.context}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+					<div className="grid gap-4 md:grid-cols-3">
+						{securitySignals.map((signal) => (
+							<SignalCard key={signal.title} {...signal} />
+						))}
+					</div>
+				</div>
+			</section>
 
-      {/* CORE FEATURES SECTION */}
-      <section id="features" className="py-24 px-4 relative overflow-hidden">
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
+			<section id="features" className="px-4 py-20 sm:px-6 lg:px-8">
+				<div className="mx-auto max-w-7xl">
+					<SectionHeading
+						eyebrow="Features"
+						title="A reviewer that understands the codebase."
+						description="The page now reflects the product more honestly: fewer generic claims, more concrete signals, and a preview that looks like the actual workflow users will touch."
+						centered
+					/>
 
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
-          <div className="relative z-10">
-            <SectionHeading
-              label="Beyond the Diff"
-              title="A reviewer that actually understands your codebase."
-              description="Standard AI tools just summarize line changes. GitPal reads your entire repository, maps module dependencies, and learns your custom coding conventions to provide high-signal, low-noise feedback."
-            />
+					<div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+						{features.map((feature) => (
+							<FeatureCard key={feature.title} feature={feature} />
+						))}
+					</div>
+				</div>
+			</section>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              {[
-                "AST Parsing",
-                "Cross-File Reasoning",
-                "Custom .yaml Rules",
-                "Security Focused",
-              ].map((item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="px-4 py-2 text-sm rounded-full bg-muted/50 border-border/50 hover:bg-muted/80 transition-colors font-medium"
-                >
-                  {item}
-                </Badge>
-              ))}
-            </div>
-          </div>
+			<section
+				id="workflow"
+				className="border-border/60 border-y bg-[#eef2f8] px-4 py-20 sm:px-6 lg:px-8"
+			>
+				<div className="mx-auto max-w-7xl">
+					<div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-end">
+						<SectionHeading
+							eyebrow="Workflow"
+							title="Start in one place and keep the thread there."
+							description="GitPal is built to move review context forward instead of scattering it across chat, your editor, and the PR timeline."
+						/>
 
-          <div className="grid sm:grid-cols-2 gap-4 relative z-10">
-            {aiFeatures.map((feature) => (
-              <Card
-                key={feature.title}
-                className="bg-background/60 backdrop-blur-sm border-border/50 hover:bg-muted/10 transition-colors"
-              >
-                <CardContent className="p-6">
-                  <Badge variant="outline" className="mb-4 bg-background">
-                    {feature.tag}
-                  </Badge>
-                  <h3 className="font-semibold text-lg mb-2 text-foreground">
-                    {feature.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {feature.description}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
+						<div className="grid gap-4 md:grid-cols-3">
+							{workflowSteps.map((step) => (
+								<WorkflowCard key={step.step} step={step} />
+							))}
+						</div>
+					</div>
+				</div>
+			</section>
 
-      {/* WORKFLOW SECTION */}
-      <section
-        id="workflow"
-        className="py-24 px-4 bg-muted/5 border-y border-border/40"
-      >
-        <div className="max-w-4xl mx-auto">
-          <SectionHeading
-            label="How it works"
-            title="Chat with your PRs."
-            description="Turn static reviews into collaborative conversations. GitPal fits seamlessly into your existing Git platform."
-            centered
-          />
+			<section className="px-4 py-20 sm:px-6 lg:px-8">
+				<div className="mx-auto max-w-7xl">
+					<div className="relative overflow-hidden rounded-[2rem] border border-primary/15 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(22,32,55,0.96))] px-6 py-14 text-white shadow-[0_24px_70px_-30px_rgba(15,23,42,0.9)] sm:px-10 lg:px-14 lg:py-16">
+						<div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(124,156,255,0.18),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(255,163,108,0.14),transparent_24%)]" />
+						<div className="relative grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
+							<div className="space-y-5">
+								<h2 className="max-w-2xl text-balance font-semibold text-3xl tracking-[-0.05em] sm:text-4xl lg:text-5xl">
+									Put GitPal on the next pull request.
+								</h2>
+								<p className="max-w-2xl text-balance text-base text-white/72 leading-7 sm:text-lg">
+									Install once, connect your providers, and let the review flow
+									stay inside the tools your team already trusts.
+								</p>
+							</div>
 
-          <div className="mt-20 relative">
-            <div className="absolute left-7 md:left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-primary/50 via-border to-transparent md:-translate-x-1/2" />
+							<div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
+								<ActionLink
+									href="/login"
+									className="bg-white text-slate-950 hover:bg-white/90"
+								>
+									Install GitPal
+								</ActionLink>
+								<ActionLink
+									href="#features"
+									variant="outline"
+									className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+								>
+									Explore features
+								</ActionLink>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
 
-            <div className="space-y-12">
-              {workflowSteps.map((step, index) => (
-                <div
-                  key={step.step}
-                  className={`relative flex flex-col md:flex-row items-start md:items-center gap-8 ${
-                    index % 2 === 0 ? "md:flex-row-reverse" : ""
-                  }`}
-                >
-                  {/* Timeline Node */}
-                  <div className="absolute left-7 md:left-1/2 w-10 h-10 -translate-x-1/2 rounded-full bg-background border-2 border-primary flex items-center justify-center font-mono text-sm font-bold shadow-[0_0_15px_rgba(var(--primary),0.3)] z-10">
-                    {step.step}
-                  </div>
+			<footer className="border-border/60 border-t bg-white/70 px-4 py-10 backdrop-blur-sm sm:px-6 lg:px-8">
+				<div className="mx-auto flex max-w-7xl flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+					<Link href="/" className="flex items-center gap-3">
+						<GitPalMark className="size-8 text-[0.68rem]" />
+						<div>
+							<div className="font-semibold text-base tracking-[-0.03em]">
+								GitPal
+							</div>
+							<div className="text-muted-foreground text-sm">
+								AI review that keeps up with the code.
+							</div>
+						</div>
+					</Link>
 
-                  {/* Content Card */}
-                  <div
-                    className={`ml-16 md:ml-0 w-[calc(100%-4rem)] md:w-1/2 ${
-                      index % 2 === 0
-                        ? "md:pl-16 text-left"
-                        : "md:pr-16 text-left md:text-right"
-                    }`}
-                  >
-                    <Card className="border-border/50 bg-background/50 hover:border-primary/30 transition-colors shadow-sm">
-                      <CardContent className="p-6">
-                        <h3 className="text-xl font-bold mb-3">{step.title}</h3>
-                        <p className="text-muted-foreground leading-relaxed">
-                          {step.description}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA SECTION */}
-      <section className="py-24 md:py-32 px-4 relative">
-        <div className="max-w-5xl mx-auto">
-          <div className="relative rounded-[2.5rem] overflow-hidden border border-primary/20 bg-primary/5 px-6 py-20 text-center sm:px-16 shadow-2xl">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/15 via-transparent to-transparent opacity-60" />
-
-            <div className="relative z-10 flex flex-col items-center">
-              <SectionLabel>Stop waiting on manual reviews</SectionLabel>
-              <h2 className="mt-6 text-4xl sm:text-5xl font-bold tracking-tight text-foreground max-w-2xl text-balance">
-                Vibe code with confidence.
-              </h2>
-              <p className="mt-6 text-lg text-muted-foreground max-w-xl text-balance">
-                Install GitPal in 2 clicks. Usage-based pricing ensures you only
-                pay for the work the system actually does.
-              </p>
-              <div className="mt-10 flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                <PrimaryAction className="w-full sm:w-auto">
-                  Try it for Free
-                </PrimaryAction>
-                <SecondaryAction href="/docs">Read the Docs</SecondaryAction>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer className="border-t border-border/40 bg-background/50 backdrop-blur-lg">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
-            <Link href="/" className="flex items-center gap-3 group w-fit">
-              <div className="bg-primary/10 p-2 rounded-lg group-hover:bg-primary/20 transition-colors">
-                <GitPalMark className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <p className="font-bold text-foreground tracking-tight text-lg">
-                  GitPal
-                </p>
-                <p className="text-muted-foreground text-sm">
-                  Autonomous AI code review.
-                </p>
-              </div>
-            </Link>
-
-            <div className="flex flex-wrap items-center gap-x-8 gap-y-4 text-sm font-medium text-muted-foreground">
-              <Link
-                className="hover:text-primary transition-colors"
-                href="#features"
-              >
-                Features
-              </Link>
-              <Link
-                className="hover:text-primary transition-colors"
-                href="/pricing"
-              >
-                Pricing
-              </Link>
-              <Link
-                className="hover:text-primary transition-colors"
-                href="#workflow"
-              >
-                Workflow
-              </Link>
-              <Separator
-                orientation="vertical"
-                className="h-4 hidden md:block"
-              />
-              <Link
-                className="text-foreground hover:text-primary transition-colors"
-                href="/login"
-              >
-                Sign in &rarr;
-              </Link>
-            </div>
-          </div>
-        </div>
-      </footer>
-    </main>
-  );
+					<div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-muted-foreground text-sm">
+						<a className="transition hover:text-foreground" href="#security">
+							Security
+						</a>
+						<a className="transition hover:text-foreground" href="#features">
+							Features
+						</a>
+						<a className="transition hover:text-foreground" href="#workflow">
+							Workflow
+						</a>
+						<Separator orientation="vertical" className="hidden h-4 lg:block" />
+						<Link className="transition hover:text-foreground" href="/login">
+							Sign in
+						</Link>
+					</div>
+				</div>
+			</footer>
+		</main>
+	);
 }

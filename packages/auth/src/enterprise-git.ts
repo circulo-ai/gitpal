@@ -8,6 +8,7 @@ import { sso } from "@better-auth/sso";
 import { createDb } from "@gitpal/db";
 import * as schema from "@gitpal/db/schema/auth";
 import { env } from "@gitpal/env/server";
+import { getGitApiBaseUrl, normalizeGitHostUrl } from "@gitpal/git";
 import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import {
@@ -25,6 +26,8 @@ import {
 } from "better-auth/plugins/generic-oauth";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
+export { normalizeGitHostUrl } from "@gitpal/git";
 
 export type EnterpriseGitProviderType = "github" | "gitlab";
 
@@ -99,28 +102,11 @@ export function normalizeBaseUrl(value: string) {
 	return value.replace(/\/+$/, "");
 }
 
-export function normalizeGitHostUrl(value: string) {
-	const raw = value.includes("://") ? value : `https://${value}`;
-	const url = new URL(raw);
-
-	if (url.protocol !== "https:" && url.protocol !== "http:") {
-		throw new Error("Host URL must use http or https.");
-	}
-
-	url.hostname = url.hostname.toLowerCase();
-	url.pathname = "";
-	url.search = "";
-	url.hash = "";
-
-	return normalizeBaseUrl(url.toString());
-}
-
 export function getEnterpriseGitApiBaseUrl(
 	type: EnterpriseGitProviderType,
 	baseUrl: string,
 ) {
-	const normalized = normalizeGitHostUrl(baseUrl);
-	return type === "github" ? `${normalized}/api/v3` : `${normalized}/api/v4`;
+	return getGitApiBaseUrl(type, baseUrl);
 }
 
 export function getEnterpriseGitProviderLabel(type: EnterpriseGitProviderType) {
@@ -574,6 +560,11 @@ function createRedirectUrl(baseURL: string, target: string, error?: string) {
 	return url.toString();
 }
 
+function getFrontendBaseURL() {
+	// In this stack CORS_ORIGIN is the frontend app origin, so redirects land on the web app.
+	return env.CORS_ORIGIN;
+}
+
 export function createEnterpriseGitAuthPlugin() {
 	return {
 		id: "enterprise-git-host",
@@ -672,7 +663,7 @@ export function createEnterpriseGitAuthPlugin() {
 					if (ctx.query.error || !ctx.query.code) {
 						throw ctx.redirect(
 							createRedirectUrl(
-								ctx.context.baseURL,
+								getFrontendBaseURL(),
 								errorURL,
 								ctx.query.error ?? "oauth_code_missing",
 							),
@@ -689,7 +680,7 @@ export function createEnterpriseGitAuthPlugin() {
 					) {
 						throw ctx.redirect(
 							createRedirectUrl(
-								ctx.context.baseURL,
+								getFrontendBaseURL(),
 								errorURL,
 								"state_mismatch",
 							),
@@ -701,7 +692,7 @@ export function createEnterpriseGitAuthPlugin() {
 					if (!provider) {
 						throw ctx.redirect(
 							createRedirectUrl(
-								ctx.context.baseURL,
+								getFrontendBaseURL(),
 								errorURL,
 								"provider_not_found",
 							),
@@ -732,7 +723,7 @@ export function createEnterpriseGitAuthPlugin() {
 						ctx.context.logger.error("Enterprise Git OAuth failed", error);
 						throw ctx.redirect(
 							createRedirectUrl(
-								ctx.context.baseURL,
+								getFrontendBaseURL(),
 								errorURL,
 								"oauth_code_verification_failed",
 							),
@@ -744,7 +735,7 @@ export function createEnterpriseGitAuthPlugin() {
 					if (!userInfo?.email || !userInfo.id || !userInfo.name) {
 						throw ctx.redirect(
 							createRedirectUrl(
-								ctx.context.baseURL,
+								getFrontendBaseURL(),
 								errorURL,
 								"user_info_missing",
 							),
@@ -773,7 +764,7 @@ export function createEnterpriseGitAuthPlugin() {
 					if (result.error || !result.data) {
 						throw ctx.redirect(
 							createRedirectUrl(
-								ctx.context.baseURL,
+								getFrontendBaseURL(),
 								errorURL,
 								result.error?.replaceAll(" ", "_") ?? "oauth_link_error",
 							),
@@ -785,7 +776,7 @@ export function createEnterpriseGitAuthPlugin() {
 
 					throw ctx.redirect(
 						createRedirectUrl(
-							ctx.context.baseURL,
+							getFrontendBaseURL(),
 							result.isRegister ? state.newUserURL || callbackURL : callbackURL,
 						),
 					);

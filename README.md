@@ -14,6 +14,7 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **Drizzle** - TypeScript-first ORM
 - **PostgreSQL** - Database engine
 - **Authentication** - Better-Auth
+- **Universal git package** - Shared GitHub/GitLab adapters and webhook utilities
 - **Biome** - Linting and formatting
 - **PWA** - Progressive Web App support
 - **Turborepo** - Optimized monorepo build system
@@ -102,6 +103,7 @@ gitpal/
 │   ├── ui/          # Shared shadcn/ui components and styles
 │   ├── api/         # API layer / business logic
 │   ├── auth/        # Authentication configuration & logic
+│   ├── git/         # Universal git provider adapters and webhook utilities
 │   └── db/          # Database schema & queries
 ```
 

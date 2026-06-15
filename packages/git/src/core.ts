@@ -1,0 +1,304 @@
+import { GitProviderConfigurationError } from "./errors";
+
+export type GitProviderId = string;
+
+export type GitRepositoryRef = {
+	repositoryPath: string;
+};
+
+export type GitPullRequestState = "all" | "open" | "closed" | "merged";
+export type GitMergeMethod = "merge" | "squash" | "rebase";
+
+export type GitActor = {
+	id: string;
+	login: string | null;
+	name: string | null;
+	email: string | null;
+	avatarUrl: string | null;
+	htmlUrl: string | null;
+};
+
+export type GitRepository = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	repositoryId: string;
+	name: string;
+	fullName: string;
+	htmlUrl: string;
+	defaultBranch: string;
+	private: boolean;
+	description: string | null;
+	owner: GitActor | null;
+};
+
+export type GitPullRequest = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	number: number;
+	id: string;
+	title: string;
+	body: string | null;
+	state: Exclude<GitPullRequestState, "all">;
+	draft: boolean;
+	htmlUrl: string;
+	sourceBranch: string;
+	targetBranch: string;
+	author: GitActor | null;
+	createdAt: string;
+	updatedAt: string;
+	mergedAt: string | null;
+	closedAt: string | null;
+	mergeCommitSha: string | null;
+};
+
+export type GitComment = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	pullRequestNumber: number;
+	id: string;
+	body: string;
+	htmlUrl: string | null;
+	path: string | null;
+	line: number | null;
+	side: "LEFT" | "RIGHT" | null;
+	author: GitActor | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type GitWebhookSubscription = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	id: string;
+	url: string;
+	active: boolean;
+	events: string[];
+	secretConfigured: boolean;
+	createdAt: string | null;
+	updatedAt: string | null;
+};
+
+export type GitWebhookEnvelope<TPayload = unknown> = {
+	providerId: GitProviderId;
+	event: string;
+	action: string | null;
+	deliveryId: string | null;
+	repository: GitRepository | null;
+	sender: GitActor | null;
+	payload: TPayload;
+	headers: Record<string, string>;
+	rawBody: string;
+};
+
+export type GitCommentInput = {
+	repositoryPath: string;
+	pullRequestNumber: number;
+	body: string;
+	path?: string;
+	line?: number;
+	side?: "LEFT" | "RIGHT";
+	commitSha?: string;
+	baseSha?: string;
+	headSha?: string;
+	startSha?: string;
+};
+
+export type GitPullRequestCreateInput = {
+	repositoryPath: string;
+	title: string;
+	headBranch: string;
+	baseBranch: string;
+	body?: string;
+	draft?: boolean;
+};
+
+export type GitWebhookCreateInput = {
+	repositoryPath: string;
+	url: string;
+	events?: string[];
+	secret?: string;
+	active?: boolean;
+};
+
+export type GitWebhookDeleteInput = {
+	repositoryPath: string;
+	webhookId: string | number;
+};
+
+export type GitProviderCapabilities = {
+	repositories: true;
+	pullRequests: true;
+	comments: true;
+	webhooks: true;
+};
+
+export type GitWebhookVerificationInput = {
+	headers: Headers | Record<string, string | null | undefined>;
+	rawBody: string;
+};
+
+export interface GitWebhookAdapter {
+	readonly providerId: string;
+	verify(input: GitWebhookVerificationInput): Promise<boolean> | boolean;
+	parse(input: GitWebhookVerificationInput): GitWebhookEnvelope;
+}
+
+export interface GitProviderAdapter {
+	readonly providerId: string;
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly apiBaseUrl: string;
+	readonly capabilities: GitProviderCapabilities;
+	readonly webhooks: GitWebhookAdapter;
+	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
+	listPullRequests(
+		input: GitRepositoryRef & { state?: GitPullRequestState },
+	): Promise<GitPullRequest[]>;
+	getPullRequest(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	): Promise<GitPullRequest>;
+	createPullRequest(input: GitPullRequestCreateInput): Promise<GitPullRequest>;
+	createComment(input: GitCommentInput): Promise<GitComment>;
+	mergePullRequest(
+		input: GitRepositoryRef & {
+			pullRequestNumber: number;
+			mergeMethod?: GitMergeMethod;
+			title?: string;
+			message?: string;
+		},
+	): Promise<GitPullRequest>;
+	listWebhooks(input: GitRepositoryRef): Promise<GitWebhookSubscription[]>;
+	createWebhook(input: GitWebhookCreateInput): Promise<GitWebhookSubscription>;
+	deleteWebhook(input: GitWebhookDeleteInput): Promise<void>;
+}
+
+export function normalizeBaseUrl(value: string) {
+	return value.replace(/\/+$/, "");
+}
+
+export function normalizeGitHostUrl(value: string) {
+	const raw = value.includes("://") ? value : `https://${value}`;
+	const url = new URL(raw);
+
+	if (url.protocol !== "https:" && url.protocol !== "http:") {
+		throw new Error("Host URL must use http or https.");
+	}
+
+	url.hostname = url.hostname.toLowerCase();
+	url.pathname = "";
+	url.search = "";
+	url.hash = "";
+
+	return normalizeBaseUrl(url.toString());
+}
+
+export function getGitApiBaseUrl(
+	provider: "github" | "gitlab",
+	baseUrl: string,
+) {
+	const normalized = normalizeGitHostUrl(baseUrl);
+	return provider === "github"
+		? `${normalized}/api/v3`
+		: `${normalized}/api/v4`;
+}
+
+export function getGitProviderLabel(provider: string) {
+	if (provider === "github") {
+		return "GitHub";
+	}
+
+	if (provider === "gitlab") {
+		return "GitLab";
+	}
+
+	return provider;
+}
+
+export function splitRepositoryPath(repositoryPath: string) {
+	const segments = repositoryPath.split("/").filter(Boolean);
+
+	if (segments.length < 2) {
+		throw new GitProviderConfigurationError(
+			"Repository path must include at least two path segments.",
+		);
+	}
+
+	const [owner, ...rest] = segments;
+
+	if (!owner) {
+		throw new GitProviderConfigurationError(
+			"Repository path must include at least two path segments.",
+		);
+	}
+
+	return {
+		owner,
+		repo: rest.join("/"),
+	};
+}
+
+export function getHeaderValue(
+	headers: Headers | Record<string, string | null | undefined>,
+	headerName: string,
+) {
+	const normalizedName = headerName.toLowerCase();
+
+	if (headers instanceof Headers) {
+		return headers.get(headerName) ?? headers.get(normalizedName) ?? null;
+	}
+
+	for (const [key, value] of Object.entries(headers)) {
+		if (key.toLowerCase() === normalizedName && typeof value === "string") {
+			return value;
+		}
+	}
+
+	return null;
+}
+
+export function normalizeHeaderRecord(
+	headers: Headers | Record<string, string | null | undefined>,
+) {
+	if (headers instanceof Headers) {
+		return Object.fromEntries(
+			[...headers.entries()].map(([key, value]) => [key.toLowerCase(), value]),
+		);
+	}
+
+	return Object.fromEntries(
+		Object.entries(headers)
+			.filter(([, value]) => typeof value === "string")
+			.map(([key, value]) => [key.toLowerCase(), value as string]),
+	);
+}
+
+export class GitProviderRegistry {
+	private readonly adapters = new Map<string, GitProviderAdapter>();
+
+	constructor(adapters: GitProviderAdapter[] = []) {
+		for (const adapter of adapters) {
+			this.adapters.set(adapter.providerId, adapter);
+		}
+	}
+
+	register(adapter: GitProviderAdapter) {
+		this.adapters.set(adapter.providerId, adapter);
+		return this;
+	}
+
+	get(providerId: string) {
+		return this.adapters.get(providerId) ?? null;
+	}
+
+	has(providerId: string) {
+		return this.adapters.has(providerId);
+	}
+
+	list() {
+		return [...this.adapters.values()];
+	}
+}
+
+export function createGitProviderRegistry(adapters: GitProviderAdapter[] = []) {
+	return new GitProviderRegistry(adapters);
+}

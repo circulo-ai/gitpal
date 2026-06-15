@@ -1,65 +1,67 @@
 {
-  "name": "gitpal",
-  "private": true,
-  "workspaces": {
-    "packages": [
-      "apps/*",
-      "packages/*"
-    ],
-    "catalog": {
-      "dotenv": "^17.2.2",
-      "zod": "^4.1.13",
-      "typescript": "^6",
-      "@types/bun": "^1.3.4",
-      "hono": "^4.8.2",
-      "@trpc/server": "^11.16.0",
-      "better-auth": "1.6.18",
-      "@better-auth/sso": "1.6.18",
-      "lucide-react": "^0.546.0",
-      "next-themes": "^0.4.6",
-      "react": "^19.2.6",
-      "react-dom": "^19.2.6",
-      "sonner": "^2.0.5",
-      "@trpc/client": "^11.16.0",
-      "@types/react": "^19.2.15",
-      "@types/react-dom": "^19.2.3",
-      "tailwindcss": "^4.1.18"
-    }
-  },
-  "type": "module",
-  "scripts": {
-    "dev": "turbo -F web -F server dev",
-    "dev:all": "turbo dev",
-    "build": "turbo build",
-    "check-types": "turbo check-types",
-    "dev:web": "turbo -F web dev",
-    "dev:server": "turbo -F server dev",
-    "dev:docs": "turbo -F fumadocs dev",
-    "db:push": "turbo -F @gitpal/db db:push",
-    "db:studio": "turbo -F @gitpal/db db:studio",
-    "db:generate": "turbo -F @gitpal/db db:generate",
-    "db:migrate": "turbo -F @gitpal/db db:migrate",
-    "db:start": "docker compose up -d postgres",
-    "db:watch": "docker compose up postgres",
-    "db:stop": "docker compose stop postgres",
-    "db:down": "docker compose down postgres",
-    "docker:build": "docker compose build",
-    "docker:up": "docker compose up -d --build",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f",
-    "check": "biome check --write ."
-  },
-  "dependencies": {
-    "@gitpal/env": "workspace:*",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
-    "@gitpal/config": "workspace:*",
-    "@types/bun": "catalog:",
-    "turbo": "^2.9.16",
-    "typescript": "catalog:"
-  },
-  "packageManager": "bun@1.3.14"
+	"name": "gitpal",
+	"private": true,
+	"workspaces": {
+		"packages": [
+			"apps/*",
+			"packages/*"
+		],
+		"catalog": {
+			"dotenv": "^17.2.2",
+			"zod": "^4.1.13",
+			"typescript": "^6",
+			"@types/bun": "^1.3.4",
+			"hono": "^4.8.2",
+			"@trpc/server": "^11.16.0",
+			"octokit": "^5.0.5",
+			"@octokit/webhooks-methods": "^6.0.0",
+			"better-auth": "1.6.18",
+			"@better-auth/sso": "1.6.18",
+			"lucide-react": "^0.546.0",
+			"next-themes": "^0.4.6",
+			"react": "^19.2.6",
+			"react-dom": "^19.2.6",
+			"sonner": "^2.0.5",
+			"@trpc/client": "^11.16.0",
+			"@types/react": "^19.2.15",
+			"@types/react-dom": "^19.2.3",
+			"tailwindcss": "^4.1.18"
+		}
+	},
+	"type": "module",
+	"scripts": {
+		"dev": "turbo -F web -F server dev",
+		"dev:all": "turbo dev",
+		"build": "turbo build",
+		"check-types": "turbo check-types",
+		"dev:web": "turbo -F web dev",
+		"dev:server": "turbo -F server dev",
+		"dev:docs": "turbo -F fumadocs dev",
+		"db:push": "turbo -F @gitpal/db db:push",
+		"db:studio": "turbo -F @gitpal/db db:studio",
+		"db:generate": "turbo -F @gitpal/db db:generate",
+		"db:migrate": "turbo -F @gitpal/db db:migrate",
+		"db:start": "docker compose up -d postgres",
+		"db:watch": "docker compose up postgres",
+		"db:stop": "docker compose stop postgres",
+		"db:down": "docker compose down postgres",
+		"docker:build": "docker compose build",
+		"docker:up": "docker compose up -d --build",
+		"docker:down": "docker compose down",
+		"docker:logs": "docker compose logs -f",
+		"check": "biome check --write ."
+	},
+	"dependencies": {
+		"@gitpal/env": "workspace:*",
+		"dotenv": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.16",
+		"@gitpal/config": "workspace:*",
+		"@types/bun": "catalog:",
+		"turbo": "^2.9.16",
+		"typescript": "catalog:"
+	},
+	"packageManager": "bun@1.3.14"
 }

@@ -30,16 +30,16 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-			<html
-				lang="en"
-				suppressHydrationWarning
-				className={`${geistSans.variable} ${geistMono.variable}`}
-			>
+		<html
+			lang="en"
+			suppressHydrationWarning
+			className={`${geistSans.variable} ${geistMono.variable} scroll-smooth`}
+		>
 			<body className="antialiased">
 				<Providers>
 					<AppShell>{children}</AppShell>
 				</Providers>
 			</body>
-			</html>
+		</html>
 	);
 }

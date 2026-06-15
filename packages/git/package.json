@@ -1,5 +1,5 @@
 {
-	"name": "@gitpal/auth",
+	"name": "@gitpal/git",
 	"type": "module",
 	"exports": {
 		".": {
@@ -9,19 +9,14 @@
 			"default": "./src/*.ts"
 		}
 	},
-	"scripts": {},
 	"dependencies": {
-		"@gitpal/db": "workspace:*",
-		"@gitpal/env": "workspace:*",
-		"@gitpal/git": "workspace:*",
-		"better-auth": "catalog:",
-		"@better-auth/sso": "catalog:",
-		"drizzle-orm": "^0.45.1",
-		"dotenv": "catalog:",
+		"@octokit/webhooks-methods": "catalog:",
+		"octokit": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
 		"@gitpal/config": "workspace:*",
+		"@types/bun": "catalog:",
 		"typescript": "catalog:"
 	}
 }

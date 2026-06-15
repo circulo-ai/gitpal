@@ -8,11 +8,60 @@ export function GitPalMark({ className }: GitPalMarkProps) {
 	return (
 		<span
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#ff8a5b_0%,#d9784d_100%)] font-semibold text-[#170c08] text-[0.72rem] shadow-[0_14px_28px_rgba(255,138,91,0.18)]",
+				"inline-flex shrink-0 items-center justify-center text-foreground",
 				className,
 			)}
 		>
-			GP
+			<svg
+				aria-hidden="true"
+				viewBox="0 0 32 32"
+				fill="none"
+				className="size-full"
+			>
+				<path
+					d="M8.5 9.75C8.5 8.23122 9.73122 7 11.25 7H20.75C22.2688 7 23.5 8.23122 23.5 9.75V15.25C23.5 19.8761 20.1639 23.84 16 25.3838C11.8361 23.84 8.5 19.8761 8.5 15.25V9.75Z"
+					stroke="currentColor"
+					strokeWidth="1.75"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				/>
+				<path
+					d="M10.5 10.5L14.2 7.6C14.7706 7.15385 15.5205 6.91002 16.2925 6.91002C17.0645 6.91002 17.8144 7.15385 18.385 7.6L22.1 10.5"
+					stroke="currentColor"
+					strokeWidth="1.75"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				/>
+				<path
+					d="M12.1 20.3C13.1 21.1 14.4 21.55 16 21.55C17.6 21.55 18.9 21.1 19.9 20.3"
+					stroke="currentColor"
+					strokeWidth="1.6"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				/>
+				<path
+					d="M10.7 24.1L13.3 22.6"
+					stroke="currentColor"
+					className="text-chart-1"
+					strokeWidth="1.75"
+					strokeLinecap="round"
+				/>
+				<path
+					d="M21.3 24.1L18.7 22.6"
+					stroke="currentColor"
+					className="text-chart-1"
+					strokeWidth="1.75"
+					strokeLinecap="round"
+				/>
+				<path
+					d="M12.2 26.6C13.1 27.2 14.4 27.55 16 27.55C17.6 27.55 18.9 27.2 19.8 26.6"
+					stroke="currentColor"
+					className="text-chart-1"
+					strokeWidth="1.75"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				/>
+			</svg>
 		</span>
 	);
 }

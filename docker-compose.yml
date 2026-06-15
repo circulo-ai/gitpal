@@ -33,6 +33,9 @@ services:
     environment:
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/gitpal
+      REDIS_URL: redis://redis:6379
+      WORKFLOW_TARGET_WORLD: "@workflow-worlds/redis"
+      WORKFLOW_REDIS_URI: redis://redis:6379
     healthcheck:
       test:
         [

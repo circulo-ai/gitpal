@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 
 import "../index.css";
 import AppShell from "@/components/app-shell";
@@ -13,6 +13,12 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
 	variable: "--font-geist-mono",
 	subsets: ["latin"],
+});
+
+const instrumentSerif = Instrument_Serif({
+	variable: "--font-heading",
+	subsets: ["latin"],
+	weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -33,7 +39,7 @@ export default function RootLayout({
 		<html
 			lang="en"
 			suppressHydrationWarning
-			className={`${geistSans.variable} ${geistMono.variable} scroll-smooth`}
+			className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} scroll-smooth`}
 		>
 			<body className="antialiased">
 				<Providers>

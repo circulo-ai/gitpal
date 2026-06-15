@@ -10,8 +10,9 @@ const AUTH_ROUTES = ["/login", "/signup"];
 export default function AppShell({ children }: { children: ReactNode }) {
 	const pathname = usePathname();
 	const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
+	const isLandingPage = pathname === "/";
 
-	if (isAuthRoute) {
+	if (isAuthRoute || isLandingPage) {
 		return <>{children}</>;
 	}
 

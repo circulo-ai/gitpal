@@ -10,14 +10,16 @@
     }
   },
   "scripts": {},
-  "dependencies": {
-    "@gitpal/auth": "workspace:*",
-    "@gitpal/db": "workspace:*",
-    "@gitpal/env": "workspace:*",
-    "@trpc/client": "catalog:",
-    "@trpc/server": "catalog:",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
+	"dependencies": {
+		"@gitpal/auth": "workspace:*",
+		"@gitpal/db": "workspace:*",
+		"@gitpal/env": "workspace:*",
+		"@workflow/ai": "catalog:",
+		"ai": "catalog:",
+		"@trpc/client": "catalog:",
+		"@trpc/server": "catalog:",
+		"dotenv": "catalog:",
+		"zod": "catalog:"
   },
   "devDependencies": {
     "@gitpal/config": "workspace:*",

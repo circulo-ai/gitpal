@@ -1,275 +1,525 @@
 import { Badge } from "@gitpal/ui/components/badge";
 import { buttonVariants } from "@gitpal/ui/components/button";
+import { cn } from "@gitpal/ui/lib/utils";
+import { GithubIcon, GitlabIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@gitpal/ui/components/card";
-import { Separator } from "@gitpal/ui/components/separator";
+	ArrowRight,
+	BrainCircuit,
+	CheckCircle2,
+	ChevronDown,
+	Circle,
+	Cloud,
+	FileCode2,
+	Files,
+	GitBranch,
+	GitCommitHorizontal,
+	Hexagon,
+	House,
+	Lock,
+	type LucideIcon,
+	MessageSquareText,
+	MoreHorizontal,
+	Octagon,
+	Package,
+	PanelLeft,
+	Settings,
+	Shield,
+	Sparkles,
+	ThumbsDown,
+	ThumbsUp,
+	Zap,
+} from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { GitPalMark } from "./gitpal-mark";
 
-type Feature = {
-	title: string;
-	description: string;
-	label: string;
+type ButtonLinkProps = {
+	href: string;
+	children: ReactNode;
+	icon?: ReactNode;
+	variant?: "default" | "outline";
+	className?: string;
 };
 
-type SecuritySignal = {
+type Feature = {
+	icon: LucideIcon;
 	title: string;
 	description: string;
 };
 
 type WorkflowStep = {
-	step: string;
+	icon: LucideIcon;
 	title: string;
 	description: string;
 };
 
-const features: Feature[] = [
+type PreviewNavItem = {
+	icon: LucideIcon;
+	label: string;
+	active?: boolean;
+};
+
+type DiffLine = {
+	line: number;
+	code: string;
+	kind?: "base" | "added" | "removed";
+};
+
+type TrustLogo = {
+	name: string;
+	icon: ReactNode;
+};
+
+const navLinks = [
+	"Features",
+	"Integrations",
+	"Pricing",
+	"Docs",
+	"Changelog",
+] as const;
+
+const trustLogos: TrustLogo[] = [
 	{
-		title: "Context-aware analysis",
-		description:
-			"GitPal reads the diff, the nearby code, and the surrounding repository context so the feedback points at real risk instead of noisy style chatter.",
-		label: "Reasoning",
+		name: "linear",
+		icon: <Circle className="size-5 stroke-[1.8]" />,
 	},
 	{
-		title: "One-click fixes",
-		description:
-			"Turn a review note into a patch without hopping between the PR, your editor, and chat. The intent stays attached to the code it belongs to.",
-		label: "Workflow",
+		name: "Convex",
+		icon: <Hexagon className="size-5 stroke-[1.8]" />,
 	},
 	{
-		title: "Conversational comments",
-		description:
-			"Reply to GitPal like a teammate. Ask for examples, challenge an assumption, or request a narrower fix and keep the thread in one place.",
-		label: "Chat",
+		name: "payload",
+		icon: <Package className="size-5 stroke-[1.8]" />,
 	},
 	{
-		title: "Shift-left review",
-		description:
-			"Catch the same edge cases before merge that you would normally discover after CI or during a slow manual pass through the PR.",
-		label: "Pre-merge",
+		name: "uploadthing",
+		icon: <Cloud className="size-5 stroke-[1.8]" />,
+	},
+	{
+		name: "medusa",
+		icon: <Octagon className="size-5 stroke-[1.8]" />,
 	},
 ];
 
-const securitySignals: SecuritySignal[] = [
+const features: Feature[] = [
 	{
-		title: "Cloud and self-hosted",
+		icon: BrainCircuit,
+		title: "Insightful by default",
 		description:
-			"GitPal supports GitHub.com, GitHub Enterprise Server, GitLab.com, and self-managed GitLab without changing the public app flow.",
+			"GitPal understands your codebase and context to provide relevant, actionable feedback on every change.",
 	},
 	{
-		title: "Auth stays centralized",
+		icon: Shield,
+		title: "Consistent standards",
 		description:
-			"Better Auth handles the login boundary, so OAuth, SSO, and the callback flow stay consistent across the web app and the API.",
+			"Enforce best practices across your team with customizable rules and organization-wide guidelines.",
 	},
 	{
-		title: "Webhook-first by design",
+		icon: Zap,
+		title: "Faster reviews",
 		description:
-			"The new git package is structured around adapters and webhook verification so future providers can slot in without rewriting business logic.",
+			"Automate the repetitive checks so your team can focus on what really matters-design and impact.",
 	},
 ];
 
 const workflowSteps: WorkflowStep[] = [
 	{
-		step: "01",
-		title: "Connect your host",
-		description:
-			"Sign in with GitHub, GitLab, or a self-hosted provider and point GitPal at the repository you want reviewed.",
+		icon: GitBranch,
+		title: "Open a pull / merge request",
+		description: "Push your changes as usual. GitPal kicks off automatically.",
 	},
 	{
-		step: "02",
-		title: "Read the review",
+		icon: Sparkles,
+		title: "AI analyzes the changes",
 		description:
-			"GitPal posts a focused summary, marks the risky lines, and explains why the change matters in the context of your codebase.",
+			"We review the diff, understand the context, and check for issues.",
 	},
 	{
-		step: "03",
-		title: "Apply and merge",
+		icon: MessageSquareText,
+		title: "Get clear feedback",
 		description:
-			"Use the suggested fix, reply for clarification, and merge once the comment thread tells a complete story.",
+			"Receive actionable comments and suggestions right in your PR.",
+	},
+	{
+		icon: CheckCircle2,
+		title: "Merge with confidence",
+		description:
+			"Ship higher quality code, faster, with your standards intact.",
 	},
 ];
 
-function SectionHeading({
-	eyebrow,
-	title,
-	description,
-	centered = false,
-}: {
-	eyebrow?: string;
-	title: string;
-	description: string;
-	centered?: boolean;
-}) {
-	return (
-		<div
-			className={`space-y-4 ${centered ? "mx-auto max-w-3xl text-center" : "max-w-3xl"}`}
-		>
-			{eyebrow ? (
-				<p className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.3em]">
-					{eyebrow}
-				</p>
-			) : null}
-			<h2 className="text-balance font-semibold text-3xl text-foreground tracking-[-0.04em] sm:text-4xl lg:text-5xl">
-				{title}
-			</h2>
-			<p className="text-balance text-base text-muted-foreground leading-7 sm:text-lg">
-				{description}
-			</p>
-		</div>
-	);
-}
+const previewNavItems: PreviewNavItem[] = [
+	{ icon: House, label: "Overview" },
+	{ icon: GitCommitHorizontal, label: "Commits" },
+	{ icon: Files, label: "Changes", active: true },
+	{ icon: CheckCircle2, label: "Checks" },
+	{ icon: FileCode2, label: "Files" },
+];
 
-function ActionLink({
+const diffLines: DiffLine[] = [
+	{ line: 45, code: "const token = crypto.randomBytes(32).toString('hex');" },
+	{
+		line: 47,
+		code: "await db.query('INSERT INTO magic_links (email, token, created_at)'",
+		kind: "removed",
+	},
+	{
+		line: 48,
+		code: "await db.query('INSERT INTO magic_links (email, token, created_at, expires_at)'",
+		kind: "added",
+	},
+	{
+		line: 49,
+		code: "VALUES ($1, $2, NOW(), NOW() + INTERVAL '15 minutes')",
+		kind: "added",
+	},
+	{ line: 50, code: "[email, token]);", kind: "added" },
+	{ line: 56, code: "return token;" },
+];
+
+function ButtonLink({
 	href,
-	variant = "default",
 	children,
-	className = "",
-}: {
-	href: string;
-	variant?: "default" | "outline";
-	children: ReactNode;
-	className?: string;
-}) {
-	const linkClassName = buttonVariants({
-		variant,
-		size: "lg",
-		className,
-	});
-
-	if (href.startsWith("#")) {
-		return (
-			<a href={href} className={linkClassName}>
-				{children}
-			</a>
-		);
-	}
-
+	icon,
+	variant = "default",
+	className,
+}: ButtonLinkProps) {
 	return (
-		<Link href={href as never} className={linkClassName}>
+		<Link
+			href={href as never}
+			className={cn(
+				buttonVariants({
+					variant,
+					size: "lg",
+					className: "rounded-xl px-5 text-[15px]",
+				}),
+				className,
+			)}
+		>
+			{icon}
 			{children}
 		</Link>
 	);
 }
 
-function PreviewShell() {
+function SectionHeading({
+	title,
+	description,
+	className,
+}: {
+	title: string;
+	description?: string;
+	className?: string;
+}) {
 	return (
-		<div className="relative isolate w-full">
-			<div className="absolute -inset-4 rounded-[2rem] bg-[radial-gradient(circle_at_20%_20%,rgba(92,145,255,0.18),transparent_35%),radial-gradient(circle_at_85%_15%,rgba(255,166,110,0.16),transparent_28%),radial-gradient(circle_at_50%_85%,rgba(255,255,255,0.08),transparent_26%)] opacity-80 blur-2xl" />
+		<div
+			className={cn(
+				"mx-auto flex max-w-3xl flex-col items-center gap-4 text-center",
+				className,
+			)}
+		>
+			<h2 className="font-heading text-[clamp(2.25rem,3.9vw,4rem)] text-foreground leading-[0.96] tracking-[-0.045em]">
+				{title}
+			</h2>
+			{description ? (
+				<p className="max-w-2xl text-balance text-[1.05rem] text-muted-foreground leading-7 sm:text-lg">
+					{description}
+				</p>
+			) : null}
+		</div>
+	);
+}
 
-			<div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1020] text-white shadow-[0_30px_80px_-24px_rgba(2,8,23,0.85)] ring-1 ring-white/5">
-				<div className="flex items-center justify-between border-white/10 border-b px-5 py-4">
-					<div className="flex items-center gap-2.5">
-						<span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
-						<span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-						<span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+function TrustLogoRow() {
+	return (
+		<div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5 sm:gap-x-12 lg:gap-x-14">
+			{trustLogos.map((logo) => (
+				<div
+					key={logo.name}
+					className="flex items-center gap-3 text-foreground/85"
+				>
+					<div className="flex size-8 items-center justify-center text-foreground/80">
+						{logo.icon}
 					</div>
-					<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-medium text-[11px] text-white/70 uppercase tracking-[0.24em]">
-						acme/payments · feature/retry
+					<span className="font-medium text-[1.1rem] tracking-[-0.02em]">
+						{logo.name}
 					</span>
 				</div>
+			))}
+		</div>
+	);
+}
 
-				<div className="grid lg:grid-cols-[1.08fr_0.92fr]">
-					<div className="border-white/10 border-b lg:border-white/10 lg:border-r lg:border-b-0">
-						<div className="border-white/10 border-b px-5 py-4 text-white/55 text-xs">
-							Review preview
+function FeatureColumn({ feature }: { feature: Feature }) {
+	const Icon = feature.icon;
+
+	return (
+		<div className="flex flex-col gap-4 px-1 pt-6 pb-1 md:border-border/70 md:border-l md:px-8 md:first:border-l-0">
+			<div className="flex size-14 items-center justify-center rounded-2xl border border-border bg-background shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+				<Icon className="size-6 stroke-[1.7] text-chart-1" />
+			</div>
+			<div className="flex flex-col gap-2.5">
+				<h3 className="font-semibold text-[1.15rem] text-foreground leading-tight tracking-[-0.03em]">
+					{feature.title}
+				</h3>
+				<p className="max-w-[17rem] text-[0.92rem] text-muted-foreground leading-6">
+					{feature.description}
+				</p>
+			</div>
+			<Link
+				href="/login"
+				className="inline-flex w-fit items-center gap-2 font-medium text-[0.92rem] text-chart-1 transition hover:gap-2.5"
+			>
+				Learn more
+				<ArrowRight className="size-4" />
+			</Link>
+		</div>
+	);
+}
+
+function WorkflowCard({ step, index }: { step: WorkflowStep; index: number }) {
+	const Icon = step.icon;
+
+	return (
+		<div className="relative flex flex-col gap-4 px-2 pt-8 text-center md:px-6 md:text-left">
+			<div className="absolute top-0 left-1/2 flex size-7 -translate-x-1/2 items-center justify-center rounded-full border-2 border-background bg-chart-1 font-semibold text-[0.78rem] text-white shadow-[0_1px_10px_rgba(63,101,235,0.25)] md:left-6 md:translate-x-0">
+				{index}
+			</div>
+			<div className="flex justify-center text-foreground md:justify-start">
+				<Icon className="size-7 stroke-[1.8]" />
+			</div>
+			<div className="flex flex-col gap-1.5">
+				<h3 className="font-semibold text-[0.95rem] text-foreground leading-tight tracking-[-0.02em]">
+					{step.title}
+				</h3>
+				<p className="mx-auto max-w-[15rem] text-[0.85rem] text-muted-foreground leading-6 md:mx-0">
+					{step.description}
+				</p>
+			</div>
+		</div>
+	);
+}
+
+function PreviewSidebarItem({ icon, label, active = false }: PreviewNavItem) {
+	const Icon = icon;
+
+	return (
+		<div
+			className={cn(
+				"relative flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[0.7rem] leading-none",
+				active ? "bg-white/6 text-white" : "text-white/60",
+			)}
+		>
+			{active ? (
+				<span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-chart-1" />
+			) : null}
+			<Icon
+				className={cn("size-4", active ? "text-chart-1" : "text-inherit")}
+			/>
+			<span>{label}</span>
+		</div>
+	);
+}
+
+function DiffRow({ line, code, kind = "base" }: DiffLine) {
+	const rowClasses = {
+		base: "text-white/75",
+		removed: "bg-rose-500/14 text-rose-100",
+		added: "bg-emerald-500/16 text-emerald-50",
+	}[kind];
+
+	const numberClasses = {
+		base: "text-white/28",
+		removed: "text-rose-200/55",
+		added: "text-emerald-200/55",
+	}[kind];
+
+	const prefix = kind === "removed" ? "-" : kind === "added" ? "+" : "";
+
+	return (
+		<div
+			className={cn(
+				"grid grid-cols-[3.5rem_1fr] gap-3 px-3 py-1 font-mono text-[0.8rem] leading-5",
+				rowClasses,
+			)}
+		>
+			<div className={cn("text-right", numberClasses)}>{line}</div>
+			<div className="flex gap-2">
+				{prefix ? (
+					<span className="w-3 shrink-0 text-center">{prefix}</span>
+				) : null}
+				<span className="whitespace-nowrap">{code}</span>
+			</div>
+		</div>
+	);
+}
+
+function PreviewShell() {
+	return (
+		<div
+			className="relative isolate w-full max-w-[540px] justify-self-center md:w-[540px] md:max-w-none md:justify-self-end"
+			style={{ zoom: 0.84 }}
+		>
+			<div className="absolute -inset-6 -z-10 rounded-[2.25rem] bg-[radial-gradient(circle_at_50%_0%,rgba(97,123,255,0.22),transparent_35%),radial-gradient(circle_at_78%_16%,rgba(18,123,94,0.12),transparent_25%),radial-gradient(circle_at_20%_86%,rgba(0,0,0,0.12),transparent_30%)] blur-2xl" />
+
+			<div className="overflow-hidden rounded-[1.85rem] border border-white/8 bg-[#0d1424] text-white shadow-[0_30px_90px_-30px_rgba(12,18,32,0.85)] ring-1 ring-white/5">
+				<div className="grid min-h-[560px] grid-cols-[4.75rem_1fr]">
+					<aside className="flex flex-col items-center justify-between border-white/8 border-r px-2 py-3.5">
+						<div className="flex w-full flex-col items-center gap-2">
+							<div className="mb-2 flex size-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/75">
+								<PanelLeft className="size-3.5" />
+							</div>
+							{previewNavItems.map((item) => (
+								<PreviewSidebarItem key={item.label} {...item} />
+							))}
 						</div>
-						<div className="space-y-1 px-5 py-5 font-mono text-[13px] text-slate-300 leading-6">
-							<div className="flex gap-4">
-								<span className="w-8 shrink-0 text-right text-white/25">
-									41
-								</span>
-								<span>const user = await db.users.findById(userId);</span>
-							</div>
-							<div className="flex gap-4 rounded-xl bg-emerald-400/10 px-3 py-1 text-emerald-200">
-								<span className="w-8 shrink-0 text-right text-emerald-200/50">
-									42
-								</span>
-								<span>+ if (!user) return notFound();</span>
-							</div>
-							<div className="flex gap-4">
-								<span className="w-8 shrink-0 text-right text-white/25">
-									43
-								</span>
-								<span>return executeTransaction(user.accountId);</span>
-							</div>
+						<div className="flex size-8 items-center justify-center rounded-full border border-white/10 text-white/55">
+							<Settings className="size-4" />
 						</div>
-						<div className="border-white/10 border-t px-5 py-4">
-							<div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
-								<div className="flex items-center justify-between gap-3">
-									<div className="font-semibold text-sm text-white">GitPal</div>
-									<Badge
-										variant="secondary"
-										className="bg-amber-400/15 text-amber-100 hover:bg-amber-400/15"
-									>
-										Blocking
+					</aside>
+
+					<div className="flex min-w-0 flex-col">
+						<div className="flex items-start justify-between gap-4 px-4 pt-3.5">
+							<div className="min-w-0">
+								<div className="flex flex-wrap items-center gap-2">
+									<h3 className="truncate font-medium text-[0.98rem] tracking-[-0.02em]">
+										feat(auth): add magic link sign in
+									</h3>
+									<Badge className="h-6 rounded-full bg-chart-4/20 px-2.5 font-medium text-[0.7rem] text-chart-4 hover:bg-chart-4/20">
+										Draft
 									</Badge>
 								</div>
-								<p className="mt-3 text-sm text-white/75 leading-6">
-									`db.users.findById` can return `null`. Guard the lookup before
-									you dereference `accountId`, otherwise the PR ships a runtime
-									exception.
+								<p className="mt-1 text-[0.84rem] text-white/60">
+									#318 opened 2 days ago by alex
 								</p>
-								<div className="mt-4 flex flex-wrap gap-2">
-									<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/75 text-xs">
-										Suggested fix attached
-									</span>
-									<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/75 text-xs">
-										Reply in thread
-									</span>
-								</div>
-								<div className="mt-4 flex gap-2">
-									<span className="rounded-full bg-white px-3 py-1.5 font-medium text-slate-950 text-xs">
-										Commit fix
-									</span>
-									<span className="rounded-full border border-white/10 bg-transparent px-3 py-1.5 font-medium text-white/80 text-xs">
-										Keep review open
-									</span>
-								</div>
 							</div>
-						</div>
-					</div>
-
-					<div className="space-y-4 bg-[#10192d] p-5">
-						<div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-							<div className="flex items-center justify-between text-white/55 text-xs">
-								<span>Review scope</span>
-								<span>3 files changed</span>
-							</div>
-							<div className="mt-4 grid grid-cols-3 gap-2 text-center text-white/55 text-xs">
-								<div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
-									Context
-								</div>
-								<div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
-									Review note
-								</div>
-								<div className="rounded-xl border border-white/10 bg-white/5 px-2 py-3">
-									One-click fix
-								</div>
+							<div className="flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-[0.82rem] text-emerald-200">
+								<CheckCircle2 className="size-4 text-emerald-400" />
+								<span>2/3 checks passed</span>
 							</div>
 						</div>
 
-						<div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-							<div className="font-semibold text-white/45 text-xs uppercase tracking-[0.24em]">
-								What GitPal sees
+						<div className="mt-3 flex min-h-0 flex-1 flex-col rounded-t-[1.4rem] border-white/8 border-t bg-white/[0.02]">
+							<div className="flex items-center justify-between border-white/8 border-b px-4 py-2.5">
+								<div className="flex items-center gap-2 text-[0.86rem] text-white/80">
+									<ChevronDown className="size-4 text-white/50" />
+									<span className="font-medium">src/auth/magic-link.ts</span>
+								</div>
+								<div className="flex items-center gap-2">
+									<button
+										type="button"
+										className={cn(
+											buttonVariants({
+												variant: "outline",
+												size: "sm",
+												className:
+													"h-8 rounded-lg border-white/10 bg-white/5 px-3 text-white hover:bg-white/10",
+											}),
+										)}
+									>
+										View file
+									</button>
+									<button
+										type="button"
+										className="inline-flex size-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition hover:bg-white/10"
+									>
+										<MoreHorizontal className="size-4" />
+									</button>
+								</div>
 							</div>
-							<div className="mt-4 space-y-3 text-sm text-white/75">
-								<div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-									<span>Diff context</span>
-									<span className="text-white/45">2 files</span>
+
+							<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-1.5">
+								<div className="overflow-hidden rounded-[1.25rem] border border-white/8 bg-[#0e1627] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+									<div className="relative">
+										{diffLines.map((line) => (
+											<DiffRow
+												key={`${line.kind ?? "base"}-${line.line}`}
+												{...line}
+											/>
+										))}
+										<div className="absolute top-1/2 right-[-0.7rem] flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-chart-1 font-semibold text-[0.78rem] text-white shadow-[0_10px_22px_rgba(63,101,235,0.35)]">
+											1
+										</div>
+									</div>
 								</div>
-								<div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-									<span>Suggested patch</span>
-									<span className="text-white/45">1 change</span>
+
+								<div className="mt-3 rounded-[1.25rem] border border-chart-1/25 bg-[#101a2d] px-4 py-3.5 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
+									<div className="flex items-start gap-3">
+										<div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-[#0d1424]">
+											<GitPalMark className="size-4" />
+										</div>
+										<div className="min-w-0 flex-1">
+											<div className="flex items-center gap-2">
+												<span className="font-medium">GitPal</span>
+												<Badge className="h-5 rounded-full bg-chart-1/20 px-2 font-medium text-[0.68rem] text-chart-1 hover:bg-chart-1/20">
+													AI
+												</Badge>
+												<span className="text-[0.8rem] text-white/55">
+													just now
+												</span>
+											</div>
+
+											<div className="mt-2.5 flex items-center gap-2">
+												<Badge className="h-6 rounded-full bg-chart-5/20 px-2.5 font-medium text-[0.7rem] text-chart-5 hover:bg-chart-5/20">
+													High
+												</Badge>
+												<span className="text-white/35">↻</span>
+												<MoreHorizontal className="size-4 text-white/45" />
+											</div>
+
+											<p className="mt-2.5 max-w-[34rem] text-[0.88rem] text-white/78 leading-[1.35]">
+												Magic links should be one-time use. Consider marking the
+												token as used (or storing a used_at timestamp) when it's
+												consumed to prevent replay attacks.
+											</p>
+
+											<div className="mt-3 flex flex-wrap items-center gap-2">
+												<button
+													type="button"
+													className="inline-flex h-8 items-center justify-center rounded-lg border border-white/12 bg-white/[0.03] px-3 font-medium text-[0.84rem] text-white/85 transition hover:bg-white/[0.07]"
+												>
+													Reply
+												</button>
+												<button
+													type="button"
+													className="inline-flex h-8 items-center justify-center rounded-lg border border-white/12 bg-white/[0.03] px-3 font-medium text-[0.84rem] text-white/85 transition hover:bg-white/[0.07]"
+												>
+													Apply suggestion
+												</button>
+												<div className="ml-auto flex items-center gap-3 text-white/60">
+													<button
+														type="button"
+														className="inline-flex size-8 items-center justify-center rounded-lg transition hover:bg-white/[0.05] hover:text-white"
+													>
+														<ThumbsUp className="size-4" />
+													</button>
+													<button
+														type="button"
+														className="inline-flex size-8 items-center justify-center rounded-lg transition hover:bg-white/[0.05] hover:text-white"
+													>
+														<ThumbsDown className="size-4" />
+													</button>
+												</div>
+											</div>
+										</div>
+									</div>
 								</div>
-								<div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-									<span>Webhook dispatch</span>
-									<span className="text-white/45">Ready</span>
+							</div>
+
+							<div className="flex items-center gap-5 border-white/8 border-t px-4 py-2.5 text-[0.82rem] text-white/58">
+								<div className="flex items-center gap-2">
+									<span className="size-2 rounded-full bg-chart-1" />
+									<span>1 AI comment</span>
+								</div>
+								<div className="flex items-center gap-2">
+									<span className="size-2 rounded-full bg-emerald-400" />
+									<span>0 outstanding</span>
+								</div>
+								<div className="flex items-center gap-2">
+									<span className="size-2 rounded-full bg-chart-5" />
+									<span>1 nit</span>
 								</div>
 							</div>
 						</div>
@@ -280,244 +530,205 @@ function PreviewShell() {
 	);
 }
 
-function SignalCard({
-	title,
-	description,
-}: {
-	title: string;
-	description: string;
-}) {
+function HeroPill({ icon, label }: { icon: LucideIcon; label: string }) {
+	const Icon = icon;
+
 	return (
-		<Card className="border-border/70 bg-white/75 shadow-sm backdrop-blur-sm">
-			<CardHeader className="space-y-3 pb-3">
-				<div className="flex items-center gap-2">
-					<span className="h-2 w-2 rounded-full bg-primary" />
-					<span className="font-semibold text-muted-foreground text-xs uppercase tracking-[0.22em]">
-						Signal
-					</span>
-				</div>
-				<CardTitle className="text-xl tracking-[-0.03em]">{title}</CardTitle>
-			</CardHeader>
-			<CardContent className="pt-0 text-muted-foreground text-sm leading-6">
-				{description}
-			</CardContent>
-		</Card>
+		<div className="flex items-center gap-2 whitespace-nowrap text-[0.88rem] text-foreground/75">
+			<Icon className="size-3.5 stroke-[1.8] text-chart-1" />
+			<span>{label}</span>
+		</div>
 	);
 }
 
-function FeatureCard({ feature }: { feature: Feature }) {
+function PreviewButtons() {
 	return (
-		<Card className="border-border/70 bg-white/80 shadow-sm backdrop-blur-sm transition-transform duration-300 hover:-translate-y-1 hover:shadow-lg">
-			<CardHeader className="space-y-3">
-				<Badge
-					variant="outline"
-					className="w-fit border-border/80 bg-background/80 text-[11px] text-muted-foreground uppercase tracking-[0.22em]"
-				>
-					{feature.label}
-				</Badge>
-				<CardTitle className="text-xl tracking-[-0.03em]">
-					{feature.title}
-				</CardTitle>
-			</CardHeader>
-			<CardContent className="pt-0 text-muted-foreground text-sm leading-6">
-				{feature.description}
-			</CardContent>
-		</Card>
-	);
-}
-
-function WorkflowCard({ step }: { step: WorkflowStep }) {
-	return (
-		<div className="relative rounded-[1.5rem] border border-border/70 bg-white/80 p-6 shadow-sm backdrop-blur-sm">
-			<div className="flex items-center justify-between">
-				<div className="font-semibold text-muted-foreground text-sm uppercase tracking-[0.24em]">
-					{step.step}
-				</div>
-				<div className="h-2.5 w-2.5 rounded-full bg-primary/80" />
-			</div>
-			<h3 className="mt-5 font-semibold text-foreground text-xl tracking-[-0.03em]">
-				{step.title}
-			</h3>
-			<p className="mt-3 text-muted-foreground text-sm leading-6">
-				{step.description}
-			</p>
+		<div className="flex flex-col gap-3 sm:flex-row">
+			<ButtonLink
+				href="/login"
+				icon={
+					<HugeiconsIcon icon={GithubIcon} size={18} data-icon="inline-start" />
+				}
+				className="bg-white text-slate-950 shadow-[0_16px_28px_-20px_rgba(0,0,0,0.65)] hover:bg-white/90"
+			>
+				Install on GitHub
+			</ButtonLink>
+			<ButtonLink
+				href="/login"
+				variant="outline"
+				icon={
+					<HugeiconsIcon icon={GitlabIcon} size={18} data-icon="inline-start" />
+				}
+				className="border-white/15 bg-white/5 text-white shadow-sm hover:bg-white/10"
+			>
+				Install on GitLab
+			</ButtonLink>
 		</div>
 	);
 }
 
 export default function LandingPage() {
 	return (
-		<main className="min-h-svh bg-[#f6f8fc] text-foreground selection:bg-primary/20">
-			<div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(77,118,255,0.08),transparent_25%),radial-gradient(circle_at_90%_10%,rgba(255,153,102,0.12),transparent_18%),linear-gradient(180deg,rgba(255,255,255,0.8)_0%,rgba(246,248,252,1)_100%)]" />
-			<div className="fixed inset-0 -z-10 bg-[linear-gradient(rgba(17,24,39,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(17,24,39,0.025)_1px,transparent_1px)] opacity-60 [background-size:30px_30px]" />
+		<main className="relative isolate overflow-hidden bg-background text-foreground selection:bg-chart-1/20">
+			<div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+				<div className="absolute top-0 -left-24 h-[34rem] w-[34rem] rounded-full bg-chart-1/8 blur-3xl" />
+				<div className="absolute top-14 right-[-10rem] h-[30rem] w-[30rem] rounded-full bg-chart-4/6 blur-3xl" />
+				<div className="absolute bottom-[-8rem] left-1/2 h-[20rem] w-[42rem] -translate-x-1/2 rounded-full bg-secondary/35 blur-3xl" />
+			</div>
 
-			<section className="relative px-4 pt-16 pb-16 sm:px-6 md:pt-20 md:pb-20 lg:px-8 lg:pt-24 lg:pb-24">
-				<div className="mx-auto grid max-w-7xl items-center gap-14 lg:grid-cols-[1.02fr_0.98fr]">
-					<div className="space-y-8">
-						<div className="space-y-6">
-							<h1 className="max-w-3xl text-balance font-semibold text-4xl text-slate-950 tracking-[-0.06em] sm:text-5xl lg:text-[4.9rem] lg:leading-[0.95]">
-								Pull requests that get real reviews.
-							</h1>
+			<header className="mx-auto grid max-w-[1180px] grid-cols-[auto_1fr_auto] items-center gap-6 px-6 pt-6 pb-0 sm:px-8 lg:px-10">
+				<Link href="/" className="flex items-center gap-3">
+					<GitPalMark className="size-9 text-foreground md:size-10" />
+					<span className="font-semibold text-[1.45rem] tracking-[-0.04em]">
+						GitPal
+					</span>
+				</Link>
 
-							<p className="max-w-2xl text-balance text-lg text-slate-700 leading-8 sm:text-xl">
-								GitPal reads the diff, the surrounding code, and your team’s
-								rules so the first pass catches the bugs humans usually skim
-								past.
-							</p>
-						</div>
+				<nav className="hidden items-center justify-center gap-10 md:flex">
+					{navLinks.map((link) => (
+						<Link
+							key={link}
+							href={`#${link.toLowerCase()}`}
+							className="font-medium text-[15px] text-foreground/80 transition hover:text-foreground"
+						>
+							{link}
+						</Link>
+					))}
+				</nav>
 
-						<div className="flex flex-col gap-3 sm:flex-row">
-							<ActionLink
-								href="/login"
-								className="bg-[#10192d] text-white hover:bg-[#18243d]"
-							>
-								Install GitPal
-							</ActionLink>
-							<ActionLink
-								href="#workflow"
-								variant="outline"
-								className="border-slate-300 bg-white text-slate-900 shadow-sm hover:border-slate-400 hover:bg-slate-50"
-							>
-								See the workflow
-							</ActionLink>
-						</div>
+				<div className="flex items-center gap-4">
+					<Link
+						href="/login"
+						className="font-medium text-[15px] text-foreground/80 transition hover:text-foreground"
+					>
+						Log in
+					</Link>
+					<ButtonLink href="/login">Get started</ButtonLink>
+				</div>
+			</header>
 
-						<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-slate-600 text-sm">
-							<span>Works with cloud and self-hosted installs</span>
-							<span className="hidden sm:inline">•</span>
-							<span>OAuth, SSO, and webhook aware</span>
-							<span className="hidden sm:inline">•</span>
-							<span>Designed for GitHub and GitLab teams</span>
-						</div>
+			<section className="mx-auto grid max-w-[1180px] gap-14 px-6 pt-14 pb-20 sm:px-8 md:grid-cols-[0.8fr_1.2fr] md:items-start md:gap-10 md:px-8 md:pt-20 md:pb-24 lg:px-10">
+				<div className="flex max-w-[31rem] flex-col gap-8 md:pt-16">
+					<div className="space-y-6">
+						<h1 className="max-w-[11.1ch] text-balance font-heading text-[clamp(3.25rem,5.8vw,5.75rem)] text-foreground leading-[0.92] tracking-[-0.06em]">
+							Code reviews, elevated by{" "}
+							<span className="text-chart-1">AI.</span>
+						</h1>
+						<p className="max-w-[26rem] text-balance text-[1.05rem] text-muted-foreground leading-8 sm:text-[1.15rem]">
+							GitPal is an AI code review assistant that helps your team ship
+							higher quality code, faster. Get insightful feedback, catch issues
+							early, and keep your standards consistent.
+						</p>
 					</div>
 
-					<PreviewShell />
+					<div className="flex flex-col gap-3 sm:flex-row">
+						<ButtonLink
+							href="/login"
+							icon={
+								<HugeiconsIcon
+									icon={GithubIcon}
+									size={18}
+									data-icon="inline-start"
+								/>
+							}
+						>
+							Install on GitHub
+						</ButtonLink>
+						<ButtonLink
+							href="/login"
+							variant="outline"
+							icon={
+								<HugeiconsIcon
+									icon={GitlabIcon}
+									size={18}
+									data-icon="inline-start"
+								/>
+							}
+							className="border-border bg-background text-foreground shadow-sm hover:bg-background/90"
+						>
+							Install on GitLab
+						</ButtonLink>
+					</div>
+
+					<div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-2 text-foreground/70 sm:flex-nowrap sm:gap-x-6">
+						<HeroPill icon={Zap} label="Setup in <1 min" />
+						<HeroPill icon={Lock} label="Secure by design" />
+						<HeroPill icon={CheckCircle2} label="Loved by devs" />
+					</div>
+				</div>
+
+				<PreviewShell />
+			</section>
+
+			<section className="mx-auto max-w-[1180px] px-6 pb-8 sm:px-8 lg:px-10">
+				<div className="flex flex-col gap-7 border-y-0 py-0">
+					<p className="text-center font-semibold text-[0.72rem] text-foreground/45 uppercase tracking-[0.35em]">
+						Trusted by engineering teams
+					</p>
+					<TrustLogoRow />
 				</div>
 			</section>
 
 			<section
-				id="security"
-				className="border-border/60 border-y bg-white/55 px-4 py-16 backdrop-blur-sm sm:px-6 lg:px-8"
+				id="features"
+				className="mx-auto max-w-[1180px] px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20 lg:pb-12"
 			>
-				<div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
-					<SectionHeading
-						eyebrow="Security"
-						title="Production-friendly by default."
-						description="The auth flow stays on the server, the frontend redirects to the app origin, and the universal git package is shaped around verified webhooks and provider adapters."
-					/>
+				<SectionHeading title="Built for modern teams" className="max-w-4xl" />
 
-					<div className="grid gap-4 md:grid-cols-3">
-						{securitySignals.map((signal) => (
-							<SignalCard key={signal.title} {...signal} />
-						))}
-					</div>
-				</div>
-			</section>
-
-			<section id="features" className="px-4 py-20 sm:px-6 lg:px-8">
-				<div className="mx-auto max-w-7xl">
-					<SectionHeading
-						eyebrow="Features"
-						title="A reviewer that understands the codebase."
-						description="The page now reflects the product more honestly: fewer generic claims, more concrete signals, and a preview that looks like the actual workflow users will touch."
-						centered
-					/>
-
-					<div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-						{features.map((feature) => (
-							<FeatureCard key={feature.title} feature={feature} />
-						))}
-					</div>
+				<div className="mt-12 grid gap-8 md:grid-cols-3 md:gap-0">
+					{features.map((feature) => (
+						<FeatureColumn key={feature.title} feature={feature} />
+					))}
 				</div>
 			</section>
 
 			<section
 				id="workflow"
-				className="border-border/60 border-y bg-[#eef2f8] px-4 py-20 sm:px-6 lg:px-8"
+				className="mx-auto max-w-[1180px] px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20 lg:pb-12"
 			>
-				<div className="mx-auto max-w-7xl">
-					<div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-end">
-						<SectionHeading
-							eyebrow="Workflow"
-							title="Start in one place and keep the thread there."
-							description="GitPal is built to move review context forward instead of scattering it across chat, your editor, and the PR timeline."
-						/>
+				<SectionHeading title="How GitPal works" className="max-w-4xl" />
 
-						<div className="grid gap-4 md:grid-cols-3">
-							{workflowSteps.map((step) => (
-								<WorkflowCard key={step.step} step={step} />
-							))}
-						</div>
+				<div className="relative mt-12">
+					<div className="absolute top-4 right-0 left-0 hidden border-border/80 border-t md:block" />
+					<div className="grid gap-12 md:grid-cols-4 md:gap-0">
+						{workflowSteps.map((step, index) => (
+							<div
+								key={step.title}
+								className="md:border-border/60 md:border-l md:border-dashed md:first:border-l-0"
+							>
+								<WorkflowCard step={step} index={index + 1} />
+							</div>
+						))}
 					</div>
 				</div>
 			</section>
 
-			<section className="px-4 py-20 sm:px-6 lg:px-8">
-				<div className="mx-auto max-w-7xl">
-					<div className="relative overflow-hidden rounded-[2rem] border border-primary/15 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(22,32,55,0.96))] px-6 py-14 text-white shadow-[0_24px_70px_-30px_rgba(15,23,42,0.9)] sm:px-10 lg:px-14 lg:py-16">
-						<div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(124,156,255,0.18),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(255,163,108,0.14),transparent_24%)]" />
-						<div className="relative grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
-							<div className="space-y-5">
-								<h2 className="max-w-2xl text-balance font-semibold text-3xl tracking-[-0.05em] sm:text-4xl lg:text-5xl">
-									Put GitPal on the next pull request.
-								</h2>
-								<p className="max-w-2xl text-balance text-base text-white/72 leading-7 sm:text-lg">
-									Install once, connect your providers, and let the review flow
-									stay inside the tools your team already trusts.
-								</p>
-							</div>
+			<section className="mx-auto max-w-[1180px] px-6 pt-16 pb-6 sm:px-8 lg:px-10 lg:pt-20 lg:pb-10">
+				<div className="relative overflow-hidden rounded-[1.85rem] bg-[linear-gradient(135deg,#0a1120_0%,#101b34_54%,#0a1020_100%)] px-6 py-12 text-white shadow-[0_32px_80px_-34px_rgba(10,16,32,0.9)] sm:px-8 md:px-10 md:py-14">
+					<div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_120%,rgba(73,109,255,0.4),transparent_28%),radial-gradient(circle_at_14%_16%,rgba(255,255,255,0.06),transparent_26%)]" />
+					<div className="relative grid gap-8 md:grid-cols-[1.08fr_0.92fr] md:items-center">
+						<div className="space-y-5">
+							<h2 className="font-heading text-[clamp(2.4rem,3.8vw,4rem)] text-white leading-[0.96] tracking-[-0.05em]">
+								Better reviews.
+								<br />
+								<span className="text-chart-1">Better code.</span>
+							</h2>
+							<p className="max-w-[34rem] text-[0.98rem] text-white/72 leading-7 sm:text-[1rem]">
+								Join thousands of developers shipping with confidence.
+							</p>
+						</div>
 
-							<div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-								<ActionLink
-									href="/login"
-									className="bg-white text-slate-950 hover:bg-white/90"
-								>
-									Install GitPal
-								</ActionLink>
-								<ActionLink
-									href="#features"
-									variant="outline"
-									className="border-white/15 bg-white/5 text-white hover:bg-white/10"
-								>
-									Explore features
-								</ActionLink>
+						<div className="flex flex-col items-start gap-4 md:items-end">
+							<PreviewButtons />
+							<div className="flex items-center gap-2 text-[0.95rem] text-white/65">
+								<Lock className="size-4" />
+								<span>No credit card required</span>
 							</div>
 						</div>
 					</div>
+					<div className="pointer-events-none absolute right-[-4rem] bottom-[-4rem] h-48 w-72 rounded-full bg-chart-1/20 blur-3xl" />
 				</div>
 			</section>
-
-			<footer className="border-border/60 border-t bg-white/70 px-4 py-10 backdrop-blur-sm sm:px-6 lg:px-8">
-				<div className="mx-auto flex max-w-7xl flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
-					<Link href="/" className="flex items-center gap-3">
-						<GitPalMark className="size-8 text-[0.68rem]" />
-						<div>
-							<div className="font-semibold text-base tracking-[-0.03em]">
-								GitPal
-							</div>
-							<div className="text-muted-foreground text-sm">
-								AI review that keeps up with the code.
-							</div>
-						</div>
-					</Link>
-
-					<div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-muted-foreground text-sm">
-						<a className="transition hover:text-foreground" href="#security">
-							Security
-						</a>
-						<a className="transition hover:text-foreground" href="#features">
-							Features
-						</a>
-						<a className="transition hover:text-foreground" href="#workflow">
-							Workflow
-						</a>
-						<Separator orientation="vertical" className="hidden h-4 lg:block" />
-						<Link className="transition hover:text-foreground" href="/login">
-							Sign in
-						</Link>
-					</div>
-				</div>
-			</footer>
 		</main>
 	);
 }

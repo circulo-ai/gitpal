@@ -1,17 +1,65 @@
 {
   "version": 1,
   "skills": {
+    "add-function-examples": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/add-function-examples/SKILL.md",
+      "computedHash": "e48f2549c7b8b61724b77b2adc7838687178e9c15a1d151d3a18a7c9cd872b41"
+    },
+    "add-provider-package": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/add-provider-package/SKILL.md",
+      "computedHash": "e5496e46de07df70952aba9a204842b381b2ce0cdfb350bb7ca5933db02dab60"
+    },
+    "adr-skill": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/adr-skill/SKILL.md",
+      "computedHash": "10a3b51ce33cb5d66920283ff58879e364409efde0afd97f09e3631307a116fa"
+    },
+    "ai-sdk": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/use-ai-sdk/SKILL.md",
+      "computedHash": "2249889eb47ef0f61c4dba4cf2afe01c1c8dd793bb4c24230347c1ab909bb7dd"
+    },
     "better-auth-best-practices": {
       "source": "better-auth/skills",
       "sourceType": "github",
       "skillPath": "better-auth/best-practices/SKILL.md",
       "computedHash": "9ab075b5061be2a5f299c10505667345cc1ec76e8de4120901cfd586643e776f"
     },
+    "capture-api-response-test-fixture": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/capture-api-response-test-fixture/SKILL.md",
+      "computedHash": "d54838c1adda55a469cc7aafba8e09aaf7a4e59445fe43f6cadda01781a5a154"
+    },
+    "develop-ai-functions-example": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/develop-ai-functions-example/SKILL.md",
+      "computedHash": "c83ef2e93700a05862e9d37fa7c21ca81d7a1b7b1de5c4ef758a379f2c158b97"
+    },
     "hono": {
       "source": "yusukebe/hono-skill",
       "sourceType": "github",
       "skillPath": "skills/hono/SKILL.md",
       "computedHash": "24bad73932f309cec73a5a9171b838f59050990a634d8590c2d2c204507e64f9"
+    },
+    "list-npm-package-content": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/list-npm-package-content/SKILL.md",
+      "computedHash": "dc8f3731ff9ff662ae36de3adcd72219aeb67f48c61ab9e7204c529457097686"
+    },
+    "major-version-mode": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/major-version-mode/SKILL.md",
+      "computedHash": "2de638964b0a1ae6a03c982989467a270d91d7db0547d13c077a718862aa3b9f"
     },
     "next-best-practices": {
       "source": "vercel-labs/next-skills",
@@ -36,6 +84,12 @@
       "sourceType": "github",
       "skillPath": "skills/turborepo/SKILL.md",
       "computedHash": "b7c3165ae67a2892d6195a5b2cba15c8d96341f5c64ddd0d3ce4225c94a2ae83"
+    },
+    "update-provider-models": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/update-provider-models/SKILL.md",
+      "computedHash": "83a2401e28dc3eda8b1d58913a82cf1b1de82c8a8e78e8b0cbc2d8841ced1d61"
     },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",

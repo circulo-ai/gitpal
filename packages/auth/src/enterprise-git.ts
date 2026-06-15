@@ -551,7 +551,11 @@ function createEnterpriseGitOAuthConfig(provider: EnterpriseGitProviderRecord) {
 }
 
 function createRedirectUrl(baseURL: string, target: string, error?: string) {
-	const url = new URL(target || "/", baseURL);
+	const sanitizedTarget =
+		/^(?:[a-zA-Z][a-zA-Z\d+\-.]*:|\/\/)/.test(target.trim())
+			? "/"
+			: target.trim() || "/";
+	const url = new URL(sanitizedTarget, baseURL);
 
 	if (error) {
 		url.searchParams.set("error", error);

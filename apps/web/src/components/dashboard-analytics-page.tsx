@@ -73,6 +73,7 @@ import {
 	YAxis,
 } from "recharts";
 import { toast } from "sonner";
+import { authClient } from "@/lib/auth-client";
 import { queryClient, trpc } from "@/utils/trpc";
 import type { DashboardView } from "./workspace-nav";
 
@@ -200,11 +201,18 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
+	const activeOrganizationQuery = authClient.useActiveOrganization();
+	const activeOrganization = activeOrganizationQuery.data;
 	const params = React.useMemo(
 		() => new URLSearchParams(searchParams.toString()),
 		[searchParams],
 	);
-	const repositoriesQuery = useQuery(trpc.repositories.list.queryOptions());
+	const repositoriesQuery = useQuery({
+		...trpc.repositories.list.queryOptions({
+			organizationId: activeOrganization?.id,
+		}),
+		enabled: Boolean(activeOrganization),
+	});
 	const exportMutation = useMutation(
 		trpc.analytics.exportReviewMetrics.mutationOptions({
 			onSuccess: (file) => {
@@ -229,7 +237,7 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 			next.delete(key);
 		}
 
-		router.replace(`${pathname}?${next.toString()}`);
+		router.replace(`${pathname}?${next.toString()}` as never);
 	}
 
 	function applyPreset(days: number) {
@@ -238,7 +246,7 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 		const next = new URLSearchParams(params);
 		next.set("from", toIsoDate(from));
 		next.set("to", toIsoDate(to));
-		router.replace(`${pathname}?${next.toString()}`);
+		router.replace(`${pathname}?${next.toString()}` as never);
 	}
 
 	const range = getDateRangeFromSearch(params);

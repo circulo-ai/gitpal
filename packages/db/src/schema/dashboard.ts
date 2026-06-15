@@ -3,18 +3,22 @@ import {
 	boolean,
 	index,
 	integer,
+	jsonb,
 	pgTable,
 	text,
 	timestamp,
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import { user } from "./auth";
+import { organization, user } from "./auth";
 
 export const repository = pgTable(
 	"repository",
 	{
 		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
 		providerId: text("provider_id").notNull(),
 		providerType: text("provider_type").notNull(),
 		providerName: text("provider_name").notNull(),
@@ -38,11 +42,14 @@ export const repository = pgTable(
 			.notNull(),
 	},
 	(table) => [
-		uniqueIndex("repository_provider_repository_id_idx").on(
+		uniqueIndex("repository_organization_provider_repository_idx").on(
+			table.organizationId,
 			table.providerId,
 			table.repositoryId,
 		),
+		index("repository_organization_id_idx").on(table.organizationId),
 		index("repository_provider_path_idx").on(
+			table.organizationId,
 			table.providerId,
 			table.repositoryPath,
 		),
@@ -248,8 +255,64 @@ export const reportDelivery = pgTable(
 	],
 );
 
-export const repositoryRelations = relations(repository, ({ many }) => ({
+export const organizationSettings = pgTable(
+	"organization_settings",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		settings: jsonb("settings").notNull(),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("organization_settings_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
+export const repositorySettings = pgTable(
+	"repository_settings",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		repositoryId: text("repository_id")
+			.notNull()
+			.references(() => repository.id, { onDelete: "cascade" }),
+		useOrganizationSettings: boolean("use_organization_settings")
+			.default(true)
+			.notNull(),
+		settings: jsonb("settings").notNull(),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("repository_settings_org_repository_idx").on(
+			table.organizationId,
+			table.repositoryId,
+		),
+		index("repository_settings_repository_id_idx").on(table.repositoryId),
+		index("repository_settings_organization_id_idx").on(table.organizationId),
+	],
+);
+
+export const repositoryRelations = relations(repository, ({ one, many }) => ({
+	organization: one(organization, {
+		fields: [repository.organizationId],
+		references: [organization.id],
+	}),
 	access: many(repositoryAccess),
+	settings: many(repositorySettings),
 	pullRequests: many(pullRequest),
 	reviewComments: many(reviewComment),
 	toolFindings: many(toolFinding),
@@ -257,6 +320,30 @@ export const repositoryRelations = relations(repository, ({ many }) => ({
 	knowledgeBaseLearnings: many(knowledgeBaseLearning),
 	reportDeliveries: many(reportDelivery),
 }));
+
+export const organizationSettingsRelations = relations(
+	organizationSettings,
+	({ one }) => ({
+		organization: one(organization, {
+			fields: [organizationSettings.organizationId],
+			references: [organization.id],
+		}),
+	}),
+);
+
+export const repositorySettingsRelations = relations(
+	repositorySettings,
+	({ one }) => ({
+		organization: one(organization, {
+			fields: [repositorySettings.organizationId],
+			references: [organization.id],
+		}),
+		repository: one(repository, {
+			fields: [repositorySettings.repositoryId],
+			references: [repository.id],
+		}),
+	}),
+);
 
 export const repositoryAccessRelations = relations(
 	repositoryAccess,

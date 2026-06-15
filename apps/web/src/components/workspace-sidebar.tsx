@@ -1,12 +1,26 @@
 "use client";
 
 import * as React from "react";
+import { authClient } from "@/lib/auth-client";
 import {
 	Avatar,
 	AvatarFallback,
 	AvatarImage,
 } from "@gitpal/ui/components/avatar";
-import { Collapsible, CollapsibleContent } from "@gitpal/ui/components/collapsible";
+import { Badge } from "@gitpal/ui/components/badge";
+import {
+	Collapsible,
+	CollapsibleContent,
+} from "@gitpal/ui/components/collapsible";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@gitpal/ui/components/dropdown-menu";
 import {
 	Sidebar,
 	SidebarContent,
@@ -23,12 +37,15 @@ import {
 	SidebarMenuSubItem,
 } from "@gitpal/ui/components/sidebar";
 import { cn } from "@gitpal/ui/lib/utils";
+import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ChevronDownIcon } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { GitPalMark } from "./gitpal-mark";
-import { workspaceNavItems } from "./workspace-nav";
+import {
+	accountNavItems,
+	workspaceNavItems,
+} from "./workspace-nav";
 
 type WorkspaceSidebarProps = {
 	user: {
@@ -47,16 +64,136 @@ function getInitials(name: string) {
 		.toUpperCase();
 }
 
+function OrganizationSwitcher() {
+	const router = useRouter();
+	const organizationsQuery = authClient.useListOrganizations();
+	const activeOrganizationQuery = authClient.useActiveOrganization();
+	const activeMemberRoleQuery = authClient.useActiveMemberRole();
+	const organizations = organizationsQuery.data ?? [];
+	const activeOrganization = activeOrganizationQuery.data;
+	const activeMemberRole = activeMemberRoleQuery.data;
+	const [isSwitching, startTransition] = React.useTransition();
+
+	async function setActiveOrganization(organizationId: string | null) {
+		startTransition(async () => {
+			await authClient.organization.setActive({
+				organizationId,
+			});
+			router.refresh();
+		});
+	}
+
+	if (organizations.length === 0) {
+		return (
+			<SidebarGroup>
+				<SidebarGroupLabel>Organization</SidebarGroupLabel>
+				<SidebarGroupContent>
+					<SidebarMenu>
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								tooltip="Create an organization"
+								render={<Link href="/account/general" />}
+							>
+								<PlusIcon />
+								<span>Create organization</span>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					</SidebarMenu>
+				</SidebarGroupContent>
+			</SidebarGroup>
+		);
+	}
+
+	const currentOrganization = activeOrganization ?? organizations[0];
+
+	return (
+		<SidebarGroup>
+			<SidebarGroupLabel>Organization</SidebarGroupLabel>
+			<SidebarGroupContent>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<SidebarMenuButton
+										size="lg"
+										tooltip={currentOrganization.name}
+										className="min-w-0"
+									/>
+								}
+							>
+								<div className="flex min-w-0 flex-1 items-center gap-3">
+									<div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/60 text-xs font-medium">
+										{currentOrganization.name.slice(0, 2).toUpperCase()}
+									</div>
+									<span className="flex min-w-0 flex-1 flex-col">
+										<span className="truncate font-medium">
+											{currentOrganization.name}
+										</span>
+										<span className="truncate text-muted-foreground text-xs">
+											{activeMemberRole?.role
+												? `${activeMemberRole.role} access`
+												: "Organization access"}
+										</span>
+									</span>
+									<ChevronDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground" />
+								</div>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="w-72">
+								<DropdownMenuLabel>Switch organization</DropdownMenuLabel>
+								<DropdownMenuSeparator />
+								<DropdownMenuGroup>
+									{organizations.map((organization) => (
+										<DropdownMenuItem
+											key={organization.id}
+											disabled={isSwitching}
+											onSelect={(event) => {
+												event.preventDefault();
+												void setActiveOrganization(organization.id);
+											}}
+										>
+											<div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+												<span className="truncate">{organization.name}</span>
+												{organization.id === currentOrganization.id ? (
+													<Badge variant="secondary" className="shrink-0">
+														Active
+													</Badge>
+												) : null}
+											</div>
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuGroup>
+				<DropdownMenuSeparator />
+								<DropdownMenuItem render={<Link href="/account/general" />}>
+									Manage organizations
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarGroupContent>
+		</SidebarGroup>
+	);
+}
+
 export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 	const pathname = usePathname();
 	const [reviewsOpen, setReviewsOpen] = React.useState(
 		pathname.startsWith("/dashboard"),
 	);
+	const [accountOpen, setAccountOpen] = React.useState(
+		pathname.startsWith("/account"),
+	);
 	const ReviewsIcon = workspaceNavItems[1].icon;
+	const AccountIcon = accountNavItems[0].icon;
 
 	React.useEffect(() => {
 		if (pathname.startsWith("/dashboard")) {
 			setReviewsOpen(true);
+		}
+
+		if (pathname.startsWith("/account")) {
+			setAccountOpen(true);
 		}
 	}, [pathname]);
 
@@ -75,8 +212,9 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
+				<OrganizationSwitcher />
 			</SidebarHeader>
-			<SidebarContent>
+			<SidebarContent className="gap-3">
 				<SidebarGroup>
 					<SidebarGroupLabel>Workspace</SidebarGroupLabel>
 					<SidebarGroupContent>
@@ -141,6 +279,53 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 											>
 												<SubIcon />
 												<span>{subItem.title}</span>
+											</SidebarMenuSubButton>
+										</SidebarMenuSubItem>
+									);
+								})}
+							</SidebarMenuSub>
+						</CollapsibleContent>
+					</SidebarGroup>
+				</Collapsible>
+				<Collapsible open={accountOpen} onOpenChange={setAccountOpen}>
+					<SidebarGroup>
+						<SidebarMenu>
+							<SidebarMenuItem>
+								<SidebarMenuButton
+									isActive={pathname.startsWith("/account")}
+									tooltip="Account"
+									onClick={() => setAccountOpen((value) => !value)}
+									aria-expanded={accountOpen}
+									aria-controls="account-navigation"
+								>
+									<AccountIcon />
+									<span>Account</span>
+									<ChevronDownIcon
+										data-icon="inline-end"
+										className={cn(
+											"ml-auto transition-transform",
+											accountOpen && "rotate-180",
+										)}
+									/>
+								</SidebarMenuButton>
+							</SidebarMenuItem>
+						</SidebarMenu>
+						<CollapsibleContent
+							id="account-navigation"
+							className={cn(!accountOpen && "hidden")}
+						>
+							<SidebarMenuSub>
+								{accountNavItems.map((item) => {
+									const Icon = item.icon;
+
+									return (
+										<SidebarMenuSubItem key={item.href}>
+											<SidebarMenuSubButton
+												isActive={pathname === item.href}
+												render={<Link href={item.href} />}
+											>
+												<Icon />
+												<span>{item.title}</span>
 											</SidebarMenuSubButton>
 										</SidebarMenuSubItem>
 									);

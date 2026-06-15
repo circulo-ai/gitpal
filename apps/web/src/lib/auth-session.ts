@@ -19,6 +19,8 @@ type AuthSessionRecord = {
 	updatedAt: string | Date;
 	ipAddress?: string | null;
 	userAgent?: string | null;
+	activeOrganizationId?: string | null;
+	activeTeamId?: string | null;
 };
 
 export type ServerAuthSession = {
@@ -48,6 +50,8 @@ function getDevelopmentSession(): ServerAuthSession {
 			updatedAt: now,
 			ipAddress: "127.0.0.1",
 			userAgent: "Codex Browser",
+			activeOrganizationId: null,
+			activeTeamId: null,
 		},
 	};
 }

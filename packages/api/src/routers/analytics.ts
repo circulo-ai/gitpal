@@ -455,10 +455,11 @@ function getTimeMetrics(pullRequests: PullRequestRow[]) {
 
 async function loadAnalyticsContext(
 	userId: string,
+	organizationId: string | null,
 	filters: DashboardFilters,
 ): Promise<AnalyticsContext> {
 	const range = normalizeFilters(filters);
-	const repositories = (await listRepositoriesForUser(userId))
+	const repositories = (await listRepositoriesForUser({ userId, organizationId }))
 		.filter((repository) => repository.enabled)
 		.filter(
 			(repository) =>
@@ -1437,6 +1438,7 @@ export const analyticsRouter = router({
 		.query(async ({ ctx, input }) => {
 			const analyticsContext = await loadAnalyticsContext(
 				ctx.session.user.id,
+				ctx.session.session.activeOrganizationId ?? null,
 				input,
 			);
 			return buildPayload(input.view, analyticsContext);
@@ -1446,6 +1448,7 @@ export const analyticsRouter = router({
 		.mutation(async ({ ctx, input }) => {
 			const analyticsContext = await loadAnalyticsContext(
 				ctx.session.user.id,
+				ctx.session.session.activeOrganizationId ?? null,
 				input,
 			);
 			const rows = createReviewMetricRows(analyticsContext);

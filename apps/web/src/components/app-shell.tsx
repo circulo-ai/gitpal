@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import Header from "./header";
 
 const AUTH_ROUTES = ["/login", "/signup"];
-const WORKSPACE_ROUTES = ["/dashboard", "/repositories"];
+const WORKSPACE_ROUTES = ["/dashboard", "/repositories", "/account"];
 
 export default function AppShell({ children }: { children: ReactNode }) {
 	const pathname = usePathname();
@@ -17,6 +17,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	const isLandingPage = pathname === "/";
 
 	if (isAuthRoute || isLandingPage || isWorkspaceRoute) {
+		if (isWorkspaceRoute) {
+			return (
+				<div className="h-svh overflow-hidden bg-background text-foreground">
+					{children}
+				</div>
+			);
+		}
+
 		return <>{children}</>;
 	}
 

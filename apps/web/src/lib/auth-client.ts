@@ -1,12 +1,26 @@
+import { workspaceAc, workspaceRoles } from "@gitpal/auth/organization-access";
 import { ssoClient } from "@better-auth/sso/client";
 import { env } from "@gitpal/env/web";
-import { genericOAuthClient } from "better-auth/client/plugins";
+import {
+	genericOAuthClient,
+	organizationClient,
+} from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
 	baseURL: env.NEXT_PUBLIC_SERVER_URL,
 	plugins: [
 		genericOAuthClient(),
+		organizationClient({
+			ac: workspaceAc,
+			roles: workspaceRoles,
+			teams: {
+				enabled: true,
+			},
+			dynamicAccessControl: {
+				enabled: true,
+			},
+		}),
 		ssoClient({
 			domainVerification: {
 				enabled: true,

@@ -19,7 +19,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import UserMenu from "./user-menu";
-import { dashboardNavItems } from "./workspace-nav";
+import { getWorkspacePageInfo } from "./workspace-nav";
 import { WorkspaceSidebar } from "./workspace-sidebar";
 
 type WorkspaceShellProps = {
@@ -32,21 +32,7 @@ type WorkspaceShellProps = {
 };
 
 function getCurrentPage(pathname: string) {
-	if (pathname.startsWith("/repositories")) {
-		return {
-			section: "Workspace",
-			title: "Repositories",
-		};
-	}
-
-	const dashboardItem = dashboardNavItems.find(
-		(item) => item.href === pathname,
-	);
-
-	return {
-		section: "Dashboard",
-		title: dashboardItem?.title ?? "Summary",
-	};
+	return getWorkspacePageInfo(pathname);
 }
 
 export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
@@ -56,7 +42,7 @@ export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
 	return (
 		<SidebarProvider>
 			<WorkspaceSidebar user={user} />
-			<SidebarInset>
+			<SidebarInset className="flex min-h-svh flex-1 flex-col overflow-hidden">
 				<header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 					<div className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 md:px-6 lg:px-8">
 						<SidebarTrigger />
@@ -67,7 +53,19 @@ export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
 						<Breadcrumb>
 							<BreadcrumbList>
 								<BreadcrumbItem className="hidden md:block">
-									<BreadcrumbLink render={<Link href="/dashboard/summary" />}>
+									<BreadcrumbLink
+										render={
+											<Link
+												href={
+													currentPage.section === "Account"
+														? "/account/general"
+														: currentPage.section === "Repositories"
+															? "/repositories"
+															: "/dashboard/summary"
+												}
+											/>
+										}
+									>
 										{currentPage.section}
 									</BreadcrumbLink>
 								</BreadcrumbItem>
@@ -82,7 +80,7 @@ export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
 						</div>
 					</div>
 				</header>
-				<div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 py-5 md:px-6 md:py-6 lg:px-8">
+				<div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:px-8">
 					{children}
 				</div>
 			</SidebarInset>

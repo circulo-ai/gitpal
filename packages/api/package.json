@@ -15,6 +15,7 @@
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
 		"@gitpal/git": "workspace:*",
+		"@gitpal/utils": "workspace:*",
 		"@trpc/client": "catalog:",
 		"@trpc/server": "catalog:",
 		"@workflow/ai": "catalog:",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { publicProcedure, router } from "../index";
+import { requireOrganizationPermission } from "../services/organization-access";
+import { protectedProcedure, publicProcedure, router } from "../index";
 import { analyticsRouter } from "./analytics";
 import { repositoriesRouter } from "./repositories";
 
@@ -88,9 +89,17 @@ export const appRouter = router({
 
 				return service.lookupEnterpriseGitProvider(input);
 			}),
-		register: publicProcedure
+		register: protectedProcedure
 			.input(enterpriseGitProviderRegisterSchema)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ ctx, input }) => {
+				await requireOrganizationPermission({
+					userId: ctx.session.user.id,
+					organizationId: ctx.session.session.activeOrganizationId ?? null,
+					permissions: {
+						settings: ["update"],
+					},
+				});
+
 				const service = await getEnterpriseGitProviderService();
 
 				return service.registerEnterpriseGitProvider(input);

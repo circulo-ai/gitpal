@@ -8,6 +8,7 @@ import {
 	createGitLabAdapter,
 	type GitProviderAdapter,
 	type GitPullRequest,
+	type GitRepository,
 	type GitWebhookEnvelope,
 } from "@gitpal/git";
 import {
@@ -34,7 +35,7 @@ import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 
 const db = createDb();
 const log = createLogger("repository-webhooks");
-const GIT_PROVIDER_PREFIX = "enterprise-git:";
+const ENTERPRISE_GIT_PROVIDER_PREFIX = "enterprise-git:";
 const GITHUB_WEBHOOK_EVENTS = [
 	"pull_request",
 	"pull_request_review",
@@ -42,6 +43,23 @@ const GITHUB_WEBHOOK_EVENTS = [
 	"issue_comment",
 ] as const;
 const GITLAB_WEBHOOK_EVENTS = ["pull_request", "note"] as const;
+const COMMENT_WEBHOOK_EVENTS = new Set([
+	"issue_comment",
+	"pull_request_review_comment",
+	"pull_request_review",
+	"note",
+]);
+const PULL_REQUEST_OPEN_ACTIONS = new Set([
+	"opened",
+	"reopened",
+	"open",
+	"reopen",
+]);
+const PULL_REQUEST_PUSH_ACTIONS = new Set([
+	"synchronize",
+	"synchronized",
+	"update",
+]);
 
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 type PullRequestRow = typeof dashboardSchema.pullRequest.$inferSelect;
@@ -49,6 +67,14 @@ type WebhookEventReceiptRow =
 	typeof dashboardSchema.webhookEventReceipt.$inferSelect;
 type ReviewRunKind = "review" | "mention" | "pre-merge";
 type ProviderType = "github" | "gitlab";
+type WebhookReceiptStatus =
+	| "received"
+	| "processing"
+	| "processed"
+	| "processed_with_errors"
+	| "ignored"
+	| "failed";
+type WebhookProcessingResult = "processed" | "failed" | "ignored";
 
 type ProviderWebhookTarget = {
 	providerId: string;
@@ -88,6 +114,11 @@ type ReviewDispatch = {
 	trigger: string;
 	manual: boolean;
 };
+
+const REQUIRED_WEBHOOK_EVENTS_BY_PROVIDER = {
+	github: GITHUB_WEBHOOK_EVENTS,
+	gitlab: GITLAB_WEBHOOK_EVENTS,
+} satisfies Record<ProviderType, readonly string[]>;
 
 function normalizeWebhookUrl(url: string) {
 	return url.trim().replace(/\/+$/, "");
@@ -133,9 +164,41 @@ function formatSecretPreview(secret: string) {
 }
 
 function getRequiredWebhookEvents(providerType: ProviderType) {
-	return providerType === "github"
-		? [...GITHUB_WEBHOOK_EVENTS]
-		: [...GITLAB_WEBHOOK_EVENTS];
+	return [...REQUIRED_WEBHOOK_EVENTS_BY_PROVIDER[providerType]];
+}
+
+function isCommentWebhookEvent(event: string) {
+	return COMMENT_WEBHOOK_EVENTS.has(event);
+}
+
+function isPullRequestOpenAction(action: string) {
+	return PULL_REQUEST_OPEN_ACTIONS.has(action);
+}
+
+function isPullRequestPushAction(action: string) {
+	return PULL_REQUEST_PUSH_ACTIONS.has(action);
+}
+
+function resolveWebhookReceiptStatus({
+	processed,
+	failed,
+}: {
+	processed: number;
+	failed: number;
+}): WebhookReceiptStatus {
+	if (failed > 0 && processed > 0) {
+		return "processed_with_errors";
+	}
+
+	if (failed > 0) {
+		return "failed";
+	}
+
+	if (processed > 0) {
+		return "processed";
+	}
+
+	return "ignored";
 }
 
 function buildDeliveryUrl(target: ProviderWebhookTarget) {
@@ -192,13 +255,15 @@ async function resolveWebhookTarget(
 		};
 	}
 
-	if (!providerId.startsWith(GIT_PROVIDER_PREFIX)) {
+	if (!providerId.startsWith(ENTERPRISE_GIT_PROVIDER_PREFIX)) {
 		return null;
 	}
 
-	const providerKey = providerId.slice(GIT_PROVIDER_PREFIX.length);
+	const enterpriseProviderKey = providerId.slice(
+		ENTERPRISE_GIT_PROVIDER_PREFIX.length,
+	);
 	const providers = enterpriseProviders ?? (await getEnterpriseProviderMap());
-	const provider = providers.get(providerKey);
+	const provider = providers.get(enterpriseProviderKey);
 
 	if (!provider || (provider.type !== "github" && provider.type !== "gitlab")) {
 		return null;
@@ -211,7 +276,7 @@ async function resolveWebhookTarget(
 		baseUrl: provider.baseUrl,
 		apiBaseUrl: provider.apiBaseUrl,
 		secret: provider.webhookSecret ?? null,
-		routePath: `/webhooks/enterprise/${providerKey}`,
+		routePath: `/webhooks/enterprise/${enterpriseProviderKey}`,
 	};
 }
 
@@ -362,6 +427,15 @@ function shouldRunAutomatedReview({
 	return true;
 }
 
+function getConfiguredPullRequestActions(
+	providerType: ProviderType,
+	settings: WorkspaceSettings,
+) {
+	return providerType === "github"
+		? settings.webhooks.pullRequests
+		: settings.webhooks.mergeRequests;
+}
+
 function resolveReviewDispatch({
 	providerType,
 	envelope,
@@ -379,23 +453,16 @@ function resolveReviewDispatch({
 		return null;
 	}
 
-	if (
-		(envelope.event === "issue_comment" ||
-			envelope.event === "pull_request_review_comment" ||
-			envelope.event === "pull_request_review" ||
-			envelope.event === "note") &&
-		!context.isPullRequestCommentEvent
-	) {
+	const isCommentEvent = isCommentWebhookEvent(envelope.event);
+
+	if (isCommentEvent && !context.isPullRequestCommentEvent) {
 		return null;
 	}
 
 	if (
-		(envelope.event === "issue_comment" ||
-			envelope.event === "pull_request_review_comment" ||
-			envelope.event === "pull_request_review" ||
-			envelope.event === "note") &&
-		matchesCommandTrigger(context.commentBody, settings.webhooks.preMerge) &&
-		settings.preMergeChecks.enabled
+		isCommentEvent &&
+		settings.preMergeChecks.enabled &&
+		matchesCommandTrigger(context.commentBody, settings.webhooks.preMerge)
 	) {
 		return {
 			kind: "pre-merge",
@@ -405,10 +472,7 @@ function resolveReviewDispatch({
 	}
 
 	if (
-		(envelope.event === "issue_comment" ||
-			envelope.event === "pull_request_review_comment" ||
-			envelope.event === "pull_request_review" ||
-			envelope.event === "note") &&
+		isCommentEvent &&
 		settings.reviews.behavior.autoReview.onMention &&
 		matchesCommandTrigger(context.commentBody, settings.webhooks.mentions)
 	) {
@@ -442,10 +506,10 @@ function resolveReviewDispatch({
 		return null;
 	}
 
-	const configuredActions =
-		providerType === "github"
-			? settings.webhooks.pullRequests
-			: settings.webhooks.mergeRequests;
+	const configuredActions = getConfiguredPullRequestActions(
+		providerType,
+		settings,
+	);
 	const normalizedAction = envelope.action.toLowerCase();
 
 	if (
@@ -465,12 +529,7 @@ function resolveReviewDispatch({
 		return null;
 	}
 
-	if (
-		normalizedAction === "opened" ||
-		normalizedAction === "reopened" ||
-		normalizedAction === "open" ||
-		normalizedAction === "reopen"
-	) {
+	if (isPullRequestOpenAction(normalizedAction)) {
 		return settings.reviews.behavior.autoReview.onOpen
 			? {
 					kind: "review",
@@ -480,11 +539,7 @@ function resolveReviewDispatch({
 			: null;
 	}
 
-	if (
-		normalizedAction === "synchronize" ||
-		normalizedAction === "synchronized" ||
-		normalizedAction === "update"
-	) {
+	if (isPullRequestPushAction(normalizedAction)) {
 		return settings.reviews.behavior.autoReview.onPush
 			? {
 					kind: "review",
@@ -620,8 +675,12 @@ async function createWebhookReceipt({
 			)
 			.limit(1);
 
+		if (!existing) {
+			throw new Error("Webhook receipt conflict could not be resolved.");
+		}
+
 		return {
-			receiptId: existing?.id ?? `webhook_receipt_${randomUUID()}`,
+			receiptId: existing.id,
 			duplicate: true,
 		};
 	}
@@ -660,15 +719,17 @@ async function updateWebhookReceipt({
 	status,
 }: {
 	receiptId: string;
-	status: string;
+	status: WebhookReceiptStatus;
 }) {
+	const now = new Date();
+
 	await db
 		.update(dashboardSchema.webhookEventReceipt)
 		.set({
 			status,
 			processedAt:
-				status === "processing" || status === "received" ? null : new Date(),
-			updatedAt: new Date(),
+				status === "processing" || status === "received" ? null : now,
+			updatedAt: now,
 		})
 		.where(eq(dashboardSchema.webhookEventReceipt.id, receiptId));
 }
@@ -680,6 +741,12 @@ async function upsertPullRequestSnapshot({
 	repositoryId: string;
 	pullRequest: GitPullRequest;
 }) {
+	const updatedAt = toDateOrNull(pullRequest.updatedAt) ?? new Date();
+	const createdAt = toDateOrNull(pullRequest.createdAt) ?? updatedAt;
+	const mergedAt = toDateOrNull(pullRequest.mergedAt);
+	const closedAt = toDateOrNull(pullRequest.closedAt);
+	const reviewReadyAt = pullRequest.draft ? null : updatedAt;
+
 	const [row] = await db
 		.insert(dashboardSchema.pullRequest)
 		.values({
@@ -696,14 +763,12 @@ async function upsertPullRequestSnapshot({
 			authorLogin: pullRequest.author?.login,
 			authorName: pullRequest.author?.name,
 			authorAvatarUrl: pullRequest.author?.avatarUrl,
-			createdAt: toDateOrNull(pullRequest.createdAt) ?? new Date(),
-			updatedAt: toDateOrNull(pullRequest.updatedAt) ?? new Date(),
-			mergedAt: toDateOrNull(pullRequest.mergedAt),
-			closedAt: toDateOrNull(pullRequest.closedAt),
-			lastCommitAt: toDateOrNull(pullRequest.updatedAt),
-			reviewReadyAt: pullRequest.draft
-				? null
-				: toDateOrNull(pullRequest.updatedAt),
+			createdAt,
+			updatedAt,
+			mergedAt,
+			closedAt,
+			lastCommitAt: updatedAt,
+			reviewReadyAt,
 			mergeCommitSha: pullRequest.mergeCommitSha,
 		})
 		.onConflictDoUpdate({
@@ -722,13 +787,11 @@ async function upsertPullRequestSnapshot({
 				authorLogin: pullRequest.author?.login,
 				authorName: pullRequest.author?.name,
 				authorAvatarUrl: pullRequest.author?.avatarUrl,
-				updatedAt: toDateOrNull(pullRequest.updatedAt) ?? new Date(),
-				mergedAt: toDateOrNull(pullRequest.mergedAt),
-				closedAt: toDateOrNull(pullRequest.closedAt),
-				lastCommitAt: toDateOrNull(pullRequest.updatedAt),
-				reviewReadyAt: pullRequest.draft
-					? null
-					: toDateOrNull(pullRequest.updatedAt),
+				updatedAt,
+				mergedAt,
+				closedAt,
+				lastCommitAt: updatedAt,
+				reviewReadyAt,
 				mergeCommitSha: pullRequest.mergeCommitSha,
 			},
 		})
@@ -754,6 +817,8 @@ async function createReviewRun({
 	envelope: GitWebhookEnvelope;
 	dispatch: ReviewDispatch;
 }) {
+	const now = new Date();
+
 	const [row] = await db
 		.insert(dashboardSchema.reviewRun)
 		.values({
@@ -769,9 +834,9 @@ async function createReviewRun({
 			status: "running",
 			modelId: settings.ai.reviewer.modelId,
 			thinkingEnabled: settings.ai.thinking.enabled,
-			startedAt: new Date(),
-			createdAt: new Date(),
-			updatedAt: new Date(),
+			startedAt: now,
+			createdAt: now,
+			updatedAt: now,
 		})
 		.returning();
 
@@ -795,6 +860,8 @@ async function finalizeReviewRun({
 	finalCommentBody: string | null;
 	result: Record<string, unknown>;
 }) {
+	const now = new Date();
+
 	await db
 		.update(dashboardSchema.reviewRun)
 		.set({
@@ -802,8 +869,8 @@ async function finalizeReviewRun({
 			summary,
 			finalCommentBody,
 			result,
-			completedAt: new Date(),
-			updatedAt: new Date(),
+			completedAt: now,
+			updatedAt: now,
 		})
 		.where(eq(dashboardSchema.reviewRun.id, reviewRunId));
 }
@@ -812,6 +879,32 @@ function formatFindingBody(
 	finding: RepositoryReviewOutput["findings"][number],
 ) {
 	return `**${finding.severity.toUpperCase()}** · ${finding.title}\n\n${finding.body}`;
+}
+
+function toGitRepository(repository: RepositoryRow): GitRepository {
+	return {
+		providerId: repository.providerId,
+		repositoryPath: repository.repositoryPath,
+		repositoryId: repository.repositoryId,
+		name: repository.name,
+		fullName: repository.fullName,
+		htmlUrl: repository.htmlUrl,
+		defaultBranch: repository.defaultBranch,
+		private: repository.private,
+		description: repository.description,
+		owner: repository.ownerLogin
+			? {
+					id: repository.ownerLogin,
+					login: repository.ownerLogin,
+					name: repository.ownerLogin,
+					email: null,
+					avatarUrl: repository.ownerAvatarUrl,
+					htmlUrl: null,
+					kind: "user",
+				}
+			: null,
+		workspace: null,
+	};
 }
 
 async function maybePublishSummaryComment({
@@ -868,6 +961,7 @@ async function createReviewCommentRecords({
 }) {
 	for (const finding of output.findings) {
 		let providerCommentId: string | null = null;
+		const now = new Date();
 
 		if (
 			settings.ai.reviewer.postInlineFindings &&
@@ -911,8 +1005,8 @@ async function createReviewCommentRecords({
 			metadata: {},
 			accepted: false,
 			resolved: false,
-			createdAt: new Date(),
-			updatedAt: new Date(),
+			createdAt: now,
+			updatedAt: now,
 		});
 	}
 }
@@ -929,6 +1023,8 @@ async function createPreMergeCheckRecords({
 	output: RepositoryReviewOutput;
 }) {
 	for (const check of output.preMergeChecks) {
+		const now = new Date();
+
 		await db.insert(dashboardSchema.preMergeCheckRun).values({
 			id: `pre_merge_check_${randomUUID()}`,
 			reviewRunId,
@@ -940,8 +1036,8 @@ async function createPreMergeCheckRecords({
 			details: {
 				details: check.details,
 			},
-			startedAt: new Date(),
-			completedAt: new Date(),
+			startedAt: now,
+			completedAt: now,
 		});
 	}
 }
@@ -956,7 +1052,7 @@ async function runWebhookReview({
 	envelope: GitWebhookEnvelope;
 	providerType: ProviderType;
 	context: PullRequestEventContext;
-}) {
+}): Promise<WebhookProcessingResult> {
 	const automationActor = await getAutomationActorForRepository({
 		repositoryId: repository.id,
 		providerId: repository.providerId,
@@ -1023,29 +1119,7 @@ async function runWebhookReview({
 		const reviewResult = await runRepositoryReview({
 			userId: automationActor.userId,
 			adapter: automationActor.adapter,
-			repository: {
-				providerId: repository.providerId,
-				repositoryPath: repository.repositoryPath,
-				repositoryId: repository.repositoryId,
-				name: repository.name,
-				fullName: repository.fullName,
-				htmlUrl: repository.htmlUrl,
-				defaultBranch: repository.defaultBranch,
-				private: repository.private,
-				description: repository.description,
-				owner: repository.ownerLogin
-					? {
-							id: repository.ownerLogin,
-							login: repository.ownerLogin,
-							name: repository.ownerLogin,
-							email: null,
-							avatarUrl: repository.ownerAvatarUrl,
-							htmlUrl: null,
-							kind: "user",
-						}
-					: null,
-				workspace: null,
-			},
+			repository: toGitRepository(repository),
 			pullRequest,
 			files,
 			comments,
@@ -1144,14 +1218,10 @@ async function processWebhookReceipt({
 
 	await updateWebhookReceipt({
 		receiptId,
-		status:
-			failed > 0 && processed > 0
-				? "processed_with_errors"
-				: failed > 0
-					? "failed"
-					: processed > 0
-						? "processed"
-						: "ignored",
+		status: resolveWebhookReceiptStatus({
+			processed,
+			failed,
+		}),
 	});
 }
 
@@ -1275,31 +1345,24 @@ async function ensureRepositoryWebhookSubscription({
 		Boolean(matchingWebhook?.active) &&
 		requiredEvents.every((event) => matchingWebhook?.events.includes(event));
 
-	const activeWebhook =
-		matchingWebhook && webhookIsCompatible
-			? matchingWebhook
-			: matchingWebhook
-				? await adapter
-						.deleteWebhook({
-							repositoryPath: repository.repositoryPath,
-							webhookId: matchingWebhook.id,
-						})
-						.then(() =>
-							adapter.createWebhook({
-								repositoryPath: repository.repositoryPath,
-								url: deliveryUrl,
-								events: requiredEvents,
-								secret: target.secret ?? undefined,
-								active: true,
-							}),
-						)
-				: await adapter.createWebhook({
-						repositoryPath: repository.repositoryPath,
-						url: deliveryUrl,
-						events: requiredEvents,
-						secret: target.secret ?? undefined,
-						active: true,
-					});
+	let activeWebhook = matchingWebhook;
+
+	if (!activeWebhook || !webhookIsCompatible) {
+		if (activeWebhook) {
+			await adapter.deleteWebhook({
+				repositoryPath: repository.repositoryPath,
+				webhookId: activeWebhook.id,
+			});
+		}
+
+		activeWebhook = await adapter.createWebhook({
+			repositoryPath: repository.repositoryPath,
+			url: deliveryUrl,
+			events: requiredEvents,
+			secret: target.secret ?? undefined,
+			active: true,
+		});
+	}
 
 	const now = new Date();
 	await db

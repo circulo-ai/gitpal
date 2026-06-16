@@ -8,20 +8,15 @@ import {
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
-  Circle,
-  Cloud,
   FileCode2,
   Files,
   GitBranch,
   GitCommitHorizontal,
-  Hexagon,
   House,
   Lock,
   type LucideIcon,
   MessageSquareText,
   MoreHorizontal,
-  Octagon,
-  Package,
   PanelLeft,
   Settings,
   Shield,
@@ -67,35 +62,7 @@ type DiffLine = {
   kind?: "base" | "added" | "removed";
 };
 
-type TrustLogo = {
-  name: string;
-  icon: ReactNode;
-};
-
 const navLinks = ["Features", "Integrations", "Docs"] as const;
-
-const trustLogos: TrustLogo[] = [
-  {
-    name: "linear",
-    icon: <Circle className="size-5 stroke-[1.8]" />,
-  },
-  {
-    name: "Convex",
-    icon: <Hexagon className="size-5 stroke-[1.8]" />,
-  },
-  {
-    name: "payload",
-    icon: <Package className="size-5 stroke-[1.8]" />,
-  },
-  {
-    name: "uploadthing",
-    icon: <Cloud className="size-5 stroke-[1.8]" />,
-  },
-  {
-    name: "medusa",
-    icon: <Octagon className="size-5 stroke-[1.8]" />,
-  },
-];
 
 const features: Feature[] = [
   {
@@ -226,26 +193,6 @@ function SectionHeading({
   );
 }
 
-function TrustLogoRow() {
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5 sm:gap-x-12 lg:gap-x-14">
-      {trustLogos.map((logo) => (
-        <div
-          key={logo.name}
-          className="flex items-center gap-3 text-foreground/85"
-        >
-          <div className="flex size-8 items-center justify-center text-foreground/80">
-            {logo.icon}
-          </div>
-          <span className="font-medium text-[1.1rem] tracking-[-0.02em]">
-            {logo.name}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function FeatureColumn({ feature }: { feature: Feature }) {
   const Icon = feature.icon;
 
@@ -258,7 +205,7 @@ function FeatureColumn({ feature }: { feature: Feature }) {
         <h3 className="font-semibold text-[1.15rem] text-foreground leading-tight tracking-[-0.03em]">
           {feature.title}
         </h3>
-        <p className="max-w-[17rem] text-[0.92rem] text-muted-foreground leading-6">
+        <p className="max-w-68 text-[0.92rem] text-muted-foreground leading-6">
           {feature.description}
         </p>
       </div>
@@ -288,7 +235,7 @@ function WorkflowCard({ step, index }: { step: WorkflowStep; index: number }) {
         <h3 className="font-semibold text-[0.95rem] text-foreground leading-tight tracking-[-0.02em]">
           {step.title}
         </h3>
-        <p className="mx-auto max-w-[15rem] text-[0.85rem] text-muted-foreground leading-6 md:mx-0">
+        <p className="mx-auto max-w-60 text-[0.85rem] text-muted-foreground leading-6 md:mx-0">
           {step.description}
         </p>
       </div>
@@ -353,16 +300,16 @@ function DiffRow({ line, code, kind = "base" }: DiffLine) {
 function PreviewShell() {
   return (
     <div
-      className="relative isolate w-full max-w-[540px] justify-self-center md:w-[540px] md:max-w-none md:justify-self-end"
+      className="relative isolate w-full max-w-135 justify-self-center md:w-135 md:max-w-none md:justify-self-end"
       style={{ zoom: 0.84 }}
     >
       <div className="absolute -inset-6 -z-10 rounded-[2.25rem] bg-[radial-gradient(circle_at_50%_0%,rgba(97,123,255,0.22),transparent_35%),radial-gradient(circle_at_78%_16%,rgba(18,123,94,0.12),transparent_25%),radial-gradient(circle_at_20%_86%,rgba(0,0,0,0.12),transparent_30%)] blur-2xl" />
 
       <div className="overflow-hidden rounded-[1.85rem] border border-white/8 bg-[#0d1424] text-white shadow-[0_30px_90px_-30px_rgba(12,18,32,0.85)] ring-1 ring-white/5">
-        <div className="grid min-h-[560px] grid-cols-[4.75rem_1fr]">
+        <div className="grid min-h-140 grid-cols-[4.75rem_1fr]">
           <aside className="flex flex-col items-center justify-between border-white/8 border-r px-2 py-3.5">
             <div className="flex w-full flex-col items-center gap-2">
-              <div className="mb-2 flex size-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/75">
+              <div className="mb-2 flex size-7 items-center justify-center rounded-full border border-white/10 bg-white/4 text-white/75">
                 <PanelLeft className="size-3.5" />
               </div>
               {previewNavItems.map((item) => (
@@ -395,7 +342,7 @@ function PreviewShell() {
               </div>
             </div>
 
-            <div className="mt-3 flex min-h-0 flex-1 flex-col rounded-t-[1.4rem] border-white/8 border-t bg-white/[0.02]">
+            <div className="mt-3 flex min-h-0 flex-1 flex-col rounded-t-[1.4rem] border-white/8 border-t bg-white/2">
               <div className="flex items-center justify-between border-white/8 border-b px-4 py-2.5">
                 <div className="flex items-center gap-2 text-[0.86rem] text-white/80">
                   <ChevronDown className="size-4 text-white/50" />
@@ -425,7 +372,7 @@ function PreviewShell() {
               </div>
 
               <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-1.5">
-                <div className="overflow-hidden rounded-[1.25rem] border border-white/8 bg-[#0e1627] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+                <div className="overflow-hidden rounded-4xl border border-white/8 bg-[#0e1627] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
                   <div className="relative">
                     {diffLines.map((line) => (
                       <DiffRow
@@ -439,7 +386,7 @@ function PreviewShell() {
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-[1.25rem] border border-chart-1/25 bg-[#101a2d] px-4 py-3.5 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
+                <div className="mt-3 rounded-4xl border border-chart-1/25 bg-[#101a2d] px-4 py-3.5 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
                   <div className="flex items-start gap-3">
                     <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-[#0d1424]">
                       <GitPalMark className="size-4" />
@@ -463,7 +410,7 @@ function PreviewShell() {
                         <MoreHorizontal className="size-4 text-white/45" />
                       </div>
 
-                      <p className="mt-2.5 max-w-[34rem] text-[0.88rem] text-white/78 leading-[1.35]">
+                      <p className="mt-2.5 max-w-136 text-[0.88rem] text-white/78 leading-[1.35]">
                         Magic links should be one-time use. Consider marking the
                         token as used (or storing a used_at timestamp) when it's
                         consumed to prevent replay attacks.
@@ -472,26 +419,26 @@ function PreviewShell() {
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          className="inline-flex h-8 items-center justify-center rounded-lg border border-white/12 bg-white/[0.03] px-3 font-medium text-[0.84rem] text-white/85 transition hover:bg-white/[0.07]"
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-white/12 bg-white/3 px-3 font-medium text-[0.84rem] text-white/85 transition hover:bg-white/[0.07]"
                         >
                           Reply
                         </button>
                         <button
                           type="button"
-                          className="inline-flex h-8 items-center justify-center rounded-lg border border-white/12 bg-white/[0.03] px-3 font-medium text-[0.84rem] text-white/85 transition hover:bg-white/[0.07]"
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-white/12 bg-white/3 px-3 font-medium text-[0.84rem] text-white/85 transition hover:bg-white/[0.07]"
                         >
                           Apply suggestion
                         </button>
                         <div className="ml-auto flex items-center gap-3 text-white/60">
                           <button
                             type="button"
-                            className="inline-flex size-8 items-center justify-center rounded-lg transition hover:bg-white/[0.05] hover:text-white"
+                            className="inline-flex size-8 items-center justify-center rounded-lg transition hover:bg-white/5 hover:text-white"
                           >
                             <ThumbsUp className="size-4" />
                           </button>
                           <button
                             type="button"
-                            className="inline-flex size-8 items-center justify-center rounded-lg transition hover:bg-white/[0.05] hover:text-white"
+                            className="inline-flex size-8 items-center justify-center rounded-lg transition hover:bg-white/5 hover:text-white"
                           >
                             <ThumbsDown className="size-4" />
                           </button>
@@ -565,12 +512,12 @@ export default function LandingPage() {
   return (
     <main className="relative isolate overflow-hidden bg-background text-foreground selection:bg-chart-1/20">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute top-0 -left-24 h-[34rem] w-[34rem] rounded-full bg-chart-1/8 blur-3xl" />
-        <div className="absolute top-14 right-[-10rem] h-[30rem] w-[30rem] rounded-full bg-chart-4/6 blur-3xl" />
-        <div className="absolute bottom-[-8rem] left-1/2 h-[20rem] w-[42rem] -translate-x-1/2 rounded-full bg-secondary/35 blur-3xl" />
+        <div className="absolute top-0 -left-24 h-136 w-136 rounded-full bg-chart-1/8 blur-3xl" />
+        <div className="absolute top-14 -right-40 h-120 w-120 rounded-full bg-chart-4/6 blur-3xl" />
+        <div className="absolute -bottom-32 left-1/2 h-80 w-2xl -translate-x-1/2 rounded-full bg-secondary/35 blur-3xl" />
       </div>
 
-      <header className="mx-auto grid max-w-[1180px] grid-cols-[auto_1fr_auto] items-center gap-6 px-6 pt-6 pb-0 sm:px-8 lg:px-10">
+      <header className="mx-auto grid max-w-295 grid-cols-[auto_1fr_auto] items-center gap-6 px-6 pt-6 pb-0 sm:px-8 lg:px-10">
         <Link href="/" className="flex items-center gap-3">
           <GitPalMark className="size-9 text-foreground md:size-10" />
           <span className="font-semibold text-[1.45rem] tracking-[-0.04em]">
@@ -601,14 +548,14 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-[1180px] gap-14 px-6 pt-14 pb-20 sm:px-8 md:grid-cols-[0.8fr_1.2fr] md:items-start md:gap-10 md:px-8 md:pt-20 md:pb-24 lg:px-10">
-        <div className="flex max-w-[31rem] flex-col gap-8 md:pt-16">
+      <section className="mx-auto grid max-w-295 gap-14 px-6 pt-14 pb-20 sm:px-8 md:grid-cols-[0.8fr_1.2fr] md:items-start md:gap-10 md:px-8 md:pt-20 md:pb-24 lg:px-10">
+        <div className="flex max-w-124 flex-col gap-8 md:pt-16">
           <div className="space-y-6">
             <h1 className="max-w-[11.1ch] text-balance font-heading text-[clamp(3.25rem,5.8vw,5.75rem)] text-foreground leading-[0.92] tracking-[-0.06em]">
               Code reviews, elevated by{" "}
               <span className="text-chart-1">AI.</span>
             </h1>
-            <p className="max-w-[26rem] text-balance text-[1.05rem] text-muted-foreground leading-8 sm:text-[1.15rem]">
+            <p className="max-w-104 text-balance text-[1.05rem] text-muted-foreground leading-8 sm:text-[1.15rem]">
               GitPal is an AI code review assistant that helps your team ship
               higher quality code, faster. Get insightful feedback, catch issues
               early, and keep your standards consistent.
@@ -654,18 +601,9 @@ export default function LandingPage() {
         <PreviewShell />
       </section>
 
-      <section className="mx-auto max-w-[1180px] px-6 pb-8 sm:px-8 lg:px-10">
-        <div className="flex flex-col gap-7 border-y-0 py-0">
-          <p className="text-center font-semibold text-[0.72rem] text-foreground/45 uppercase tracking-[0.35em]">
-            Trusted by engineering teams
-          </p>
-          <TrustLogoRow />
-        </div>
-      </section>
-
       <section
         id="features"
-        className="mx-auto max-w-[1180px] px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20 lg:pb-12"
+        className="mx-auto max-w-295 px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20 lg:pb-12"
       >
         <SectionHeading title="Built for modern teams" className="max-w-4xl" />
 
@@ -678,7 +616,7 @@ export default function LandingPage() {
 
       <section
         id="workflow"
-        className="mx-auto max-w-[1180px] px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20 lg:pb-12"
+        className="mx-auto max-w-295 px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20 lg:pb-12"
       >
         <SectionHeading title="How GitPal works" className="max-w-4xl" />
 
@@ -697,17 +635,17 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-[1180px] px-6 pt-16 pb-6 sm:px-8 lg:px-10 lg:pt-20 lg:pb-10">
+      <section className="mx-auto max-w-295 px-6 pt-16 pb-6 sm:px-8 lg:px-10 lg:pt-20 lg:pb-10">
         <div className="relative overflow-hidden rounded-[1.85rem] bg-[linear-gradient(135deg,#0a1120_0%,#101b34_54%,#0a1020_100%)] px-6 py-12 text-white shadow-[0_32px_80px_-34px_rgba(10,16,32,0.9)] sm:px-8 md:px-10 md:py-14">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_120%,rgba(73,109,255,0.4),transparent_28%),radial-gradient(circle_at_14%_16%,rgba(255,255,255,0.06),transparent_26%)]" />
           <div className="relative grid gap-8 md:grid-cols-[1.08fr_0.92fr] md:items-center">
             <div className="space-y-5">
-              <h2 className="font-heading text-[clamp(2.4rem,3.8vw,4rem)] text-white leading-[0.96] tracking-[-0.05em]">
+              <h2 className="font-heading text-[clamp(2.4rem,3.8vw,4rem)] text-white leading-[0.96] tracking-tighter">
                 Better reviews.
                 <br />
                 <span className="text-chart-1">Better code.</span>
               </h2>
-              <p className="max-w-[34rem] text-[0.98rem] text-white/72 leading-7 sm:text-[1rem]">
+              <p className="max-w-136 text-[0.98rem] text-white/72 leading-7 sm:text-[1rem]">
                 Join thousands of developers shipping with confidence.
               </p>
             </div>
@@ -720,7 +658,7 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-          <div className="pointer-events-none absolute right-[-4rem] bottom-[-4rem] h-48 w-72 rounded-full bg-chart-1/20 blur-3xl" />
+          <div className="pointer-events-none absolute -right-16 -bottom-16 h-48 w-72 rounded-full bg-chart-1/20 blur-3xl" />
         </div>
       </section>
     </main>

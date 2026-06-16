@@ -1414,7 +1414,7 @@ async function ensureRepositoryWebhookSubscription({
 	};
 }
 
-export async function ensureRepositoryWebhooksForUser({
+export async function syncRepositoryWebhooksForUser({
 	userId,
 	organizationId,
 	repositoryId,
@@ -1528,6 +1528,8 @@ export async function ensureRepositoryWebhooksForUser({
 
 	return result;
 }
+
+export const ensureRepositoryWebhooksForUser = syncRepositoryWebhooksForUser;
 
 export async function receiveProviderWebhook({
 	providerId,

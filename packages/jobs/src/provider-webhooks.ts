@@ -1,17 +1,23 @@
 import { env } from "@gitpal/env/server";
 import { createLogger } from "@gitpal/logger";
-import { closeRedis, createRedis, type Redis } from "@gitpal/redis";
+import { closeRedis, type Redis } from "@gitpal/redis";
 import {
-	type ConnectionOptions,
 	type Job,
 	type JobsOptions,
-	Queue,
+	type Queue,
 	Worker,
 	type WorkerOptions,
 } from "bullmq";
 import { z } from "zod";
+import {
+	buildBullMqJobId,
+	closeBullMqQueue,
+	createBullMqQueue,
+	createBullMqWorkerConnection,
+	toBullMqConnection,
+} from "./bullmq";
 
-export const queueNames = {
+export const providerWebhookQueueNames = {
 	providerWebhooks: "provider-webhooks",
 } as const;
 
@@ -47,37 +53,8 @@ export type ProviderWebhookWorkerHandle = {
 const log = createLogger("jobs");
 let providerWebhookQueueHandle: ProviderWebhookQueueHandle | null = null;
 
-function createProducerConnection() {
-	return createRedis({
-		maxRetriesPerRequest: env.GITPAL_QUEUE_PRODUCER_MAX_RETRIES_PER_REQUEST,
-	});
-}
-
-function createWorkerConnection() {
-	return createRedis({
-		maxRetriesPerRequest: null,
-	});
-}
-
-function toBullMqConnection(connection: Redis): ConnectionOptions {
-	return connection as unknown as ConnectionOptions;
-}
-
-function getDefaultJobOptions(): JobsOptions {
-	return {
-		attempts: env.GITPAL_QUEUE_JOB_ATTEMPTS,
-		backoff: {
-			type: "exponential",
-			delay: env.GITPAL_QUEUE_JOB_BACKOFF_MS,
-			jitter: 0.2,
-		},
-		removeOnComplete: env.GITPAL_QUEUE_REMOVE_ON_COMPLETE,
-		removeOnFail: env.GITPAL_QUEUE_REMOVE_ON_FAIL,
-	};
-}
-
 function buildProviderWebhookJobId(data: ProviderWebhookJobData) {
-	return data.receiptId;
+	return buildBullMqJobId(["provider-webhook-receipt", data.receiptId]);
 }
 
 export function getProviderWebhookQueue() {
@@ -85,33 +62,22 @@ export function getProviderWebhookQueue() {
 		return providerWebhookQueueHandle.queue;
 	}
 
-	const connection = createProducerConnection();
-	const queue = new Queue<ProviderWebhookJobData>(queueNames.providerWebhooks, {
-		connection: toBullMqConnection(connection),
-		defaultJobOptions: getDefaultJobOptions(),
-		prefix: env.GITPAL_QUEUE_PREFIX,
-	});
+	const handle = createBullMqQueue<ProviderWebhookJobData>(
+		providerWebhookQueueNames.providerWebhooks,
+	);
 
 	providerWebhookQueueHandle = {
-		connection,
-		queue,
+		connection: handle.connection,
+		queue: handle.queue,
 	};
 
-	return queue;
+	return handle.queue;
 }
 
 export async function closeProviderWebhookQueue() {
-	if (!providerWebhookQueueHandle) {
-		return;
-	}
-
 	const handle = providerWebhookQueueHandle;
 	providerWebhookQueueHandle = null;
-	try {
-		await handle.queue.close();
-	} finally {
-		await closeRedis(handle.connection);
-	}
+	await closeBullMqQueue(handle);
 }
 
 export async function enqueueProviderWebhookReceiptJob(
@@ -131,7 +97,7 @@ export function createProviderWebhookWorker(
 	processor: ProviderWebhookWorkerProcessor,
 	options?: Partial<Pick<WorkerOptions, "concurrency">>,
 ): ProviderWebhookWorkerHandle {
-	const connection = createWorkerConnection();
+	const connection = createBullMqWorkerConnection();
 	const limiter =
 		env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX > 0
 			? {
@@ -140,7 +106,7 @@ export function createProviderWebhookWorker(
 				}
 			: undefined;
 	const worker = new Worker<ProviderWebhookJobData, void>(
-		queueNames.providerWebhooks,
+		providerWebhookQueueNames.providerWebhooks,
 		async (job) => {
 			const data = providerWebhookJobSchema.parse(job.data);
 			await processor(data, job);

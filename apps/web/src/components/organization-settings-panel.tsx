@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Badge } from "@gitpal/ui/components/badge";
 import {
 	Card,
@@ -9,20 +8,22 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@gitpal/ui/components/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@gitpal/ui/components/empty";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
-
-import { queryClient, trpc } from "@/utils/trpc";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "@gitpal/ui/components/empty";
 import type { WorkspaceSettings } from "@gitpal/utils";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import * as React from "react";
+import { toast } from "sonner";
+import { queryClient, trpc } from "@/utils/trpc";
 
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { SettingsChangeDock } from "./settings-change-dock";
 import { WorkspaceSettingsForm } from "./workspace-settings-form";
-
-function settingsLabel(name: string) {
-	return name.trim().toLowerCase();
-}
+import { formatWorkspaceSlug } from "./workspace-slug";
 
 export function OrganizationSettingsPanel() {
 	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
@@ -32,10 +33,11 @@ export function OrganizationSettingsPanel() {
 		}),
 		enabled: Boolean(activeWorkspaceId),
 	});
-	const [settings, setSettings] = React.useState<WorkspaceSettings | null>(null);
-	const [savedSettings, setSavedSettings] = React.useState<WorkspaceSettings | null>(
+	const [settings, setSettings] = React.useState<WorkspaceSettings | null>(
 		null,
 	);
+	const [savedSettings, setSavedSettings] =
+		React.useState<WorkspaceSettings | null>(null);
 
 	React.useEffect(() => {
 		if (organizationSettingsQuery.data?.settings) {
@@ -54,7 +56,16 @@ export function OrganizationSettingsPanel() {
 						organizationId: activeWorkspaceId ?? undefined,
 					}),
 				});
-				toast.success("Workspace defaults updated.");
+				if (data.webhookSync.queued) {
+					toast.success("Workspace defaults updated. Webhook refresh queued.");
+					return;
+				}
+
+				toast.error(
+					data.webhookSync.error
+						? `Workspace defaults updated, but webhook refresh could not be queued: ${data.webhookSync.error}`
+						: "Workspace defaults updated, but webhook refresh could not be queued.",
+				);
 			},
 		}),
 	);
@@ -108,11 +119,12 @@ export function OrganizationSettingsPanel() {
 						<div className="space-y-1">
 							<CardTitle>{activeWorkspace.name}</CardTitle>
 							<CardDescription>
-								Workspace defaults for repositories that inherit shared review behavior.
+								Workspace defaults for repositories that inherit shared review
+								behavior.
 							</CardDescription>
 						</div>
 						<Badge variant="outline" className="w-fit">
-							{settingsLabel(activeWorkspace.slug)}
+							{formatWorkspaceSlug(activeWorkspace.slug)}
 						</Badge>
 					</div>
 				</CardHeader>

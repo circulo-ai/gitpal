@@ -1,28 +1,27 @@
+import { workspaceSettingsSchema } from "@gitpal/utils";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-
+import {
+	protectedMutationProcedure,
+	protectedProcedure,
+	router,
+} from "../index";
 import { requireOrganizationPermission } from "../services/organization-access";
 import {
 	addRepositoryForUser,
 	ensureRepositoriesSyncedForUser,
-	listRepositoryProvidersForUser,
 	listRepositoriesForUser,
+	listRepositoryProvidersForUser,
 	listWorkspacesForUser,
 	setRepositoryEnabledForUser,
 } from "../services/repository-sync";
+import { queueRepositoryWebhookSyncForUser } from "../services/repository-webhook-sync";
 import {
 	getOrganizationWorkspaceSettings,
 	getRepositoryWorkspaceSettings,
 	saveOrganizationWorkspaceSettings,
 	saveRepositoryWorkspaceSettings,
 } from "../services/workspace-settings";
-import { ensureRepositoryWebhooksForUser } from "../services/repository-webhooks";
-import {
-	protectedMutationProcedure,
-	protectedProcedure,
-	router,
-} from "../index";
-import { workspaceSettingsSchema } from "@gitpal/utils";
 
 const organizationScopeSchema = z.object({
 	organizationId: z.string().min(1).optional(),
@@ -59,7 +58,9 @@ export const repositoriesRouter = router({
 		.input(organizationScopeSchema.optional())
 		.query(async ({ ctx, input }) => {
 			const organizationId =
-				input?.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input?.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (organizationId) {
 				await requireOrganizationPermission({
@@ -77,10 +78,10 @@ export const repositoriesRouter = router({
 			});
 		}),
 	providers: protectedProcedure.query(async ({ ctx }) => {
-			return listRepositoryProvidersForUser({
-				userId: ctx.session.user.id,
-			});
-		}),
+		return listRepositoryProvidersForUser({
+			userId: ctx.session.user.id,
+		});
+	}),
 	workspaces: protectedProcedure.query(async ({ ctx }) => {
 		return listWorkspacesForUser({
 			userId: ctx.session.user.id,
@@ -90,26 +91,31 @@ export const repositoriesRouter = router({
 		const sync = await ensureRepositoriesSyncedForUser({
 			userId: ctx.session.user.id,
 		});
-		const webhooks = await ensureRepositoryWebhooksForUser({
+		const webhookSync = await queueRepositoryWebhookSyncForUser({
 			userId: ctx.session.user.id,
+			reason: "sync",
 		});
 
 		return {
 			...sync,
-			webhooks,
+			webhookSync,
 		};
 	}),
 	syncWebhooks: protectedMutationProcedure
 		.input(
-			organizationScopeSchema.merge(
-				z.object({
-					repositoryId: z.string().min(1).optional(),
-				}),
-			).optional(),
+			organizationScopeSchema
+				.merge(
+					z.object({
+						repositoryId: z.string().min(1).optional(),
+					}),
+				)
+				.optional(),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =
-				input?.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input?.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (organizationId) {
 				await requireOrganizationPermission({
@@ -121,12 +127,13 @@ export const repositoriesRouter = router({
 				});
 			}
 
-			return ensureRepositoryWebhooksForUser({
+			return queueRepositoryWebhookSyncForUser({
 				userId: ctx.session.user.id,
 				organizationId,
 				repositoryId: input?.repositoryId,
+				reason: "sync",
 			});
-	}),
+		}),
 	addRepository: protectedMutationProcedure
 		.input(repositoryAddSchema)
 		.mutation(async ({ ctx, input }) => {
@@ -161,19 +168,25 @@ export const repositoriesRouter = router({
 				});
 			}
 
-			await ensureRepositoryWebhooksForUser({
+			const webhookSync = await queueRepositoryWebhookSyncForUser({
 				userId: ctx.session.user.id,
 				organizationId: repository.organizationId,
 				repositoryId: repository.repositoryId,
+				reason: "repository-added",
 			});
 
-			return repository;
+			return {
+				repository,
+				webhookSync,
+			};
 		}),
 	toggleEnabled: protectedMutationProcedure
 		.input(repositoryToggleSchema)
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =
-				input.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (!organizationId) {
 				throw new TRPCError({
@@ -204,24 +217,28 @@ export const repositoriesRouter = router({
 				});
 			}
 
-			if (input.enabled) {
-				await ensureRepositoryWebhooksForUser({
-					userId: ctx.session.user.id,
-					organizationId,
-					repositoryId: input.repositoryId,
-				});
-			}
+			const webhookSync = input.enabled
+				? await queueRepositoryWebhookSyncForUser({
+						userId: ctx.session.user.id,
+						organizationId,
+						repositoryId: input.repositoryId,
+						reason: "repository-enabled",
+					})
+				: null;
 
 			return {
 				id: repository.repositoryId,
 				enabled: repository.enabled,
+				webhookSync,
 			};
 		}),
 	getOrganizationSettings: protectedProcedure
 		.input(organizationScopeSchema.optional())
 		.query(async ({ ctx, input }) => {
 			const organizationId =
-				input?.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input?.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (!organizationId) {
 				throw new TRPCError({
@@ -246,7 +263,9 @@ export const repositoriesRouter = router({
 		.input(organizationScopeSchema.merge(organizationSettingsUpdateSchema))
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =
-				input.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (!organizationId) {
 				throw new TRPCError({
@@ -268,20 +287,24 @@ export const repositoriesRouter = router({
 				settings: input.settings,
 			});
 
-			await ensureRepositoryWebhooksForUser({
+			const webhookSync = await queueRepositoryWebhookSyncForUser({
 				userId: ctx.session.user.id,
 				organizationId,
+				reason: "organization-settings-updated",
 			});
 
 			return {
 				settings,
+				webhookSync,
 			};
 		}),
 	getRepositorySettings: protectedProcedure
 		.input(organizationScopeSchema.merge(repositorySettingsQuerySchema))
 		.query(async ({ ctx, input }) => {
 			const organizationId =
-				input.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (!organizationId) {
 				throw new TRPCError({
@@ -308,7 +331,9 @@ export const repositoriesRouter = router({
 		.input(organizationScopeSchema.merge(repositorySettingsUpdateSchema))
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =
-				input.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+				input.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
 
 			if (!organizationId) {
 				throw new TRPCError({
@@ -332,15 +357,17 @@ export const repositoriesRouter = router({
 				settings: input.settings,
 			});
 
-			await ensureRepositoryWebhooksForUser({
+			const webhookSync = await queueRepositoryWebhookSyncForUser({
 				userId: ctx.session.user.id,
 				organizationId,
 				repositoryId: input.repositoryId,
+				reason: "repository-settings-updated",
 			});
 
 			return {
 				settings: saved.settings,
 				useOrganizationSettings: saved.useOrganizationSettings,
+				webhookSync,
 			};
 		}),
 });

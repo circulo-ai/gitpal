@@ -3,11 +3,10 @@
 	"type": "module",
 	"main": "src/index.ts",
 	"scripts": {
-		"build": "workflow build && tsdown",
-		"check-types": "workflow build && tsc -b",
-		"compile": "workflow build && bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
-		"dev": "bun run src/index.ts",
-		"workflow:build": "workflow build",
+		"build": "tsdown",
+		"check-types": "tsc -b",
+		"compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
+		"dev": "bun run --hot src/index.ts",
 		"start": "bun run dist/index.mjs"
 	},
 	"dependencies": {
@@ -16,15 +15,12 @@
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
 		"@gitpal/logger": "workspace:*",
-		"@workflow-worlds/redis": "catalog:",
-		"@workflow/ai": "catalog:",
 		"@hono/trpc-server": "^0.4.0",
 		"@trpc/server": "catalog:",
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",
 		"ai": "catalog:",
 		"hono": "catalog:",
-		"workflow": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

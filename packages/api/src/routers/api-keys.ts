@@ -16,7 +16,11 @@ import {
 	saveByokRoutingSettingsForUser,
 	deleteByokKeyForUser,
 } from "../services/llm-credentials";
-import { protectedProcedure, router } from "../index";
+import {
+	protectedMutationProcedure,
+	protectedProcedure,
+	router,
+} from "../index";
 import {
 	byokProviderKeySchema,
 	byokRoutingSettingsSchema,
@@ -46,7 +50,7 @@ export const apiKeysRouter = router({
 		list: protectedProcedure.query(async ({ ctx }) => {
 			return listAppApiKeysForUser(ctx.session.user.id);
 		}),
-		create: protectedProcedure
+		create: protectedMutationProcedure
 			.input(appApiKeyCreateSchema)
 			.mutation(async ({ ctx, input }) => {
 				return createAppApiKeyForUser({
@@ -57,7 +61,7 @@ export const apiKeysRouter = router({
 						: null,
 				});
 			}),
-		update: protectedProcedure
+		update: protectedMutationProcedure
 			.input(appApiKeyUpdateSchema)
 			.mutation(async ({ ctx, input }) => {
 				return updateAppApiKeyForUser({
@@ -67,7 +71,7 @@ export const apiKeysRouter = router({
 					enabled: input.enabled,
 				});
 			}),
-		delete: protectedProcedure
+		delete: protectedMutationProcedure
 			.input(deleteSchema)
 			.mutation(async ({ ctx, input }) => {
 				const deleted = await deleteAppApiKeyForUser({
@@ -94,7 +98,7 @@ export const apiKeysRouter = router({
 		list: protectedProcedure.query(async ({ ctx }) => {
 			return listByokKeysForUser(ctx.session.user.id);
 		}),
-		save: protectedProcedure
+		save: protectedMutationProcedure
 			.input(byokProviderKeySchema)
 			.mutation(async ({ ctx, input }) => {
 				return saveByokKeyForUser({
@@ -102,7 +106,7 @@ export const apiKeysRouter = router({
 					input,
 				});
 			}),
-		delete: protectedProcedure
+		delete: protectedMutationProcedure
 			.input(deleteSchema)
 			.mutation(async ({ ctx, input }) => {
 				const deleted = await deleteByokKeyForUser({
@@ -124,7 +128,7 @@ export const apiKeysRouter = router({
 		getRouting: protectedProcedure.query(async ({ ctx }) => {
 			return getByokRoutingSettingsForUser(ctx.session.user.id);
 		}),
-		updateRouting: protectedProcedure
+		updateRouting: protectedMutationProcedure
 			.input(byokRoutingSettingsSchema)
 			.mutation(async ({ ctx, input }) => {
 				return saveByokRoutingSettingsForUser({

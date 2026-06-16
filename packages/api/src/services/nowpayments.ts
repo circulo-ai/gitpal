@@ -1,46 +1,24 @@
-import { createHmac } from "node:crypto";
+import {
+	APIError,
+	ConfigurationError,
+	NetworkError,
+	NowPaymentsSDK,
+	ValidationError,
+	type CheckoutSession,
+	type Payment,
+	type PaymentStatus,
+} from "@nowpaymentsio/nowpayments-sdk-nodejs";
 import { env } from "@gitpal/env/server";
 
-export type NowPaymentsInvoice = {
-	id: string;
-	order_id: string | null;
-	order_description: string | null;
-	price_amount: string;
-	price_currency: string;
-	pay_currency: string | null;
-	ipn_callback_url: string | null;
-	invoice_url: string;
-	success_url: string | null;
-	cancel_url: string | null;
-	partially_paid_url?: string | null;
-	created_at: string;
-	updated_at: string;
-};
+export { ValidationError as NowPaymentsValidationError } from "@nowpaymentsio/nowpayments-sdk-nodejs";
 
-export type NowPaymentsWebhookPayload = {
-	payment_id?: string | number | null;
-	invoice_id?: string | number | null;
-	payment_status?: string | null;
-	pay_address?: string | null;
-	payin_extra_id?: string | number | null;
-	price_amount?: number | string | null;
-	price_currency?: string | null;
-	pay_amount?: number | string | null;
-	actually_paid?: number | string | null;
-	pay_currency?: string | null;
-	order_id?: string | null;
-	order_description?: string | null;
-	purchase_id?: string | number | null;
-	outcome_amount?: number | string | null;
-	outcome_currency?: string | null;
-	payout_hash?: string | null;
-	payin_hash?: string | null;
-	created_at?: string | null;
-	updated_at?: string | null;
-	[key: string]: unknown;
-};
+export type NowPaymentsCheckout = CheckoutSession;
+export type NowPaymentsWebhookPayment = Payment;
+export type NowPaymentsWebhookEvent = ReturnType<
+	NowPaymentsSDK["parseWebhook"]
+>;
 
-type CreateInvoiceInput = {
+type CreateCheckoutInput = {
 	priceAmountUsd: number;
 	orderId: string;
 	orderDescription: string;
@@ -50,86 +28,139 @@ type CreateInvoiceInput = {
 	partiallyPaidUrl: string;
 };
 
-function requireNowPaymentsApiKey() {
+const NOWPAYMENTS_RETRYABLE_HTTP_STATUSES = new Set([
+	408,
+	425,
+	429,
+	500,
+	502,
+	503,
+	504,
+]);
+
+let checkoutSdk: NowPaymentsSDK | null = null;
+let webhookSdk: NowPaymentsSDK | null = null;
+
+function createSdk() {
+	return new NowPaymentsSDK({
+		apiKey: env.NOWPAYMENTS_API_KEY ?? undefined,
+		ipnSecret: env.NOWPAYMENTS_IPN_SECRET ?? undefined,
+		baseUrl: env.NOWPAYMENTS_API_BASE_URL,
+		timeoutMs: 15_000,
+		userAgent: "GitPal",
+	});
+}
+
+function getCheckoutSdk() {
 	if (!env.NOWPAYMENTS_API_KEY) {
 		throw new Error("NOWPayments API key is not configured.");
 	}
 
-	return env.NOWPAYMENTS_API_KEY;
-}
-
-function getNowPaymentsApiUrl(path: string) {
-	return `${env.NOWPAYMENTS_API_BASE_URL.replace(/\/+$/, "")}${path}`;
-}
-
-function sortObject(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map((item) => sortObject(item));
+	if (!env.NOWPAYMENTS_IPN_SECRET) {
+		throw new Error("NOWPayments IPN secret is not configured.");
 	}
 
-	if (value && typeof value === "object") {
-		return Object.keys(value as Record<string, unknown>)
-			.sort()
-			.reduce<Record<string, unknown>>((result, key) => {
-				result[key] = sortObject((value as Record<string, unknown>)[key]);
-				return result;
-			}, {});
-	}
-
-	return value;
+	checkoutSdk ??= createSdk();
+	return checkoutSdk;
 }
 
-export function verifyNowPaymentsSignature({
+function getWebhookSdk() {
+	if (!env.NOWPAYMENTS_IPN_SECRET) {
+		throw new Error("NOWPayments IPN secret is not configured.");
+	}
+
+	webhookSdk ??= createSdk();
+	return webhookSdk;
+}
+
+function isRetryableNowPaymentsError(error: unknown) {
+	if (error instanceof NetworkError) {
+		return true;
+	}
+
+	if (error instanceof APIError && typeof error.httpStatus === "number") {
+		return NOWPAYMENTS_RETRYABLE_HTTP_STATUSES.has(error.httpStatus);
+	}
+
+	return false;
+}
+
+async function withNowPaymentsRetry<T>(
+	operation: () => Promise<T>,
+	operationName: string,
+) {
+	const maxAttempts = 3;
+	let lastError: unknown = null;
+
+	for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+		try {
+			return await operation();
+		} catch (error) {
+			lastError = error;
+
+			if (
+				error instanceof ConfigurationError ||
+				error instanceof ValidationError ||
+				!isRetryableNowPaymentsError(error) ||
+				attempt === maxAttempts - 1
+			) {
+				throw error;
+			}
+
+			const backoffMs = Math.min(250 * 2 ** attempt, 2_000);
+			const jitterMs = Math.round(Math.random() * 125);
+
+			await new Promise((resolve) => {
+				setTimeout(resolve, backoffMs + jitterMs);
+			});
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error(`NOWPayments ${operationName} failed.`);
+}
+
+export function isNowPaymentsCheckoutEnabled() {
+	return Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET);
+}
+
+export function isNowPaymentsWebhookEnabled() {
+	return Boolean(env.NOWPAYMENTS_IPN_SECRET);
+}
+
+export function parseNowPaymentsWebhook({
 	rawBody,
 	signature,
 }: {
 	rawBody: string;
 	signature: string | null;
-}) {
-	if (!env.NOWPAYMENTS_IPN_SECRET) {
-		throw new Error("NOWPayments IPN secret is not configured.");
-	}
-
-	if (!signature) {
-		return false;
-	}
-
-	const payload = JSON.parse(rawBody) as unknown;
-	const normalized = JSON.stringify(sortObject(payload));
-	const digest = createHmac("sha512", env.NOWPAYMENTS_IPN_SECRET)
-		.update(normalized)
-		.digest("hex");
-
-	return digest === signature;
+}): NowPaymentsWebhookEvent {
+	const payload = JSON.parse(rawBody) as Record<string, unknown>;
+	return getWebhookSdk().parseWebhook(payload, signature ?? undefined);
 }
 
-export async function createNowPaymentsInvoice(
-	input: CreateInvoiceInput,
-): Promise<NowPaymentsInvoice> {
-	const response = await fetch(getNowPaymentsApiUrl("/v1/invoice"), {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-api-key": requireNowPaymentsApiKey(),
-		},
-		body: JSON.stringify({
-			price_amount: Number(input.priceAmountUsd.toFixed(2)),
-			price_currency: "usd",
-			order_id: input.orderId,
-			order_description: input.orderDescription,
-			ipn_callback_url: input.ipnCallbackUrl,
-			success_url: input.successUrl,
-			cancel_url: input.cancelUrl,
-			partially_paid_url: input.partiallyPaidUrl,
-		}),
-	});
+export async function createNowPaymentsCheckout(
+	input: CreateCheckoutInput,
+): Promise<NowPaymentsCheckout> {
+	const sdk = getCheckoutSdk();
 
-	if (!response.ok) {
-		const message = await response.text().catch(() => "");
-		throw new Error(
-			message || `NOWPayments invoice creation failed with ${response.status}.`,
-		);
-	}
+	return withNowPaymentsRetry(
+		() =>
+			sdk.createCheckout({
+				amount: Number(input.priceAmountUsd.toFixed(2)),
+				currency: "usd",
+				orderId: input.orderId,
+				description: input.orderDescription,
+				ipnCallbackUrl: input.ipnCallbackUrl,
+				successUrl: input.successUrl,
+				cancelUrl: input.cancelUrl,
+				partiallyPaidUrl: input.partiallyPaidUrl,
+			}),
+		"checkout creation",
+	);
+}
 
-	return (await response.json()) as NowPaymentsInvoice;
+export function normalizeNowPaymentsStatus(status: PaymentStatus | null) {
+	return status ?? "unknown";
 }

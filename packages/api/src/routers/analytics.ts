@@ -3,7 +3,11 @@ import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { inArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { protectedProcedure, router } from "../index";
+import {
+	protectedMutationProcedure,
+	protectedProcedure,
+	router,
+} from "../index";
 import {
 	listRepositoriesForUser,
 	type RepositorySummary,
@@ -1446,7 +1450,7 @@ export const analyticsRouter = router({
 			);
 			return buildPayload(input.view, analyticsContext);
 		}),
-	exportReviewMetrics: protectedProcedure
+	exportReviewMetrics: protectedMutationProcedure
 		.input(dashboardFiltersSchema)
 		.mutation(async ({ ctx, input }) => {
 			const analyticsContext = await loadAnalyticsContext(

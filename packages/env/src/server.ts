@@ -8,6 +8,10 @@ export const env = createEnv({
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		CORS_ORIGIN: z.url(),
+		NEXT_PUBLIC_SERVER_URL: z.url(),
+		LOG_LEVEL: z
+			.enum(["fatal", "error", "warn", "info", "debug", "trace"])
+			.default("info"),
 		PORT: z.coerce.number().int().positive().default(3000),
 		REDIS_URL: z.url().default("redis://localhost:6379"),
 		WORKFLOW_REDIS_URI: z.url().default("redis://localhost:6379"),

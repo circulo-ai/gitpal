@@ -17,7 +17,11 @@ import {
 	saveRepositoryWorkspaceSettings,
 } from "../services/workspace-settings";
 import { ensureRepositoryWebhooksForUser } from "../services/repository-webhooks";
-import { protectedProcedure, router } from "../index";
+import {
+	protectedMutationProcedure,
+	protectedProcedure,
+	router,
+} from "../index";
 import { workspaceSettingsSchema } from "@gitpal/utils";
 
 const organizationScopeSchema = z.object({
@@ -82,7 +86,7 @@ export const repositoriesRouter = router({
 			userId: ctx.session.user.id,
 		});
 	}),
-	sync: protectedProcedure.mutation(async ({ ctx }) => {
+	sync: protectedMutationProcedure.mutation(async ({ ctx }) => {
 		const sync = await ensureRepositoriesSyncedForUser({
 			userId: ctx.session.user.id,
 		});
@@ -95,7 +99,7 @@ export const repositoriesRouter = router({
 			webhooks,
 		};
 	}),
-	syncWebhooks: protectedProcedure
+	syncWebhooks: protectedMutationProcedure
 		.input(
 			organizationScopeSchema.merge(
 				z.object({
@@ -123,7 +127,7 @@ export const repositoriesRouter = router({
 				repositoryId: input?.repositoryId,
 			});
 	}),
-	addRepository: protectedProcedure
+	addRepository: protectedMutationProcedure
 		.input(repositoryAddSchema)
 		.mutation(async ({ ctx, input }) => {
 			const organizationId = ctx.session.session.activeOrganizationId;
@@ -165,7 +169,7 @@ export const repositoriesRouter = router({
 
 			return repository;
 		}),
-	toggleEnabled: protectedProcedure
+	toggleEnabled: protectedMutationProcedure
 		.input(repositoryToggleSchema)
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =
@@ -238,7 +242,7 @@ export const repositoriesRouter = router({
 				settings: await getOrganizationWorkspaceSettings(organizationId),
 			};
 		}),
-	updateOrganizationSettings: protectedProcedure
+	updateOrganizationSettings: protectedMutationProcedure
 		.input(organizationScopeSchema.merge(organizationSettingsUpdateSchema))
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =
@@ -300,7 +304,7 @@ export const repositoriesRouter = router({
 				userId: ctx.session.user.id,
 			});
 		}),
-	updateRepositorySettings: protectedProcedure
+	updateRepositorySettings: protectedMutationProcedure
 		.input(organizationScopeSchema.merge(repositorySettingsUpdateSchema))
 		.mutation(async ({ ctx, input }) => {
 			const organizationId =

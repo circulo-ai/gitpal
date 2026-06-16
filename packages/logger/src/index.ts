@@ -1,38 +1,8 @@
+import { env } from "@gitpal/env/server";
 import pino, { type Logger, type LoggerOptions } from "pino";
 
-// ─────────────────────────────────────────────────────────────────
-// Log Level
-// ─────────────────────────────────────────────────────────────────
-
-type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace";
-
-const LOG_LEVELS: LogLevel[] = [
-	"fatal",
-	"error",
-	"warn",
-	"info",
-	"debug",
-	"trace",
-];
-
-function resolveLogLevel(value: unknown): LogLevel {
-	if (typeof value !== "string") return "info";
-	const normalized = value.trim().toLowerCase();
-	if (LOG_LEVELS.includes(normalized as LogLevel)) {
-		return normalized as LogLevel;
-	}
-	return "info";
-}
-
-function resolveNodeEnv(value: unknown): "development" | "production" | "test" {
-	if (value === "production" || value === "test" || value === "development") {
-		return value;
-	}
-	return "production";
-}
-
-const LOG_LEVEL = resolveLogLevel(process.env.LOG_LEVEL);
-const NODE_ENV = resolveNodeEnv(process.env.NODE_ENV);
+const NODE_ENV = env.NODE_ENV;
+const LOG_LEVEL = env.LOG_LEVEL;
 const IS_DEV = NODE_ENV !== "production";
 const IS_NEXT =
 	typeof (globalThis as Record<string, unknown>).__NEXT_DATA__ !==

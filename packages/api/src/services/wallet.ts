@@ -5,16 +5,19 @@ import { env } from "@gitpal/env/server";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 
 import {
-	createNowPaymentsInvoice,
-	type NowPaymentsWebhookPayload,
+	createNowPaymentsCheckout,
+	isNowPaymentsCheckoutEnabled,
+	normalizeNowPaymentsStatus,
+	type NowPaymentsWebhookPayment,
 } from "./nowpayments";
 
 const db = createDb();
-const TOPUP_FINAL_STATUSES = new Set(["finished"]);
+const TOPUP_FINAL_STATUSES = new Set(["paid"]);
 const TOPUP_FAILURE_STATUSES = new Set([
 	"failed",
 	"refunded",
 	"expired",
+	"cancelled",
 ]);
 
 export type WalletSummary = {
@@ -132,13 +135,10 @@ export async function getWalletSummaryForUser(userId: string): Promise<WalletSum
 		totalRevenueCents: wallet.totalRevenueCents,
 		totalSpentCents: wallet.totalSpentCents,
 		revenueSharePercent: env.GITPAL_WALLET_REVENUE_SHARE_PERCENT,
-		checkoutEnabled: Boolean(
-			env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET,
-		),
-		checkoutDisabledReason:
-			env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET
-				? null
-				: "Wallet top-ups are not available until NOWPayments is configured.",
+		checkoutEnabled: isNowPaymentsCheckoutEnabled(),
+		checkoutDisabledReason: isNowPaymentsCheckoutEnabled()
+			? null
+			: "Wallet top-ups are not available until NOWPayments is configured.",
 		recentTopups: topups.map((topup) => ({
 			id: topup.id,
 			status: topup.status,
@@ -168,7 +168,7 @@ export async function createWalletTopupForUser({
 	userId: string;
 	amountUsdCents: number;
 }) {
-	if (!env.NOWPAYMENTS_API_KEY || !env.NOWPAYMENTS_IPN_SECRET) {
+	if (!isNowPaymentsCheckoutEnabled()) {
 		throw new Error("NOWPayments is not configured.");
 	}
 
@@ -182,7 +182,7 @@ export async function createWalletTopupForUser({
 	const successUrl = `${env.CORS_ORIGIN}/account/billing?topup=success`;
 	const cancelUrl = `${env.CORS_ORIGIN}/account/billing?topup=cancelled`;
 	const partiallyPaidUrl = `${env.CORS_ORIGIN}/account/billing?topup=partial`;
-	const invoice = await createNowPaymentsInvoice({
+	const invoice = await createNowPaymentsCheckout({
 		priceAmountUsd: toUsdAmount(amountUsdCents),
 		orderId,
 		orderDescription: `GitPal wallet top-up for ${userId}`,
@@ -191,6 +191,12 @@ export async function createWalletTopupForUser({
 		cancelUrl,
 		partiallyPaidUrl,
 	});
+	const providerInvoiceId = invoice.id ?? invoice.token_id ?? null;
+	const invoiceUrl = invoice.invoice_url ?? invoice.invoiceUrl;
+
+	if (!invoiceUrl) {
+		throw new Error("NOWPayments did not return an invoice URL.");
+	}
 
 	const [topup] = await db
 		.insert(billingSchema.walletTopup)
@@ -204,14 +210,14 @@ export async function createWalletTopupForUser({
 			priceAmountUsdCents: amountUsdCents,
 			priceCurrency: "usd",
 			payCurrency: invoice.pay_currency,
-			providerInvoiceId: invoice.id,
-			invoiceUrl: invoice.invoice_url,
+			providerInvoiceId,
+			invoiceUrl,
 			successUrl: invoice.success_url ?? successUrl,
 			cancelUrl: invoice.cancel_url ?? cancelUrl,
 			partiallyPaidUrl: invoice.partially_paid_url ?? partiallyPaidUrl,
 			externalCreatedAt: invoice.created_at ? new Date(invoice.created_at) : null,
 			externalUpdatedAt: invoice.updated_at ? new Date(invoice.updated_at) : null,
-			metadata: invoice,
+			metadata: invoice as unknown as Record<string, unknown>,
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -223,7 +229,7 @@ export async function createWalletTopupForUser({
 
 	return {
 		id: topup.id,
-		invoiceUrl: invoice.invoice_url,
+		invoiceUrl,
 		status: topup.status,
 		priceAmountUsdCents: topup.priceAmountUsdCents,
 	};
@@ -279,16 +285,17 @@ export async function applyWalletUsageDebit({
 }
 
 export async function handleNowPaymentsWebhook(
-	payload: NowPaymentsWebhookPayload,
+	payment: NowPaymentsWebhookPayment,
 ) {
-	const providerInvoiceId = payload.invoice_id
-		? String(payload.invoice_id)
+	const providerInvoiceId = payment.invoice_id
+		? String(payment.invoice_id)
 		: null;
-	const providerPaymentId = payload.payment_id
-		? String(payload.payment_id)
+	const providerPaymentId = payment.payment_id
+		? String(payment.payment_id)
 		: null;
-	const orderId = payload.order_id?.trim() || null;
-	const status = payload.payment_status?.trim().toLowerCase() || "unknown";
+	const orderId = payment.order_id?.trim() || null;
+	const status = normalizeNowPaymentsStatus(payment.status);
+	const providerStatus = payment.payment_status?.trim().toLowerCase() || status;
 
 	const [existingTopup] = await db
 		.select()
@@ -319,50 +326,50 @@ export async function handleNowPaymentsWebhook(
 			.update(billingSchema.walletTopup)
 			.set({
 				status,
-				providerStatus: status,
-				payCurrency: payload.pay_currency ?? existingTopup.payCurrency,
+				providerStatus,
+				payCurrency: payment.pay_currency ?? existingTopup.payCurrency,
 				payAmount:
-					payload.pay_amount !== undefined && payload.pay_amount !== null
-						? String(payload.pay_amount)
+					payment.pay_amount !== undefined && payment.pay_amount !== null
+						? String(payment.pay_amount)
 						: existingTopup.payAmount,
 				actuallyPaid:
-					payload.actually_paid !== undefined &&
-					payload.actually_paid !== null
-						? String(payload.actually_paid)
+					payment.actually_paid !== undefined &&
+					payment.actually_paid !== null
+						? String(payment.actually_paid)
 						: existingTopup.actuallyPaid,
 				outcomeAmount:
-					payload.outcome_amount !== undefined &&
-					payload.outcome_amount !== null
-						? String(payload.outcome_amount)
+					payment.outcome_amount !== undefined &&
+					payment.outcome_amount !== null
+						? String(payment.outcome_amount)
 						: existingTopup.outcomeAmount,
 				outcomeCurrency:
-					payload.outcome_currency ?? existingTopup.outcomeCurrency,
-				payAddress: payload.pay_address ?? existingTopup.payAddress,
+					payment.outcome_currency ?? existingTopup.outcomeCurrency,
+				payAddress: payment.pay_address ?? existingTopup.payAddress,
 				payinExtraId:
-					payload.payin_extra_id !== undefined &&
-					payload.payin_extra_id !== null
-						? String(payload.payin_extra_id)
+					payment.payin_extra_id !== undefined &&
+					payment.payin_extra_id !== null
+						? String(payment.payin_extra_id)
 						: existingTopup.payinExtraId,
-				payinHash: payload.payin_hash ?? existingTopup.payinHash,
-				payoutHash: payload.payout_hash ?? existingTopup.payoutHash,
+				payinHash: payment.payin_hash ?? existingTopup.payinHash,
+				payoutHash: payment.payout_hash ?? existingTopup.payoutHash,
 				providerPaymentId:
 					providerPaymentId ?? existingTopup.providerPaymentId,
 				providerInvoiceId:
 					providerInvoiceId ?? existingTopup.providerInvoiceId,
 				providerPurchaseId:
-					payload.purchase_id !== undefined && payload.purchase_id !== null
-						? String(payload.purchase_id)
+					payment.purchase_id !== undefined && payment.purchase_id !== null
+						? String(payment.purchase_id)
 						: existingTopup.providerPurchaseId,
-				externalCreatedAt: payload.created_at
-					? new Date(payload.created_at)
+				externalCreatedAt: payment.created_at
+					? new Date(payment.created_at)
 					: existingTopup.externalCreatedAt,
-				externalUpdatedAt: payload.updated_at
-					? new Date(payload.updated_at)
+				externalUpdatedAt: payment.updated_at
+					? new Date(payment.updated_at)
 					: existingTopup.externalUpdatedAt,
 				errorMessage: TOPUP_FAILURE_STATUSES.has(status)
 					? `NOWPayments marked this top-up as ${status}.`
 					: existingTopup.errorMessage,
-				metadata: payload,
+				metadata: payment as unknown as Record<string, unknown>,
 				updatedAt: new Date(),
 			})
 			.where(eq(billingSchema.walletTopup.id, existingTopup.id));

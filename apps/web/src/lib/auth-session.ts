@@ -1,4 +1,4 @@
-import { env } from "@gitpal/env/web";
+import { env } from "@gitpal/env/server";
 
 type AuthUser = {
 	id: string;
@@ -60,9 +60,10 @@ export async function getServerAuthSession(
 	requestHeaders: Headers,
 ): Promise<ServerAuthSession> {
 	const cookie = requestHeaders.get("cookie");
+	const isProduction = env.NODE_ENV === "production";
 
 	if (!cookie) {
-		return process.env.NODE_ENV !== "production" ? getDevelopmentSession() : null;
+		return isProduction ? null : getDevelopmentSession();
 	}
 
 	const response = await fetch(
@@ -76,13 +77,13 @@ export async function getServerAuthSession(
 	);
 
 	if (!response.ok) {
-		return process.env.NODE_ENV !== "production" ? getDevelopmentSession() : null;
+		return isProduction ? null : getDevelopmentSession();
 	}
 
 	const session = (await response.json()) as ServerAuthSession;
 
 	return (
 		session ??
-		(process.env.NODE_ENV !== "production" ? getDevelopmentSession() : null)
+		(isProduction ? null : getDevelopmentSession())
 	);
 }

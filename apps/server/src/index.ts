@@ -1,18 +1,22 @@
 import { createContext } from "@gitpal/api/context";
-import {
-	handleNowPaymentsWebhook,
-} from "@gitpal/api/services/wallet";
+import { handleNowPaymentsWebhook } from "@gitpal/api/services/wallet";
 import { receiveProviderWebhook } from "@gitpal/api/services/repository-webhooks";
 import { appRouter } from "@gitpal/api/routers/index";
 import { auth } from "@gitpal/auth";
 import { env } from "@gitpal/env/server";
+import { createLogger } from "@gitpal/logger";
 import { trpcServer } from "@hono/trpc-server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { verifyNowPaymentsSignature } from "@gitpal/api/services/nowpayments";
+import {
+	NowPaymentsValidationError,
+	isNowPaymentsWebhookEnabled,
+	parseNowPaymentsWebhook,
+} from "@gitpal/api/services/nowpayments";
 
 const app = new Hono();
+const log = createLogger("server");
 
 async function handleProviderWebhook(
 	c: Context,
@@ -41,27 +45,75 @@ app.use(
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
-app.post("/nowpayments/webhook", async (c) => {
+async function handleNowPaymentsWebhookRequest(c: Context) {
+	if (!isNowPaymentsWebhookEnabled()) {
+		log.warn(
+			{
+				path: c.req.path,
+			},
+			"NOWPayments webhook received before IPN secret was configured.",
+		);
+
+		return c.json(
+			{ ok: false, error: "nowpayments_not_configured" },
+			503,
+		);
+	}
+
 	const signature = c.req.header("x-nowpayments-sig") ?? null;
 	const rawBody = await c.req.text();
 
 	try {
-		if (!verifyNowPaymentsSignature({ rawBody, signature })) {
-			return c.json({ ok: false, error: "invalid_signature" }, 401);
+		const event = parseNowPaymentsWebhook({
+			rawBody,
+			signature,
+		});
+
+		if (event.type !== "payment.status_changed") {
+			return c.json({
+				ok: true,
+				ignored: true,
+			});
 		}
 
-		const payload = JSON.parse(rawBody) as Record<string, unknown>;
-		await handleNowPaymentsWebhook(payload);
+		await handleNowPaymentsWebhook(event.payment);
 
 		return c.json({ ok: true });
 	} catch (error) {
-		if (env.NODE_ENV !== "production") {
-			console.error("NOWPayments webhook error", error);
+		if (error instanceof SyntaxError) {
+			log.warn(
+				{
+					path: c.req.path,
+				},
+				"NOWPayments webhook payload could not be parsed as JSON.",
+			);
+			return c.json({ ok: false, error: "invalid_payload" }, 400);
 		}
+
+		if (error instanceof NowPaymentsValidationError) {
+			log.warn(
+				{
+					path: c.req.path,
+				},
+				"NOWPayments webhook signature verification failed.",
+			);
+			return c.json({ ok: false, error: "invalid_signature" }, 401);
+		}
+
+		log.error(
+			{
+				err: error,
+				path: c.req.path,
+			},
+			"NOWPayments webhook processing failed.",
+		);
 
 		return c.json({ ok: false, error: "webhook_processing_failed" }, 500);
 	}
-});
+}
+
+app.post("/nowpayments/webhook", handleNowPaymentsWebhookRequest);
+app.post("/webhook/nowpayments", handleNowPaymentsWebhookRequest);
 
 app.post("/webhooks/github", async (c) => {
 	return handleProviderWebhook(c, "github");

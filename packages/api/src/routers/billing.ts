@@ -4,7 +4,7 @@ import {
 	createWalletTopupForUser,
 	getWalletSummaryForUser,
 } from "../services/wallet";
-import { protectedProcedure, router } from "../index";
+import { protectedMutationProcedure, protectedProcedure, router } from "../index";
 
 const createTopupSchema = z.object({
 	amountUsd: z.coerce.number().min(5).max(10_000),
@@ -14,7 +14,7 @@ export const billingRouter = router({
 	summary: protectedProcedure.query(async ({ ctx }) => {
 		return getWalletSummaryForUser(ctx.session.user.id);
 	}),
-	createTopup: protectedProcedure
+	createTopup: protectedMutationProcedure
 		.input(createTopupSchema)
 		.mutation(async ({ ctx, input }) => {
 			return createWalletTopupForUser({

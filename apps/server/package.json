@@ -15,6 +15,7 @@
 		"@gitpal/auth": "workspace:*",
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
+		"@gitpal/logger": "workspace:*",
 		"@workflow-worlds/redis": "catalog:",
 		"@workflow/ai": "catalog:",
 		"@hono/trpc-server": "^0.4.0",

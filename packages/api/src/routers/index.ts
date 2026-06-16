@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { requireOrganizationPermission } from "../services/organization-access";
-import { protectedProcedure, publicProcedure, router } from "../index";
+import {
+	enforcePublicAppRateLimit,
+	protectedMutationProcedure,
+	publicProcedure,
+	router,
+} from "../index";
 import { apiKeysRouter } from "./api-keys";
 import { analyticsRouter } from "./analytics";
 import { billingRouter } from "./billing";
@@ -88,12 +93,21 @@ export const appRouter = router({
 	enterpriseGitProvider: router({
 		lookup: publicProcedure
 			.input(enterpriseGitProviderLookupSchema)
-			.mutation(async ({ input }) => {
+			.mutation(async ({ ctx, input }) => {
+				await enforcePublicAppRateLimit({
+					ctx,
+					route: "trpc/enterpriseGitProvider.lookup",
+					rule: {
+						window: 60,
+						max: 20,
+					},
+				});
+
 				const service = await getEnterpriseGitProviderService();
 
 				return service.lookupEnterpriseGitProvider(input);
 			}),
-		register: protectedProcedure
+		register: protectedMutationProcedure
 			.input(enterpriseGitProviderRegisterSchema)
 			.mutation(async ({ ctx, input }) => {
 				await requireOrganizationPermission({

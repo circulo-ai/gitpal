@@ -1,5 +1,6 @@
 import { createDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
+import { env } from "@gitpal/env/server";
 import type { Context as HonoContext } from "hono";
 import { eq } from "drizzle-orm";
 
@@ -35,6 +36,13 @@ type AuthSession = {
 	session: AuthSessionRecord;
 } | null;
 
+export type RequestMetadata = {
+	ip: string | null;
+	userAgent: string | null;
+	method: string;
+	path: string;
+};
+
 type AuthApi = {
 	api: {
 		getSession(input: { headers: Headers }): Promise<AuthSession>;
@@ -47,6 +55,19 @@ type AuthModule = {
 
 const authPackageName = "@gitpal/auth";
 const db = createDb();
+
+function resolveClientIp(headers: Headers) {
+	const forwardedFor = headers.get("x-forwarded-for");
+	const forwardedIp = forwardedFor?.split(",")[0]?.trim();
+
+	return (
+		headers.get("cf-connecting-ip") ??
+		headers.get("x-real-ip") ??
+		headers.get("x-client-ip") ??
+		forwardedIp ??
+		null
+	);
+}
 
 function getDevelopmentSession() {
 	const now = new Date();
@@ -109,8 +130,9 @@ export async function createContext({ context }: CreateContextOptions) {
 	const session = await auth.auth.api.getSession({
 		headers: context.req.raw.headers,
 	});
-	const resolvedSession =
-		session ?? (process.env.NODE_ENV !== "production" ? getDevelopmentSession() : null);
+	const resolvedSession = session ?? (env.NODE_ENV !== "production" ? getDevelopmentSession() : null);
+	const headers = context.req.raw.headers;
+	const url = new URL(context.req.raw.url);
 
 	if (resolvedSession) {
 		await ensureSessionUserRecord(resolvedSession);
@@ -119,10 +141,17 @@ export async function createContext({ context }: CreateContextOptions) {
 	return {
 		auth: null,
 		session: resolvedSession,
+		request: {
+			ip: resolveClientIp(headers),
+			userAgent: headers.get("user-agent"),
+			method: context.req.method,
+			path: url.pathname,
+		},
 	} satisfies Context;
 }
 
 export type Context = {
 	auth: null;
 	session: AuthSession;
+	request: RequestMetadata;
 };

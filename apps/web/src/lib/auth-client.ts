@@ -1,4 +1,5 @@
 import { workspaceAc, workspaceRoles } from "@gitpal/auth/organization-access";
+import { apiKeyClient } from "@better-auth/api-key/client";
 import { ssoClient } from "@better-auth/sso/client";
 import { env } from "@gitpal/env/web";
 import {
@@ -10,6 +11,7 @@ import { createAuthClient } from "better-auth/react";
 export const authClient = createAuthClient({
 	baseURL: env.NEXT_PUBLIC_SERVER_URL,
 	plugins: [
+		apiKeyClient(),
 		genericOAuthClient(),
 		organizationClient({
 			ac: workspaceAc,

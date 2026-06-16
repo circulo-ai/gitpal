@@ -27,11 +27,25 @@ export const env = createEnv({
 			.positive()
 			.default(10_000),
 		AI_GATEWAY_API_KEY: z.string().optional(),
+		OPENROUTER_API_KEY: z.string().optional(),
+		OPENROUTER_BASE_URL: z
+			.url()
+			.default("https://openrouter.ai/api/v1"),
 		GITPAL_AI_MODEL: z.string().default("anthropic/claude-sonnet-4.6"),
+		GITPAL_WALLET_REVENUE_SHARE_PERCENT: z.coerce
+			.number()
+			.min(0)
+			.max(100)
+			.default(5),
 		GITHUB_CLIENT_ID: z.string().optional(),
 		GITHUB_CLIENT_SECRET: z.string().optional(),
 		GITLAB_CLIENT_ID: z.string().optional(),
 		GITLAB_CLIENT_SECRET: z.string().optional(),
+		NOWPAYMENTS_API_BASE_URL: z
+			.url()
+			.default("https://api.nowpayments.io"),
+		NOWPAYMENTS_API_KEY: z.string().optional(),
+		NOWPAYMENTS_IPN_SECRET: z.string().optional(),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),

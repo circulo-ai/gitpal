@@ -11,6 +11,7 @@ import {
 	type GitPullRequestState,
 	type GitRepository,
 	type GitRepositoryRef,
+	type GitWorkspaceRef,
 	type GitWebhookCreateInput,
 	type GitWebhookDeleteInput,
 	type GitWebhookSubscription,
@@ -45,8 +46,11 @@ type GitLabProject = {
 	namespace?: {
 		id?: number;
 		full_path?: string;
+		path?: string;
+		kind?: string;
 		web_url?: string;
 		name?: string;
+		avatar_url?: string | null;
 	} | null;
 	owner?: {
 		id?: number;
@@ -160,8 +164,11 @@ const gitlabProjectSchema = z.object({
 		.object({
 			id: z.number().optional(),
 			full_path: z.string().optional(),
+			path: z.string().optional(),
+			kind: z.string().optional(),
 			web_url: z.string().optional(),
 			name: z.string().optional(),
+			avatar_url: z.string().nullable().optional(),
 		})
 		.nullable()
 		.optional(),
@@ -286,6 +293,36 @@ function mapActor(
 		email: actor.public_email ?? null,
 		avatarUrl: actor.avatar_url ?? null,
 		htmlUrl: actor.web_url ?? null,
+		kind: "user",
+	};
+}
+
+function mapWorkspace(
+	project: GitLabProject,
+	repositoryPath: string,
+): GitWorkspaceRef | null {
+	const namespace = project.namespace ?? null;
+	const ownerPath =
+		namespace?.full_path?.trim() ||
+		namespace?.path?.trim() ||
+		repositoryPath.split("/").filter(Boolean)[0] ||
+		"";
+
+	if (!ownerPath) {
+		return null;
+	}
+
+	const scope = namespace?.kind === "group" ? "group" : "personal";
+	const ownerId = namespace?.id ? String(namespace.id) : ownerPath;
+
+	return {
+		providerOwnerId: ownerId,
+		providerOwnerPath: ownerPath,
+		providerOwnerName: namespace?.name?.trim() || ownerPath,
+		providerOwnerAvatarUrl:
+			namespace?.avatar_url ?? project.owner?.avatar_url ?? null,
+		providerOwnerHtmlUrl: namespace?.web_url ?? project.owner?.web_url ?? null,
+		scope,
 	};
 }
 
@@ -307,6 +344,7 @@ function mapRepository(
 		private: project.visibility ? project.visibility !== "public" : true,
 		description: project.description ?? null,
 		owner: mapActor(project.owner ?? undefined),
+		workspace: mapWorkspace(project, repositoryPath),
 	};
 }
 

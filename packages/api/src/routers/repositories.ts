@@ -7,6 +7,7 @@ import {
 	ensureRepositoriesSyncedForUser,
 	listRepositoryProvidersForUser,
 	listRepositoriesForUser,
+	listWorkspacesForUser,
 	setRepositoryEnabledForUser,
 } from "../services/repository-sync";
 import {
@@ -73,18 +74,14 @@ export const repositoriesRouter = router({
 				userId: ctx.session.user.id,
 			});
 		}),
-	sync: protectedProcedure.mutation(async ({ ctx }) => {
-		await requireOrganizationPermission({
+	workspaces: protectedProcedure.query(async ({ ctx }) => {
+		return listWorkspacesForUser({
 			userId: ctx.session.user.id,
-			organizationId: ctx.session.session.activeOrganizationId ?? null,
-			permissions: {
-				repository: ["sync"],
-			},
 		});
-
+	}),
+	sync: protectedProcedure.mutation(async ({ ctx }) => {
 		return ensureRepositoriesSyncedForUser({
 			userId: ctx.session.user.id,
-			organizationId: ctx.session.session.activeOrganizationId ?? null,
 		});
 	}),
 	addRepository: protectedProcedure

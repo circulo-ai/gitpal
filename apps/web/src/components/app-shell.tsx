@@ -19,7 +19,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 	if (isAuthRoute || isLandingPage || isWorkspaceRoute) {
 		if (isWorkspaceRoute) {
 			return (
-				<div className="h-svh overflow-hidden bg-background text-foreground">
+				<div className="min-h-svh overflow-x-clip bg-background text-foreground">
 					{children}
 				</div>
 			);

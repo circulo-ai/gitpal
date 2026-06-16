@@ -2,7 +2,9 @@ import { z } from "zod";
 
 import { requireOrganizationPermission } from "../services/organization-access";
 import { protectedProcedure, publicProcedure, router } from "../index";
+import { apiKeysRouter } from "./api-keys";
 import { analyticsRouter } from "./analytics";
+import { billingRouter } from "./billing";
 import { repositoriesRouter } from "./repositories";
 
 type EnterpriseGitProviderType = "github" | "gitlab";
@@ -80,6 +82,8 @@ export const appRouter = router({
 		return "OK";
 	}),
 	analytics: analyticsRouter,
+	apiKeys: apiKeysRouter,
+	billing: billingRouter,
 	repositories: repositoriesRouter,
 	enterpriseGitProvider: router({
 		lookup: publicProcedure

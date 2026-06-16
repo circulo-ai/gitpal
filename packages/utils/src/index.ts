@@ -4,6 +4,7 @@ export * from "./encoding/base64url";
 export * from "./format/number";
 export * from "./format/raw-amount";
 export * from "./format/time";
+export * from "./llm-routing";
 export * from "./market/price";
 export * from "./number/cast";
 export * from "./number/numberish";

@@ -665,7 +665,7 @@ export function DashboardAnalyticsPage({
 	const isExportView = view === "data-export";
 
 	return (
-		<main className="flex min-h-0 flex-1 flex-col gap-6">
+		<main className="flex flex-col gap-6">
 			<DashboardHeader
 				title={title}
 				description={description}

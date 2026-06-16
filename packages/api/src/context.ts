@@ -1,4 +1,7 @@
+import { createDb } from "@gitpal/db";
+import * as authSchema from "@gitpal/db/schema/auth";
 import type { Context as HonoContext } from "hono";
+import { eq } from "drizzle-orm";
 
 export type CreateContextOptions = {
 	context: HonoContext;
@@ -43,6 +46,7 @@ type AuthModule = {
 };
 
 const authPackageName = "@gitpal/auth";
+const db = createDb();
 
 function getDevelopmentSession() {
 	const now = new Date();
@@ -76,6 +80,30 @@ async function getAuth() {
 	return (await import(authPackageName)) as AuthModule;
 }
 
+async function ensureSessionUserRecord(session: Exclude<AuthSession, null>) {
+	const [existing] = await db
+		.select({
+			id: authSchema.user.id,
+		})
+		.from(authSchema.user)
+		.where(eq(authSchema.user.id, session.user.id))
+		.limit(1);
+
+	if (existing) {
+		return;
+	}
+
+	await db.insert(authSchema.user).values({
+		id: session.user.id,
+		name: session.user.name,
+		email: session.user.email,
+		emailVerified: session.user.emailVerified,
+		image: session.user.image ?? null,
+		createdAt: new Date(session.user.createdAt),
+		updatedAt: new Date(session.user.updatedAt),
+	});
+}
+
 export async function createContext({ context }: CreateContextOptions) {
 	const auth = await getAuth();
 	const session = await auth.auth.api.getSession({
@@ -83,6 +111,10 @@ export async function createContext({ context }: CreateContextOptions) {
 	});
 	const resolvedSession =
 		session ?? (process.env.NODE_ENV !== "production" ? getDevelopmentSession() : null);
+
+	if (resolvedSession) {
+		await ensureSessionUserRecord(resolvedSession);
+	}
 
 	return {
 		auth: null,

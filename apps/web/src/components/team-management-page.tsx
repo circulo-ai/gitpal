@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Badge } from "@gitpal/ui/components/badge";
-import { Button } from "@gitpal/ui/components/button";
+import { Button, buttonVariants } from "@gitpal/ui/components/button";
 import {
 	Card,
 	CardContent,
@@ -10,921 +10,339 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@gitpal/ui/components/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@gitpal/ui/components/empty";
-import { Input } from "@gitpal/ui/components/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@gitpal/ui/components/select";
-import { Separator } from "@gitpal/ui/components/separator";
-import { Textarea } from "@gitpal/ui/components/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@gitpal/ui/components/table";
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@gitpal/ui/components/empty";
+import { cn } from "@gitpal/ui/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import {
+	Building2Icon,
+	ExternalLinkIcon,
+	FolderGit2Icon,
+	RefreshCcwIcon,
+	ShieldCheckIcon,
+	Users2Icon,
+} from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
-import { queryClient } from "@/utils/trpc";
-import {
-	workspaceRoleLabels,
-	workspaceStatements,
-} from "@gitpal/auth/organization-access";
+import { queryClient, trpc } from "@/utils/trpc";
 
-const NONE_TEAM_VALUE = "__none__";
-
-type PermissionMap = Record<string, readonly string[]>;
-
-type OrganizationMember = {
-	id: string;
-	userId: string;
-	role: string;
-	teamId?: string | null;
-	user?: {
-		name?: string | null;
-		email?: string | null;
-		image?: string | null;
-	} | null;
-};
-
-type OrganizationTeam = {
-	id: string;
-	name: string;
-};
-
-type OrganizationRole = {
-	id: string;
-	role: string;
-	permission: PermissionMap;
-};
-
-function getErrorMessage(error: unknown, fallback: string) {
-	if (typeof error === "string") {
-		return error;
+function formatScope(scope: "personal" | "organization" | "group") {
+	if (scope === "personal") {
+		return "Personal";
 	}
 
-	if (error && typeof error === "object" && "message" in error) {
-		const message = (error as { message?: unknown }).message;
-
-		if (typeof message === "string" && message.trim()) {
-			return message;
-		}
+	if (scope === "group") {
+		return "GitLab group";
 	}
 
-	return fallback;
+	return "GitHub organization";
 }
 
-function stringifyPermissions(value: PermissionMap) {
-	return JSON.stringify(value, null, 2);
-}
-
-function parsePermissions(value: string) {
-	return JSON.parse(value) as Record<string, string[]>;
+function getScopeBuckets(
+	workspaces: Array<{
+		scope: "personal" | "organization" | "group";
+	}>,
+) {
+	return {
+		personal: workspaces.filter((workspace) => workspace.scope === "personal"),
+		shared: workspaces.filter((workspace) => workspace.scope !== "personal"),
+	};
 }
 
 export function TeamManagementPage() {
 	const activeOrganizationQuery = authClient.useActiveOrganization();
 	const activeOrganization = activeOrganizationQuery.data;
-	const organizationId = activeOrganization?.id ?? "";
-	const [inviteEmail, setInviteEmail] = React.useState("");
-	const [inviteRole, setInviteRole] = React.useState("member");
-	const [inviteTeamId, setInviteTeamId] = React.useState<string>(NONE_TEAM_VALUE);
-	const [teamName, setTeamName] = React.useState("");
-	const [customRoleName, setCustomRoleName] = React.useState("");
-	const [customRolePermissions, setCustomRolePermissions] = React.useState(
-		stringifyPermissions(workspaceStatements),
-	);
-	const [editingRoleId, setEditingRoleId] = React.useState<string | null>(null);
+	const workspacesQuery = useQuery(trpc.repositories.workspaces.queryOptions());
+	const providersQuery = useQuery(trpc.repositories.providers.queryOptions());
+	const syncMutation = useMutation(
+		trpc.repositories.sync.mutationOptions({
+			onSuccess: async (result) => {
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: trpc.repositories.workspaces.queryKey(),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.repositories.providers.queryKey(),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.repositories.list.queryKey({
+							organizationId: activeOrganization?.id,
+						}),
+					}),
+				]);
 
-	const membersQuery = useQuery<OrganizationMember[]>({
-		queryKey: ["organization-members", activeOrganization?.id],
-		enabled: Boolean(activeOrganization),
-		queryFn: async () => {
-			const organizationId = activeOrganization?.id;
+				if (!activeOrganization && result.workspaceIds[0]) {
+					await authClient.organization.setActive({
+						organizationId: result.workspaceIds[0],
+					});
+				}
 
-			if (!organizationId) {
-				return [];
-			}
-
-			const result = await authClient.organization.listMembers({
-				query: { organizationId },
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to load organization members."),
-				);
-			}
-
-			return (result.data?.members ?? []) as OrganizationMember[];
-		},
-	});
-
-	const teamsQuery = useQuery<OrganizationTeam[]>({
-		queryKey: ["organization-teams", activeOrganization?.id],
-		enabled: Boolean(activeOrganization),
-		queryFn: async () => {
-			const organizationId = activeOrganization?.id;
-
-			if (!organizationId) {
-				return [];
-			}
-
-			const result = await authClient.organization.listTeams({
-				query: { organizationId },
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to load organization teams."),
-				);
-			}
-
-			return (result.data ?? []) as OrganizationTeam[];
-		},
-	});
-
-	const rolesQuery = useQuery<OrganizationRole[]>({
-		queryKey: ["organization-roles", activeOrganization?.id],
-		enabled: Boolean(activeOrganization),
-		queryFn: async () => {
-			const organizationId = activeOrganization?.id;
-
-			if (!organizationId) {
-				return [];
-			}
-
-			const result = await authClient.organization.listRoles({
-				query: { organizationId },
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to load organization roles."),
-				);
-			}
-
-			return (result.data ?? []) as OrganizationRole[];
-		},
-	});
-
-	const builtInRoleOptions = Object.entries(workspaceRoleLabels).map(
-		([role, label]) => ({
-			role,
-			label,
+				toast.success("Workspace sync completed.");
+			},
+			onError: (error) => {
+				toast.error(error.message);
+			},
 		}),
 	);
 
-	const roleOptions = [
-		...builtInRoleOptions,
-		...(rolesQuery.data ?? []).map((role) => ({
-			role: role.role,
-			label: role.role,
-		})),
-	];
-
-	const inviteMutation = useMutation({
-		mutationFn: async () => {
-			const result = await authClient.organization.inviteMember({
-				email: inviteEmail.trim(),
-				role: inviteRole,
-				organizationId,
-				teamId: inviteTeamId === NONE_TEAM_VALUE ? undefined : inviteTeamId,
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to send the invitation."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			setInviteEmail("");
-			toast.success("Invitation sent.");
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-members", activeOrganization?.id],
-			});
-		},
-	});
-
-	const createTeamMutation = useMutation({
-		mutationFn: async () => {
-			const result = await authClient.organization.createTeam({
-				name: teamName.trim(),
-				organizationId,
-			});
-
-			if (result.error) {
-				throw new Error(getErrorMessage(result.error, "Unable to create team."));
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			setTeamName("");
-			toast.success("Team created.");
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-teams", activeOrganization?.id],
-			});
-		},
-	});
-
-	const updateMemberRoleMutation = useMutation({
-		mutationFn: async (input: { memberId: string; role: string }) => {
-			const result = await authClient.organization.updateMemberRole({
-				memberId: input.memberId,
-				role: input.role,
-				organizationId,
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to update member role."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-members", activeOrganization?.id],
-			});
-		},
-	});
-
-	const removeMemberMutation = useMutation({
-		mutationFn: async (memberIdOrEmail: string) => {
-			const result = await authClient.organization.removeMember({
-				memberIdOrEmail,
-				organizationId,
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to remove member."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			toast.success("Member removed.");
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-members", activeOrganization?.id],
-			});
-		},
-	});
-
-	const addTeamMemberMutation = useMutation({
-		mutationFn: async (input: { teamId: string; userId: string }) => {
-			const result = await authClient.organization.addTeamMember({
-				teamId: input.teamId,
-				userId: input.userId,
-				organizationId,
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to add team member."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-members", activeOrganization?.id],
-			});
-		},
-	});
-
-	const removeTeamMemberMutation = useMutation({
-		mutationFn: async (input: { teamId: string; userId: string }) => {
-			const result = await authClient.organization.removeTeamMember({
-				teamId: input.teamId,
-				userId: input.userId,
-				organizationId,
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to remove team member."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-members", activeOrganization?.id],
-			});
-		},
-	});
-
-	const createRoleMutation = useMutation({
-		mutationFn: async () => {
-			const result = await authClient.organization.createRole({
-				organizationId,
-				role: customRoleName.trim().toLowerCase(),
-				permission: parsePermissions(customRolePermissions),
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to create role."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			setCustomRoleName("");
-			setCustomRolePermissions(
-				stringifyPermissions(workspaceStatements),
-			);
-			toast.success("Role created.");
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-roles", activeOrganization?.id],
-			});
-		},
-	});
-
-	const updateRoleMutation = useMutation({
-		mutationFn: async (input: { roleId: string }) => {
-			const result = await authClient.organization.updateRole({
-				organizationId,
-				roleId: input.roleId,
-				data: {
-					roleName: customRoleName.trim().toLowerCase(),
-					permission: parsePermissions(customRolePermissions),
-				},
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to update role."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			setEditingRoleId(null);
-			toast.success("Role updated.");
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-roles", activeOrganization?.id],
-			});
-		},
-	});
-
-	const deleteRoleMutation = useMutation({
-		mutationFn: async (roleId: string) => {
-			const result = await authClient.organization.deleteRole({
-				organizationId,
-				roleId,
-			});
-
-			if (result.error) {
-				throw new Error(
-					getErrorMessage(result.error, "Unable to delete role."),
-				);
-			}
-
-			return result.data;
-		},
-		onSuccess: async () => {
-			setEditingRoleId(null);
-			toast.success("Role deleted.");
-			await queryClient.invalidateQueries({
-				queryKey: ["organization-roles", activeOrganization?.id],
-			});
-		},
-	});
-
-	const selectedCustomRole = (rolesQuery.data ?? []).find(
-		(role) => role.id === editingRoleId,
-	);
-
-	React.useEffect(() => {
-		if (selectedCustomRole) {
-			setCustomRoleName(selectedCustomRole.role);
-			setCustomRolePermissions(stringifyPermissions(selectedCustomRole.permission));
-		}
-	}, [selectedCustomRole]);
-
-	if (!activeOrganization) {
-		return (
-			<main className="flex min-h-0 flex-1 flex-col gap-6">
-				<Card>
-					<CardHeader>
-						<CardTitle>Team management</CardTitle>
-						<CardDescription>
-							Select an organization before managing people, teams, or roles.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<Empty className="min-h-64">
-							<EmptyHeader>
-								<EmptyTitle>No active organization</EmptyTitle>
-								<EmptyDescription>
-									Use the account page to create or switch organizations first.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
-					</CardContent>
-				</Card>
-			</main>
-		);
-	}
-
-	const members = membersQuery.data ?? [];
-	const teams = teamsQuery.data ?? [];
-	const customRoles = rolesQuery.data ?? [];
+	const workspaces = workspacesQuery.data ?? [];
+	const providers = providersQuery.data ?? [];
+	const buckets = getScopeBuckets(workspaces);
+	const activeWorkspace =
+		workspaces.find((workspace) => workspace.id === activeOrganization?.id) ?? null;
 
 	return (
-		<main className="flex min-h-0 flex-1 flex-col gap-6">
+		<main className="flex flex-col gap-6">
 			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
 				<div className="space-y-1">
 					<h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
-						Team Management
+						Workspaces
 					</h1>
 					<p className="max-w-3xl text-muted-foreground text-sm">
-						Invite users, change roles, create teams, and manage custom
-						permissions from a single organization-scoped screen.
+						GitPal mirrors the repository access granted by your Git providers.
+						Personal repos and organization or group repos are synced automatically.
 					</p>
 				</div>
-				<Badge variant="outline">{activeOrganization.name}</Badge>
+				<div className="flex flex-wrap gap-2">
+					<Button
+						type="button"
+						variant="outline"
+						disabled={syncMutation.isPending}
+						onClick={() => syncMutation.mutate()}
+					>
+						<RefreshCcwIcon />
+						{syncMutation.isPending ? "Syncing..." : "Sync workspaces"}
+					</Button>
+				</div>
 			</div>
 
-			<div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-				<Card>
+			<div className="grid gap-3 md:grid-cols-3">
+				<Card size="sm">
 					<CardHeader>
-						<CardTitle>Invite users</CardTitle>
-						<CardDescription>
-							Send invitations with an initial role and optional team.
-						</CardDescription>
+						<CardDescription>Total workspaces</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{workspaces.length}
+						</CardTitle>
 					</CardHeader>
-					<CardContent className="space-y-4">
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Email</div>
-							<Input
-								value={inviteEmail}
-								onChange={(event) => setInviteEmail(event.target.value)}
-								placeholder="user@example.com"
-							/>
-						</div>
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Role</div>
-							<Select
-								value={inviteRole}
-								onValueChange={(role) => setInviteRole(role ?? "member")}
-							>
-								<SelectTrigger className="w-full">
-									<SelectValue placeholder="Select role" />
-								</SelectTrigger>
-								<SelectContent>
-									{roleOptions.map((role) => (
-										<SelectItem key={role.role} value={role.role}>
-											{role.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Team</div>
-							<Select
-								value={inviteTeamId}
-								onValueChange={(teamId) =>
-									setInviteTeamId(teamId ?? NONE_TEAM_VALUE)
-								}
-							>
-								<SelectTrigger className="w-full">
-									<SelectValue placeholder="Optional team" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value={NONE_TEAM_VALUE}>No team</SelectItem>
-									{teams.map((team) => (
-										<SelectItem key={team.id} value={team.id}>
-											{team.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-						<Button
-							type="button"
-							disabled={inviteMutation.isPending || !inviteEmail.trim()}
-							onClick={() => {
-								inviteMutation.mutate();
-							}}
-						>
-							<PlusIcon />
-							{inviteMutation.isPending ? "Inviting..." : "Invite member"}
-						</Button>
-					</CardContent>
 				</Card>
-
-				<Card>
+				<Card size="sm">
 					<CardHeader>
-						<CardTitle>Members</CardTitle>
-						<CardDescription>
-							Edit member roles and team assignments with the Better Auth org
-							API.
-						</CardDescription>
+						<CardDescription>Personal scopes</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{buckets.personal.length}
+						</CardTitle>
 					</CardHeader>
-					<CardContent>
-						{members.length === 0 ? (
-							<Empty className="min-h-64">
-								<EmptyHeader>
-									<EmptyTitle>No members yet</EmptyTitle>
-									<EmptyDescription>
-										Invite someone to the organization to get started.
-									</EmptyDescription>
-								</EmptyHeader>
-							</Empty>
-						) : (
-							<div className="overflow-hidden rounded-2xl border border-border/60">
-								<Table>
-									<TableHeader>
-										<TableRow>
-											<TableHead>User</TableHead>
-											<TableHead>Role</TableHead>
-											<TableHead>Team</TableHead>
-											<TableHead className="text-right">Actions</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{members.map((member) => {
-											const teamId = member.teamId ?? "";
-											const teamLabel =
-												teams.find((team) => team.id === teamId)?.name ??
-												"No team";
-
-											return (
-												<TableRow key={member.id}>
-													<TableCell>
-														<div className="space-y-1">
-															<div className="font-medium">
-																{member.user?.name ?? member.userId}
-															</div>
-															<div className="text-muted-foreground text-xs">
-																{member.user?.email ?? member.userId}
-															</div>
-														</div>
-													</TableCell>
-											<TableCell>
-														<Select
-															value={member.role}
-															onValueChange={(role) => {
-																if (!role) {
-																	return;
-																}
-
-																updateMemberRoleMutation.mutate({
-																	memberId: member.id,
-																	role,
-																});
-															}}
-														>
-															<SelectTrigger className="w-40">
-																<SelectValue placeholder="Role" />
-															</SelectTrigger>
-															<SelectContent>
-																{roleOptions.map((role) => (
-																	<SelectItem
-																		key={role.role}
-																		value={role.role}
-																	>
-																		{role.label}
-																	</SelectItem>
-																))}
-															</SelectContent>
-														</Select>
-													</TableCell>
-													<TableCell>
-														<Select
-															value={teamId || NONE_TEAM_VALUE}
-															onValueChange={(nextTeamId) => {
-																const resolvedNextTeamId =
-																	(nextTeamId ?? NONE_TEAM_VALUE) ===
-																	NONE_TEAM_VALUE
-																		? ""
-																		: nextTeamId ?? "";
-
-																if (teamId && resolvedNextTeamId !== teamId) {
-																	removeTeamMemberMutation.mutate({
-																		teamId,
-																		userId: member.userId,
-																	});
-																}
-
-																if (resolvedNextTeamId) {
-																	addTeamMemberMutation.mutate({
-																		teamId: resolvedNextTeamId,
-																		userId: member.userId,
-																	});
-																}
-															}}
-														>
-															<SelectTrigger className="w-40">
-																<SelectValue placeholder="Team" />
-															</SelectTrigger>
-															<SelectContent>
-																<SelectItem value={NONE_TEAM_VALUE}>
-																	No team
-																</SelectItem>
-																{teams.map((team) => (
-																	<SelectItem key={team.id} value={team.id}>
-																		{team.name}
-																	</SelectItem>
-																))}
-															</SelectContent>
-														</Select>
-														<div className="mt-2 text-muted-foreground text-xs">
-															{teamLabel}
-														</div>
-													</TableCell>
-													<TableCell className="text-right">
-														<Button
-															type="button"
-															variant="ghost"
-															size="icon"
-															disabled={removeMemberMutation.isPending}
-															onClick={() => {
-																removeMemberMutation.mutate(member.id);
-															}}
-															aria-label={`Remove ${member.user?.name ?? member.userId}`}
-														>
-															<Trash2Icon />
-														</Button>
-													</TableCell>
-												</TableRow>
-											);
-										})}
-									</TableBody>
-								</Table>
-							</div>
-						)}
-					</CardContent>
+				</Card>
+				<Card size="sm">
+					<CardHeader>
+						<CardDescription>Shared scopes</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{buckets.shared.length}
+						</CardTitle>
+					</CardHeader>
 				</Card>
 			</div>
 
-			<div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+			<div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
 				<Card>
 					<CardHeader>
-						<CardTitle>Create team</CardTitle>
+						<CardTitle>Synced workspaces</CardTitle>
 						<CardDescription>
-							Teams help group members and set the active team for the session.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="space-y-4">
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Team name</div>
-							<Input
-								value={teamName}
-								onChange={(event) => setTeamName(event.target.value)}
-								placeholder="Platform"
-							/>
-						</div>
-						<Button
-							type="button"
-							disabled={createTeamMutation.isPending || !teamName.trim()}
-							onClick={() => {
-								createTeamMutation.mutate();
-							}}
-						>
-							{createTeamMutation.isPending ? "Creating..." : "Create team"}
-						</Button>
-					</CardContent>
-				</Card>
-
-				<Card>
-					<CardHeader>
-						<CardTitle>Teams</CardTitle>
-						<CardDescription>
-							Manage teams and assign the active team for the organization.
+							Switch between user-level repositories and organization or group scopes.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
-						{teams.length === 0 ? (
-							<Empty className="min-h-48">
+						{workspaces.length === 0 ? (
+							<Empty className="min-h-72">
 								<EmptyHeader>
-									<EmptyTitle>No teams yet</EmptyTitle>
+									<EmptyMedia variant="icon">
+										<Building2Icon />
+									</EmptyMedia>
+									<EmptyTitle>No workspaces synced yet</EmptyTitle>
 									<EmptyDescription>
-										Create a team to group organization members.
+										Connect GitHub or GitLab, then sync once to pull in the
+										workspaces your installed app can access.
 									</EmptyDescription>
 								</EmptyHeader>
 							</Empty>
 						) : (
 							<div className="space-y-3">
-								{teams.map((team) => {
-									const teamMemberCount = members.filter(
-										(member) => member.teamId === team.id,
-									).length;
+								{workspaces.map((workspace) => {
+									const isActive = workspace.id === activeWorkspace?.id;
 
 									return (
-										<div
-											key={team.id}
-											className="flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3"
+										<button
+											key={workspace.id}
+											type="button"
+											className="flex w-full items-center justify-between gap-4 rounded-2xl border border-border/60 bg-card/70 px-4 py-4 text-left transition-colors hover:bg-muted/30"
+											onClick={async () => {
+												const result =
+													await authClient.organization.setActive({
+														organizationId: workspace.id,
+													});
+
+												if (result.error) {
+													toast.error(result.error.message);
+													return;
+												}
+
+												toast.success(`Switched to ${workspace.name}.`);
+												window.location.reload();
+											}}
 										>
-											<div className="space-y-1">
-												<div className="font-medium">{team.name}</div>
-												<div className="text-muted-foreground text-xs">
-													{teamMemberCount} member
-													{teamMemberCount === 1 ? "" : "s"}
+											<div className="min-w-0 space-y-2">
+												<div className="flex flex-wrap items-center gap-2">
+													<div className="truncate font-medium text-base">
+														{workspace.name}
+													</div>
+													<Badge
+														variant={isActive ? "secondary" : "outline"}
+													>
+														{isActive ? "Active" : formatScope(workspace.scope)}
+													</Badge>
+													<Badge variant="outline">{workspace.providerName}</Badge>
+												</div>
+												<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
+													<span>{workspace.ownerPath}</span>
+													<span>{workspace.repositoryCount} repos</span>
+													<span>{workspace.role} access</span>
 												</div>
 											</div>
-											<Button
-												type="button"
-												variant="outline"
-												onClick={async () => {
-													const result = await authClient.organization.setActiveTeam(
-														{ teamId: team.id },
-													);
-
-													if (result.error) {
-														toast.error(
-															getErrorMessage(
-																result.error,
-																"Unable to set the active team.",
-															),
-														);
-														return;
-													}
-
-													toast.success(`Active team set to ${team.name}.`);
-												}}
-											>
-												Set active
-											</Button>
-										</div>
+											<div className="flex shrink-0 items-center gap-2">
+												{workspace.ownerHtmlUrl ? (
+													<a
+														href={workspace.ownerHtmlUrl}
+														target="_blank"
+														rel="noreferrer noopener"
+														aria-label={`Open ${workspace.name} in ${workspace.providerName}`}
+														className={buttonVariants({
+															variant: "ghost",
+															size: "icon-sm",
+														})}
+													>
+														<ExternalLinkIcon />
+													</a>
+												) : null}
+												<Badge variant={isActive ? "secondary" : "outline"}>
+													{isActive ? "Current" : "Open"}
+												</Badge>
+											</div>
+										</button>
 									);
 								})}
 							</div>
 						)}
 					</CardContent>
 				</Card>
-			</div>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Roles</CardTitle>
-					<CardDescription>
-						Create and manage custom access-control roles through Better Auth.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-6">
-					<div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-						<div className="space-y-3">
-							<div className="font-medium text-sm">Built-in roles</div>
-							<div className="space-y-2">
-								{builtInRoleOptions.map((role) => (
+				<div className="space-y-6">
+					<Card>
+						<CardHeader>
+							<CardTitle>Provider access</CardTitle>
+							<CardDescription>
+								Use your provider's app settings to widen or reduce repository access.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-3">
+							{providers.length === 0 ? (
+								<Empty className="min-h-48">
+									<EmptyHeader>
+										<EmptyMedia variant="icon">
+											<ShieldCheckIcon />
+										</EmptyMedia>
+										<EmptyTitle>No Git provider connected</EmptyTitle>
+										<EmptyDescription>
+											Connect GitHub or GitLab first, then this page will link
+											directly to the app installation settings for repository access.
+										</EmptyDescription>
+									</EmptyHeader>
+								</Empty>
+							) : (
+								providers.map((provider) => (
 									<div
-										key={role.role}
-										className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3"
+										key={provider.providerId}
+										className="rounded-2xl border border-border/60 bg-muted/20 p-4"
 									>
-										<div className="font-medium">{role.label}</div>
-										<div className="text-muted-foreground text-xs">
-											{role.role}
-										</div>
-									</div>
-								))}
-							</div>
-						</div>
-
-						<div className="space-y-4">
-							<div className="flex items-center justify-between gap-3">
-								<div>
-									<div className="font-medium text-sm">Custom roles</div>
-									<div className="text-muted-foreground text-sm">
-										Define extra permissions with JSON statements.
-									</div>
-								</div>
-										<Button
-											type="button"
-											variant="outline"
-											onClick={() => {
-												setEditingRoleId(null);
-												setCustomRoleName("");
-												setCustomRolePermissions(
-													stringifyPermissions(workspaceStatements),
-												);
-											}}
-										>
-									New role
-								</Button>
-							</div>
-
-							<div className="grid gap-4 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
-								<div className="space-y-3">
-									{customRoles.length === 0 ? (
-										<div className="rounded-2xl border border-dashed border-border/60 px-4 py-8 text-center text-muted-foreground text-sm">
-											No custom roles yet.
-										</div>
-									) : (
-										customRoles.map((role) => (
-											<button
-												key={role.id}
-												type="button"
-												className="w-full rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-												onClick={() => setEditingRoleId(role.id)}
-											>
-												<div className="font-medium">{role.role}</div>
-												<div className="text-muted-foreground text-xs">
-													{Object.keys(role.permission).length} resources
+										<div className="flex items-center justify-between gap-3">
+											<div className="space-y-1">
+												<div className="font-medium">{provider.label}</div>
+												<div className="text-muted-foreground text-sm">
+													{provider.type} access and sync scope
 												</div>
-											</button>
-										))
-									)}
+											</div>
+											{provider.settingsUrl ? (
+												<a
+													href={provider.settingsUrl}
+													target="_blank"
+													rel="noreferrer noopener"
+													className={buttonVariants({ variant: "outline" })}
+												>
+													<ExternalLinkIcon />
+													Manage access
+												</a>
+											) : (
+												<Badge variant="outline">No settings link</Badge>
+											)}
+										</div>
+									</div>
+								))
+							)}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Workspace behavior</CardTitle>
+							<CardDescription>
+								Shared review defaults belong to the currently active workspace.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-3">
+							<div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+								<div className="font-medium text-sm">
+									{activeWorkspace ? activeWorkspace.name : "No active workspace"}
 								</div>
-
-								<div className="space-y-4 rounded-2xl border border-border/60 bg-muted/20 p-4">
-									<div className="space-y-2">
-										<div className="font-medium text-sm">Role name</div>
-										<Input
-											value={customRoleName}
-											onChange={(event) => setCustomRoleName(event.target.value)}
-											placeholder="reviewer"
-										/>
-									</div>
-									<div className="space-y-2">
-										<div className="font-medium text-sm">Permissions JSON</div>
-										<Textarea
-											value={customRolePermissions}
-											onChange={(event) =>
-												setCustomRolePermissions(event.target.value)
-											}
-											className="min-h-48 font-mono text-xs"
-											placeholder='{"repository":["read"]}'
-										/>
-									</div>
-									<div className="flex flex-wrap items-center gap-3">
-										<Button
-											type="button"
-											disabled={
-												(createRoleMutation.isPending && !editingRoleId) ||
-												(updateRoleMutation.isPending && Boolean(editingRoleId))
-											}
-											onClick={() => {
-												if (!customRoleName.trim()) {
-													toast.error("Role name is required.");
-													return;
-												}
-
-												try {
-													parsePermissions(customRolePermissions);
-												} catch {
-													toast.error("Permissions JSON is invalid.");
-													return;
-												}
-
-												if (editingRoleId) {
-													updateRoleMutation.mutate({
-														roleId: editingRoleId,
-													});
-													return;
-												}
-
-												createRoleMutation.mutate();
-											}}
-										>
-											{editingRoleId ? "Update role" : "Create role"}
-										</Button>
-										{editingRoleId ? (
-											<Button
-												type="button"
-												variant="destructive"
-												disabled={deleteRoleMutation.isPending}
-												onClick={() => {
-													deleteRoleMutation.mutate(editingRoleId);
-												}}
-											>
-												Delete role
-											</Button>
-										) : null}
-									</div>
-								</div>
+								<p className="mt-1 text-muted-foreground text-sm">
+									{activeWorkspace
+										? `Repository defaults and overrides are applied inside ${activeWorkspace.name}.`
+										: "Pick a synced workspace to edit shared repository settings."}
+								</p>
 							</div>
-						</div>
-					</div>
+							<Link
+								href="/account/general"
+								className={cn(buttonVariants({}), "inline-flex")}
+							>
+								<FolderGit2Icon />
+								Open workspace defaults
+							</Link>
+						</CardContent>
+					</Card>
 
-					<Separator />
-
-					<div className="rounded-2xl border border-dashed border-border/60 px-4 py-4 text-muted-foreground text-sm">
-						Permissions currently available:
-						<div className="mt-2 font-mono text-xs">
-							{Object.entries(workspaceStatements)
-								.map(([resource, actions]) => `${resource}: ${actions.join(", ")}`)
-								.join(" | ")}
-						</div>
-					</div>
-				</CardContent>
-			</Card>
+					<Card>
+						<CardHeader>
+							<CardTitle>How this works</CardTitle>
+						</CardHeader>
+						<CardContent className="space-y-2 text-muted-foreground text-sm">
+							<p>
+								Personal repositories land in personal workspaces.
+							</p>
+							<p>
+								GitHub organizations and GitLab groups land in shared workspaces.
+							</p>
+							<p>
+								Removing repository access in the provider removes it from GitPal on the next sync.
+							</p>
+						</CardContent>
+					</Card>
+				</div>
+			</div>
 		</main>
 	);
 }

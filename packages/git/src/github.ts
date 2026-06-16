@@ -13,6 +13,7 @@ import {
 	type GitPullRequestState,
 	type GitRepository,
 	type GitRepositoryRef,
+	type GitWorkspaceRef,
 	type GitWebhookAdapter,
 	type GitWebhookCreateInput,
 	type GitWebhookDeleteInput,
@@ -66,6 +67,51 @@ function mapActor(
 		email: typeof actor.email === "string" ? actor.email : null,
 		avatarUrl: typeof actor.avatar_url === "string" ? actor.avatar_url : null,
 		htmlUrl: typeof actor.html_url === "string" ? actor.html_url : null,
+		kind:
+			actor.type === "Organization"
+				? "organization"
+				: actor.type === "User"
+					? "user"
+					: null,
+	};
+}
+
+function mapWorkspace(
+	repository: Record<string, unknown>,
+	repositoryPath: string,
+): GitWorkspaceRef | null {
+	const owner =
+		typeof repository.owner === "object" && repository.owner !== null
+			? (repository.owner as Record<string, unknown>)
+			: null;
+	const fallbackOwner = splitRepositoryPath(repositoryPath).owner;
+	const ownerPath =
+		typeof owner?.login === "string" && owner.login.trim()
+			? owner.login
+			: fallbackOwner;
+	const ownerId =
+		owner?.id !== undefined || owner?.node_id !== undefined
+			? String(owner.id ?? owner.node_id)
+			: ownerPath;
+
+	if (!ownerPath) {
+		return null;
+	}
+
+	const scope = owner?.type === "Organization" ? "organization" : "personal";
+
+	return {
+		providerOwnerId: ownerId,
+		providerOwnerPath: ownerPath,
+		providerOwnerName:
+			typeof owner?.login === "string" && owner.login.trim()
+				? owner.login
+				: ownerPath,
+		providerOwnerAvatarUrl:
+			typeof owner?.avatar_url === "string" ? owner.avatar_url : null,
+		providerOwnerHtmlUrl:
+			typeof owner?.html_url === "string" ? owner.html_url : null,
+		scope,
 	};
 }
 
@@ -104,6 +150,7 @@ function mapRepository(
 				? (repository.owner as Record<string, unknown>)
 				: null,
 		),
+		workspace: mapWorkspace(repository, repositoryPath),
 	};
 }
 

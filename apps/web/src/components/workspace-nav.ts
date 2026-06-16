@@ -94,7 +94,7 @@ export const accountNavItems = [
 		icon: Settings2Icon,
 	},
 	{
-		title: "Team Management",
+		title: "Workspaces",
 		href: "/account/team-management",
 		icon: Users2Icon,
 	},
@@ -104,8 +104,8 @@ export const accountNavItems = [
 		icon: CreditCardIcon,
 	},
 	{
-		title: "Developer settings",
-		href: "/account/developer-settings",
+		title: "API Keys",
+		href: "/account/api-keys",
 		icon: KeyRoundIcon,
 	},
 ] as const;
@@ -140,12 +140,18 @@ export function getWorkspacePageInfo(pathname: string) {
 	}
 
 	if (pathname.startsWith("/account/")) {
-		const item = accountNavItems.find((navItem) => navItem.href === pathname);
+		const normalizedPathname =
+			pathname === "/account/developer-settings"
+				? "/account/api-keys"
+				: pathname;
+		const item = accountNavItems.find(
+			(navItem) => navItem.href === normalizedPathname,
+		);
 
 		return {
 			section: "Account",
 			title: item?.title ?? "Account",
-			subtitle: "Organization and billing settings",
+			subtitle: "Workspaces, billing, and keys",
 		};
 	}
 

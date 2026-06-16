@@ -1,6 +1,7 @@
 import { createDb } from "@gitpal/db";
 import * as schema from "@gitpal/db/schema/auth";
 import { env } from "@gitpal/env/server";
+import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins/organization";
@@ -46,8 +47,23 @@ export function createAuth() {
 			createCloudOAuthPlugin(),
 			createEnterpriseGitAuthPlugin(),
 			createSsoPlugin(),
+			apiKey({
+				defaultPrefix: "gp_",
+				requireName: true,
+				enableMetadata: true,
+				rateLimit: {
+					enabled: true,
+					timeWindow: 1000 * 60 * 60 * 24,
+					maxRequests: 5_000,
+				},
+				schema: {
+					apikey: {
+						modelName: "apiKey",
+					},
+				},
+			}),
 			organization({
-				allowUserToCreateOrganization: true,
+				allowUserToCreateOrganization: false,
 				creatorRole: "owner",
 				ac: workspaceAc,
 				roles: workspaceRoles,
@@ -97,6 +113,7 @@ export {
 } from "./organization-access";
 
 export {
+	decryptSecret,
 	type EnterpriseGitProviderType,
 	encryptSecret,
 	getEnterpriseGitApiBaseUrl,

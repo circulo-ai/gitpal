@@ -2,22 +2,56 @@ import { createHash } from "node:crypto";
 import { createDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import { env } from "@gitpal/env/server";
 import {
 	createGitHubAdapter,
 	createGitLabAdapter,
 	type GitProviderAdapter,
 	type GitRepository,
+	type GitWorkspaceRef,
 } from "@gitpal/git";
-import { and, desc, eq, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max, notInArray } from "drizzle-orm";
 
 type Account = typeof authSchema.account.$inferSelect;
 type EnterpriseProvider = typeof authSchema.enterpriseGitProvider.$inferSelect;
+type RepositoryAccessRow = typeof dashboardSchema.repositoryAccess.$inferSelect;
+type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 
 const db = createDb();
 const DEFAULT_REPOSITORY_SYNC_TTL_MS = 15 * 60 * 1000;
+const PROVIDER_WORKSPACE_KIND = "provider-workspace";
 
-type RepositoryAccessRow = typeof dashboardSchema.repositoryAccess.$inferSelect;
-type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
+type ProviderWorkspaceMetadata = {
+	kind: typeof PROVIDER_WORKSPACE_KIND;
+	providerId: string;
+	providerName: string;
+	providerType: string;
+	settingsUrl: string | null;
+	scope: "personal" | "organization" | "group";
+	ownerId: string;
+	ownerPath: string;
+	ownerName: string;
+	ownerAvatarUrl: string | null;
+	ownerHtmlUrl: string | null;
+};
+
+export type WorkspaceSummary = {
+	id: string;
+	name: string;
+	slug: string;
+	logo: string | null;
+	scope: "personal" | "organization" | "group";
+	providerId: string;
+	providerName: string;
+	providerType: string;
+	ownerPath: string;
+	ownerName: string;
+	ownerAvatarUrl: string | null;
+	ownerHtmlUrl: string | null;
+	settingsUrl: string | null;
+	repositoryCount: number;
+	role: string;
+};
 
 export type RepositorySummary = {
 	id: string;
@@ -46,6 +80,7 @@ export type RepositorySyncResult = {
 	syncedProviders: number;
 	skippedProviders: number;
 	errors: string[];
+	workspaceIds: string[];
 };
 
 export type RepositoryProviderSummary = {
@@ -54,12 +89,29 @@ export type RepositoryProviderSummary = {
 	type: string;
 	baseUrl: string | null;
 	apiBaseUrl: string | null;
+	settingsUrl: string | null;
 };
 
 function stableId(parts: Array<string | number | boolean | null | undefined>) {
 	return createHash("sha256")
 		.update(parts.map((part) => String(part ?? "")).join(":"))
 		.digest("hex");
+}
+
+function slugify(value: string) {
+	return value
+		.toLowerCase()
+		.trim()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+}
+
+function getWorkspacePrimaryId(workspace: Pick<GitWorkspaceRef, "providerOwnerId" | "providerOwnerPath">, providerId: string) {
+	return `workspace_${stableId([providerId, workspace.providerOwnerId, workspace.providerOwnerPath]).slice(0, 32)}`;
+}
+
+function getWorkspaceMemberId(userId: string, organizationId: string) {
+	return `member_${stableId([userId, organizationId]).slice(0, 32)}`;
 }
 
 function getRepositoryPrimaryId(
@@ -96,6 +148,105 @@ function getProviderName(account: Account, provider?: EnterpriseProvider | null)
 		: account.providerId === "gitlab"
 			? "GitLab"
 			: account.providerId;
+}
+
+function getProviderSettingsUrl({
+	account,
+	provider,
+}: {
+	account: Account;
+	provider?: EnterpriseProvider | null;
+}) {
+	if (provider?.type === "github") {
+		if (provider.githubAppClientId) {
+			return `${provider.baseUrl}/settings/connections/applications/${provider.githubAppClientId}`;
+		}
+
+		return `${provider.baseUrl}/settings/applications`;
+	}
+
+	if (provider?.type === "gitlab") {
+		return `${provider.baseUrl}/-/user_settings/applications`;
+	}
+
+	if (account.providerId === "github") {
+		return env.GITHUB_CLIENT_ID
+			? `https://github.com/settings/connections/applications/${env.GITHUB_CLIENT_ID}`
+			: "https://github.com/settings/applications";
+	}
+
+	if (account.providerId === "gitlab") {
+		return "https://gitlab.com/-/user_settings/applications";
+	}
+
+	return null;
+}
+
+function toWorkspaceMetadata({
+	account,
+	provider,
+	workspace,
+}: {
+	account: Account;
+	provider?: EnterpriseProvider | null;
+	workspace: GitWorkspaceRef;
+}): ProviderWorkspaceMetadata {
+	return {
+		kind: PROVIDER_WORKSPACE_KIND,
+		providerId: account.providerId,
+		providerName: getProviderName(account, provider),
+		providerType: getProviderType(account, provider),
+		settingsUrl: getProviderSettingsUrl({ account, provider }),
+		scope: workspace.scope,
+		ownerId: workspace.providerOwnerId,
+		ownerPath: workspace.providerOwnerPath,
+		ownerName: workspace.providerOwnerName,
+		ownerAvatarUrl: workspace.providerOwnerAvatarUrl,
+		ownerHtmlUrl: workspace.providerOwnerHtmlUrl,
+	};
+}
+
+function readWorkspaceMetadata(
+	value: unknown,
+): ProviderWorkspaceMetadata | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return null;
+	}
+
+	const metadata = value as Record<string, unknown>;
+
+	if (metadata.kind !== PROVIDER_WORKSPACE_KIND) {
+		return null;
+	}
+
+	const scope = metadata.scope;
+	if (scope !== "personal" && scope !== "organization" && scope !== "group") {
+		return null;
+	}
+
+	return {
+		kind: PROVIDER_WORKSPACE_KIND,
+		providerId:
+			typeof metadata.providerId === "string" ? metadata.providerId : "",
+		providerName:
+			typeof metadata.providerName === "string" ? metadata.providerName : "",
+		providerType:
+			typeof metadata.providerType === "string" ? metadata.providerType : "",
+		settingsUrl:
+			typeof metadata.settingsUrl === "string" ? metadata.settingsUrl : null,
+		scope,
+		ownerId: typeof metadata.ownerId === "string" ? metadata.ownerId : "",
+		ownerPath:
+			typeof metadata.ownerPath === "string" ? metadata.ownerPath : "",
+		ownerName:
+			typeof metadata.ownerName === "string" ? metadata.ownerName : "",
+		ownerAvatarUrl:
+			typeof metadata.ownerAvatarUrl === "string"
+				? metadata.ownerAvatarUrl
+				: null,
+		ownerHtmlUrl:
+			typeof metadata.ownerHtmlUrl === "string" ? metadata.ownerHtmlUrl : null,
+	};
 }
 
 async function createAdapterForAccount(
@@ -150,18 +301,157 @@ async function createAdapterForAccount(
 	return null;
 }
 
+async function getEnterpriseProviderMap() {
+	const enterpriseProviders = await db
+		.select()
+		.from(authSchema.enterpriseGitProvider);
+
+	return new Map(enterpriseProviders.map((provider) => [provider.id, provider]));
+}
+
+async function getAccountForProvider({
+	userId,
+	providerId,
+}: {
+	userId: string;
+	providerId: string;
+}) {
+	const [account] = await db
+		.select()
+		.from(authSchema.account)
+		.where(
+			and(
+				eq(authSchema.account.userId, userId),
+				eq(authSchema.account.providerId, providerId),
+			),
+		)
+		.limit(1);
+
+	return account ?? null;
+}
+
+async function getLatestSyncAt({
+	userId,
+	providerId,
+}: {
+	userId: string;
+	providerId: string;
+}) {
+	const [row] = await db
+		.select({
+			lastSyncedAt: max(dashboardSchema.repository.lastSyncedAt),
+		})
+		.from(dashboardSchema.repositoryAccess)
+		.innerJoin(
+			dashboardSchema.repository,
+			eq(
+				dashboardSchema.repositoryAccess.repositoryId,
+				dashboardSchema.repository.id,
+			),
+		)
+		.where(
+			and(
+				eq(dashboardSchema.repositoryAccess.userId, userId),
+				eq(dashboardSchema.repository.providerId, providerId),
+			),
+		)
+		.limit(1);
+
+	return row?.lastSyncedAt ?? null;
+}
+
+function shouldRefreshRepositorySync(
+	lastSyncedAt: Date | null,
+	ttlMs: number,
+) {
+	if (!lastSyncedAt) {
+		return true;
+	}
+
+	return Date.now() - lastSyncedAt.getTime() > ttlMs;
+}
+
+async function upsertWorkspaceForUser({
+	userId,
+	account,
+	provider,
+	workspace,
+}: {
+	userId: string;
+	account: Account;
+	provider?: EnterpriseProvider | null;
+	workspace: GitWorkspaceRef;
+}) {
+	const now = new Date();
+	const organizationId = getWorkspacePrimaryId(workspace, account.providerId);
+	const metadata = toWorkspaceMetadata({
+		account,
+		provider,
+		workspace,
+	});
+	const slugBase = slugify(
+		`${metadata.providerType}-${metadata.ownerPath}`.replaceAll("/", "-"),
+	);
+	const slug = `${slugBase || "workspace"}-${stableId([
+		account.providerId,
+		workspace.providerOwnerId,
+		workspace.providerOwnerPath,
+	]).slice(0, 10)}`;
+
+	await db
+		.insert(authSchema.organization)
+		.values({
+			id: organizationId,
+			name: metadata.ownerName,
+			slug,
+			logo: metadata.ownerAvatarUrl,
+			metadata,
+			createdAt: now,
+		})
+		.onConflictDoUpdate({
+			target: authSchema.organization.id,
+			set: {
+				name: metadata.ownerName,
+				slug,
+				logo: metadata.ownerAvatarUrl,
+				metadata,
+			},
+		});
+
+	await db
+		.insert(authSchema.member)
+		.values({
+			id: getWorkspaceMemberId(userId, organizationId),
+			userId,
+			organizationId,
+			role: "owner",
+			createdAt: now,
+		})
+		.onConflictDoUpdate({
+			target: [
+				authSchema.member.userId,
+				authSchema.member.organizationId,
+			],
+			set: {
+				role: "owner",
+			},
+		});
+
+	return organizationId;
+}
+
 async function upsertRepositoryForUser({
 	userId,
-	organizationId,
 	account,
 	repository,
 	provider,
+	organizationId,
 }: {
 	userId: string;
-	organizationId: string;
 	account: Account;
 	repository: GitRepository;
 	provider?: EnterpriseProvider | null;
+	organizationId: string;
 }) {
 	const now = new Date();
 	const id = getRepositoryPrimaryId(
@@ -239,78 +529,109 @@ async function upsertRepositoryForUser({
 				dashboardSchema.repositoryAccess.repositoryId,
 			],
 			set: {
+				enabled: true,
 				lastSeenAt: now,
 				updatedAt: now,
 			},
 		});
+
+	return id;
 }
 
-async function getEnterpriseProviderMap() {
-	const enterpriseProviders = await db
-		.select()
-		.from(authSchema.enterpriseGitProvider);
-
-	return new Map(enterpriseProviders.map((provider) => [provider.id, provider]));
-}
-
-async function getAccountForProvider({
+async function cleanupRepositoryAccessForProvider({
 	userId,
 	providerId,
+	seenRepositoryIds,
 }: {
 	userId: string;
 	providerId: string;
+	seenRepositoryIds: string[];
 }) {
-	const [account] = await db
-		.select()
-		.from(authSchema.account)
-		.where(
-			and(
-				eq(authSchema.account.userId, userId),
-				eq(authSchema.account.providerId, providerId),
-			),
-		)
-		.limit(1);
-
-	return account ?? null;
-}
-
-async function getLatestSyncAt({
-	organizationId,
-	providerId,
-}: {
-	organizationId: string;
-	providerId: string;
-}) {
-	const [row] = await db
+	const staleRows = await db
 		.select({
-			lastSyncedAt: max(dashboardSchema.repository.lastSyncedAt),
+			repositoryId: dashboardSchema.repositoryAccess.repositoryId,
 		})
-		.from(dashboardSchema.repository)
-		.where(
-			and(
-				eq(dashboardSchema.repository.organizationId, organizationId),
-				eq(dashboardSchema.repository.providerId, providerId),
+		.from(dashboardSchema.repositoryAccess)
+		.innerJoin(
+			dashboardSchema.repository,
+			eq(
+				dashboardSchema.repositoryAccess.repositoryId,
+				dashboardSchema.repository.id,
 			),
 		)
-		.limit(1);
+		.where(
+			seenRepositoryIds.length > 0
+				? and(
+						eq(dashboardSchema.repositoryAccess.userId, userId),
+						eq(dashboardSchema.repository.providerId, providerId),
+						notInArray(dashboardSchema.repository.id, seenRepositoryIds),
+					)
+				: and(
+						eq(dashboardSchema.repositoryAccess.userId, userId),
+						eq(dashboardSchema.repository.providerId, providerId),
+					),
+		);
 
-	return row?.lastSyncedAt ?? null;
-}
-
-function shouldRefreshRepositorySync(
-	lastSyncedAt: Date | null,
-	ttlMs: number,
-) {
-	if (!lastSyncedAt) {
-		return true;
+	if (staleRows.length === 0) {
+		return;
 	}
 
-	return Date.now() - lastSyncedAt.getTime() > ttlMs;
+	await db
+		.delete(dashboardSchema.repositoryAccess)
+		.where(
+			and(
+				eq(dashboardSchema.repositoryAccess.userId, userId),
+				inArray(
+					dashboardSchema.repositoryAccess.repositoryId,
+					staleRows.map((row) => row.repositoryId),
+				),
+			),
+		);
+}
+
+async function cleanupWorkspaceMembershipsForProvider({
+	userId,
+	providerId,
+	seenWorkspaceIds,
+}: {
+	userId: string;
+	providerId: string;
+	seenWorkspaceIds: string[];
+}) {
+	const memberships = await db
+		.select({
+			memberId: authSchema.member.id,
+			organizationId: authSchema.organization.id,
+			metadata: authSchema.organization.metadata,
+		})
+		.from(authSchema.member)
+		.innerJoin(
+			authSchema.organization,
+			eq(authSchema.member.organizationId, authSchema.organization.id),
+		)
+		.where(eq(authSchema.member.userId, userId));
+
+	const staleMemberIds = memberships
+		.filter(({ organizationId, metadata }) => {
+			const workspace = readWorkspaceMetadata(metadata);
+			return (
+				workspace?.providerId === providerId &&
+				!seenWorkspaceIds.includes(organizationId)
+			);
+		})
+		.map(({ memberId }) => memberId);
+
+	if (staleMemberIds.length === 0) {
+		return;
+	}
+
+	await db
+		.delete(authSchema.member)
+		.where(inArray(authSchema.member.id, staleMemberIds));
 }
 
 async function refreshRepositoriesForAccount(
 	userId: string,
-	organizationId: string,
 	account: Account,
 	enterpriseProviders: Map<string, EnterpriseProvider>,
 ) {
@@ -319,6 +640,7 @@ async function refreshRepositoriesForAccount(
 	if (!adapter) {
 		return {
 			syncedRepositories: 0,
+			workspaceIds: [] as string[],
 			error: null as string | null,
 			skipped: true,
 		};
@@ -329,25 +651,53 @@ async function refreshRepositoriesForAccount(
 			? enterpriseProviders.get(account.providerId.replace("enterprise-git:", ""))
 			: null;
 		const repositories = await adapter.listRepositories();
+		const seenRepositoryIds = new Set<string>();
+		const seenWorkspaceIds = new Set<string>();
 
 		for (const repository of repositories) {
-			await upsertRepositoryForUser({
+			if (!repository.workspace) {
+				continue;
+			}
+
+			const organizationId = await upsertWorkspaceForUser({
 				userId,
-				organizationId,
+				account,
+				provider,
+				workspace: repository.workspace,
+			});
+			const repositoryPrimaryId = await upsertRepositoryForUser({
+				userId,
 				account,
 				repository,
 				provider,
+				organizationId,
 			});
+
+			seenWorkspaceIds.add(organizationId);
+			seenRepositoryIds.add(repositoryPrimaryId);
 		}
 
+		await cleanupRepositoryAccessForProvider({
+			userId,
+			providerId: account.providerId,
+			seenRepositoryIds: [...seenRepositoryIds],
+		});
+		await cleanupWorkspaceMembershipsForProvider({
+			userId,
+			providerId: account.providerId,
+			seenWorkspaceIds: [...seenWorkspaceIds],
+		});
+
 		return {
-			syncedRepositories: repositories.length,
+			syncedRepositories: seenRepositoryIds.size,
+			workspaceIds: [...seenWorkspaceIds],
 			error: null as string | null,
 			skipped: false,
 		};
 	} catch (error) {
 		return {
 			syncedRepositories: 0,
+			workspaceIds: [] as string[],
 			error:
 				error instanceof Error
 					? `${getProviderName(account)}: ${error.message}`
@@ -359,22 +709,11 @@ async function refreshRepositoriesForAccount(
 
 export async function ensureRepositoriesSyncedForUser({
 	userId,
-	organizationId,
 	ttlMs = DEFAULT_REPOSITORY_SYNC_TTL_MS,
 }: {
 	userId: string;
-	organizationId: string | null;
 	ttlMs?: number;
 }): Promise<RepositorySyncResult> {
-	if (!organizationId) {
-		return {
-			syncedRepositories: 0,
-			syncedProviders: 0,
-			skippedProviders: 0,
-			errors: [],
-		};
-	}
-
 	const accounts = await db
 		.select()
 		.from(authSchema.account)
@@ -386,11 +725,12 @@ export async function ensureRepositoriesSyncedForUser({
 		syncedProviders: 0,
 		skippedProviders: 0,
 		errors: [],
+		workspaceIds: [],
 	};
 
 	for (const account of accounts) {
 		const lastSyncedAt = await getLatestSyncAt({
-			organizationId,
+			userId,
 			providerId: account.providerId,
 		});
 
@@ -401,7 +741,6 @@ export async function ensureRepositoriesSyncedForUser({
 
 		const syncResult = await refreshRepositoriesForAccount(
 			userId,
-			organizationId,
 			account,
 			enterpriseProviders,
 		);
@@ -413,11 +752,14 @@ export async function ensureRepositoriesSyncedForUser({
 
 		result.syncedProviders += 1;
 		result.syncedRepositories += syncResult.syncedRepositories;
+		result.workspaceIds.push(...syncResult.workspaceIds);
 
 		if (syncResult.error) {
 			result.errors.push(syncResult.error);
 		}
 	}
+
+	result.workspaceIds = [...new Set(result.workspaceIds)];
 
 	return result;
 }
@@ -452,6 +794,10 @@ export async function listRepositoryProvidersForUser({
 					type: enterpriseProvider.type,
 					baseUrl: enterpriseProvider.baseUrl,
 					apiBaseUrl: enterpriseProvider.apiBaseUrl,
+					settingsUrl: getProviderSettingsUrl({
+						account,
+						provider: enterpriseProvider,
+					}),
 				},
 			];
 		}
@@ -463,9 +809,87 @@ export async function listRepositoryProvidersForUser({
 				type: getProviderType(account),
 				baseUrl: null,
 				apiBaseUrl: null,
+				settingsUrl: getProviderSettingsUrl({ account }),
 			},
 		];
 	});
+}
+
+export async function listWorkspacesForUser({
+	userId,
+}: {
+	userId: string;
+}) {
+	const memberships = await db
+		.select({
+			member: authSchema.member,
+			organization: authSchema.organization,
+		})
+		.from(authSchema.member)
+		.innerJoin(
+			authSchema.organization,
+			eq(authSchema.member.organizationId, authSchema.organization.id),
+		)
+		.where(eq(authSchema.member.userId, userId));
+
+	const providerWorkspaceMemberships = memberships.filter(({ organization }) =>
+		Boolean(readWorkspaceMetadata(organization.metadata)),
+	);
+
+	if (providerWorkspaceMemberships.length === 0) {
+		return [];
+	}
+
+	const organizationIds = providerWorkspaceMemberships.map(
+		({ organization }) => organization.id,
+	);
+	const repositoryCounts = await db
+		.select({
+			organizationId: dashboardSchema.repository.organizationId,
+			total: count(),
+		})
+		.from(dashboardSchema.repository)
+		.where(inArray(dashboardSchema.repository.organizationId, organizationIds))
+		.groupBy(dashboardSchema.repository.organizationId);
+
+	const repositoryCountMap = new Map(
+		repositoryCounts.map((row) => [row.organizationId, row.total]),
+	);
+
+	return providerWorkspaceMemberships
+		.map(({ member, organization }): WorkspaceSummary | null => {
+			const metadata = readWorkspaceMetadata(organization.metadata);
+
+			if (!metadata) {
+				return null;
+			}
+
+			return {
+				id: organization.id,
+				name: organization.name,
+				slug: organization.slug,
+				logo: organization.logo,
+				scope: metadata.scope,
+				providerId: metadata.providerId,
+				providerName: metadata.providerName,
+				providerType: metadata.providerType,
+				ownerPath: metadata.ownerPath,
+				ownerName: metadata.ownerName,
+				ownerAvatarUrl: metadata.ownerAvatarUrl,
+				ownerHtmlUrl: metadata.ownerHtmlUrl,
+				settingsUrl: metadata.settingsUrl,
+				repositoryCount: repositoryCountMap.get(organization.id) ?? 0,
+				role: member.role,
+			};
+		})
+		.filter((workspace): workspace is WorkspaceSummary => workspace !== null)
+		.sort((left, right) => {
+			const scopeOrder = { personal: 0, organization: 1, group: 2 } as const;
+			return (
+				scopeOrder[left.scope] - scopeOrder[right.scope] ||
+				left.name.localeCompare(right.name)
+			);
+		});
 }
 
 export async function addRepositoryForUser({
@@ -501,17 +925,26 @@ export async function addRepositoryForUser({
 	const repository = await adapter.getRepository({
 		repositoryPath: repositoryPath.trim(),
 	});
+	const resolvedOrganizationId = repository.workspace
+		? await upsertWorkspaceForUser({
+				userId,
+				account,
+				provider,
+				workspace: repository.workspace,
+			})
+		: organizationId;
 
 	await upsertRepositoryForUser({
 		userId,
-		organizationId,
 		account,
 		repository,
 		provider,
+		organizationId: resolvedOrganizationId,
 	});
 
 	return {
 		repository,
+		organizationId: resolvedOrganizationId,
 	};
 }
 

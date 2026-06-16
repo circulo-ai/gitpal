@@ -16,6 +16,18 @@ export type GitActor = {
 	email: string | null;
 	avatarUrl: string | null;
 	htmlUrl: string | null;
+	kind?: "user" | "organization" | "group" | null;
+};
+
+export type GitWorkspaceScope = "personal" | "organization" | "group";
+
+export type GitWorkspaceRef = {
+	providerOwnerId: string;
+	providerOwnerPath: string;
+	providerOwnerName: string;
+	providerOwnerAvatarUrl: string | null;
+	providerOwnerHtmlUrl: string | null;
+	scope: GitWorkspaceScope;
 };
 
 export type GitRepository = {
@@ -29,6 +41,7 @@ export type GitRepository = {
 	private: boolean;
 	description: string | null;
 	owner: GitActor | null;
+	workspace: GitWorkspaceRef | null;
 };
 
 export type GitPullRequest = {

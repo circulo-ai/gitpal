@@ -1,8 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { Badge } from "@gitpal/ui/components/badge";
-import { Button } from "@gitpal/ui/components/button";
+import { buttonVariants } from "@gitpal/ui/components/button";
 import {
 	Card,
 	CardContent,
@@ -10,213 +9,190 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@gitpal/ui/components/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@gitpal/ui/components/empty";
-import { Input } from "@gitpal/ui/components/input";
-import { toast } from "sonner";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@gitpal/ui/components/empty";
+import { cn } from "@gitpal/ui/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import {
+	CreditCardIcon,
+	KeyRoundIcon,
+	Settings2Icon,
+	Users2Icon,
+} from "lucide-react";
+import Link from "next/link";
 
 import { authClient } from "@/lib/auth-client";
+import { trpc } from "@/utils/trpc";
 
 import { OrganizationSettingsPanel } from "./organization-settings-panel";
 
-function slugify(value: string) {
-	return value
-		.toLowerCase()
-		.trim()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
-}
-
-function getAuthErrorMessage(error: unknown, fallback: string) {
-	if (typeof error === "string") {
-		return error;
-	}
-
-	if (error && typeof error === "object" && "message" in error) {
-		const message = (error as { message?: unknown }).message;
-
-		if (typeof message === "string" && message.trim()) {
-			return message;
-		}
-	}
-
-	return fallback;
-}
-
 export function AccountGeneralPage() {
-	const organizationsQuery = authClient.useListOrganizations();
 	const activeOrganizationQuery = authClient.useActiveOrganization();
-	const organizations = organizationsQuery.data ?? [];
 	const activeOrganization = activeOrganizationQuery.data;
-	const [name, setName] = React.useState("");
-	const [slug, setSlug] = React.useState("");
-	const [slugTouched, setSlugTouched] = React.useState(false);
-	const [isCreating, startTransition] = React.useTransition();
-
-	async function createOrganization() {
-		const trimmedName = name.trim();
-		const trimmedSlug = slug.trim() || slugify(trimmedName);
-
-		if (!trimmedName || !trimmedSlug) {
-			toast.error("Organization name and slug are required.");
-			return;
-		}
-
-		startTransition(async () => {
-			const result = await authClient.organization.create({
-				name: trimmedName,
-				slug: trimmedSlug,
-				keepCurrentActiveOrganization: false,
-			});
-
-			if (result.error) {
-				toast.error(
-					getAuthErrorMessage(
-						result.error,
-						"Unable to create the organization.",
-					),
-				);
-				return;
-			}
-
-			setName("");
-			setSlug("");
-			setSlugTouched(false);
-			toast.success("Organization created.");
-			window.location.reload();
-		});
-	}
+	const workspacesQuery = useQuery(trpc.repositories.workspaces.queryOptions());
+	const providersQuery = useQuery(trpc.repositories.providers.queryOptions());
+	const workspaces = workspacesQuery.data ?? [];
+	const providers = providersQuery.data ?? [];
+	const activeWorkspace =
+		workspaces.find((workspace) => workspace.id === activeOrganization?.id) ?? null;
 
 	return (
-		<main className="flex min-h-0 flex-1 flex-col gap-6">
+		<main className="flex flex-col gap-6">
 			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
 				<div className="space-y-1">
 					<h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
 						Account
 					</h1>
 					<p className="max-w-3xl text-muted-foreground text-sm">
-						Manage your organizations, shared review defaults, and the account
-						pieces that sit around the rest of the workspace.
+						Control workspace defaults, review how provider access is mapped,
+						and jump into wallet or key management without leaving the account area.
 					</p>
 				</div>
 				<Badge variant="outline">
-					{activeOrganization ? `Active: ${activeOrganization.name}` : "No active organization"}
+					{activeWorkspace ? `Active: ${activeWorkspace.name}` : "No active workspace"}
 				</Badge>
+			</div>
+
+			<div className="grid gap-3 md:grid-cols-3">
+				<Card size="sm">
+					<CardHeader>
+						<CardDescription>Synced workspaces</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{workspaces.length}
+						</CardTitle>
+					</CardHeader>
+				</Card>
+				<Card size="sm">
+					<CardHeader>
+						<CardDescription>Connected providers</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{providers.length}
+						</CardTitle>
+					</CardHeader>
+				</Card>
+				<Card size="sm">
+					<CardHeader>
+						<CardDescription>Active repositories</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{activeWorkspace?.repositoryCount ?? 0}
+						</CardTitle>
+					</CardHeader>
+				</Card>
 			</div>
 
 			<div className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
 				<Card>
 					<CardHeader>
-						<CardTitle>Create organization</CardTitle>
+						<CardTitle>Account surfaces</CardTitle>
 						<CardDescription>
-							Start a new workspace and make it active for this session.
+							Everything account-scoped now hangs off synced workspaces instead of manually created organizations.
 						</CardDescription>
 					</CardHeader>
-					<CardContent className="space-y-4">
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Name</div>
-							<Input
-								value={name}
-								disabled={isCreating}
-								onChange={(event) => {
-									const nextName = event.target.value;
-									setName(nextName);
-									if (!slugTouched) {
-										setSlug(slugify(nextName));
-									}
-								}}
-								placeholder="MonoBit"
-							/>
-						</div>
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Slug</div>
-							<Input
-								value={slug}
-								disabled={isCreating}
-								onChange={(event) => {
-									setSlugTouched(true);
-									setSlug(slugify(event.target.value));
-								}}
-								placeholder="monobit"
-							/>
-							<p className="text-muted-foreground text-xs">
-								Used in URLs and organization lookups.
-							</p>
-						</div>
-						<Button
-							type="button"
-							disabled={isCreating}
-							onClick={() => {
-								void createOrganization();
-							}}
+					<CardContent className="space-y-3">
+						<Link
+							href="/account/team-management"
+							className={cn(
+								buttonVariants({ variant: "outline" }),
+								"h-auto w-full justify-start rounded-2xl px-4 py-3",
+							)}
 						>
-							{isCreating ? "Creating..." : "Create organization"}
-						</Button>
+							<Users2Icon />
+							<span className="flex min-w-0 flex-col items-start">
+								<span className="font-medium">Workspaces</span>
+								<span className="truncate text-muted-foreground text-xs">
+									Sync provider scopes and switch the active workspace
+								</span>
+							</span>
+						</Link>
+						<Link
+							href="/account/billing"
+							className={cn(
+								buttonVariants({ variant: "outline" }),
+								"h-auto w-full justify-start rounded-2xl px-4 py-3",
+							)}
+						>
+							<CreditCardIcon />
+							<span className="flex min-w-0 flex-col items-start">
+								<span className="font-medium">Billing</span>
+								<span className="truncate text-muted-foreground text-xs">
+									Top up your wallet and inspect balance history
+								</span>
+							</span>
+						</Link>
+						<Link
+							href="/account/api-keys"
+							className={cn(
+								buttonVariants({ variant: "outline" }),
+								"h-auto w-full justify-start rounded-2xl px-4 py-3",
+							)}
+						>
+							<KeyRoundIcon />
+							<span className="flex min-w-0 flex-col items-start">
+								<span className="font-medium">API Keys</span>
+								<span className="truncate text-muted-foreground text-xs">
+									Manage GitPal API keys and bring-your-own-provider keys
+								</span>
+							</span>
+						</Link>
 					</CardContent>
 				</Card>
 
 				<Card>
 					<CardHeader>
-						<CardTitle>Organizations</CardTitle>
+						<CardTitle>Workspace model</CardTitle>
 						<CardDescription>
-							Switch the active organization or jump into its defaults.
+							Personal repos stay personal. Shared repos follow the organization or group that owns them upstream.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
-						{organizations.length === 0 ? (
+						{workspaces.length === 0 ? (
 							<Empty className="min-h-64">
 								<EmptyHeader>
-									<EmptyTitle>No organizations yet</EmptyTitle>
+									<EmptyMedia variant="icon">
+										<Settings2Icon />
+									</EmptyMedia>
+									<EmptyTitle>No synced workspace yet</EmptyTitle>
 									<EmptyDescription>
-										Create your first organization to unlock the workspace
-										settings and team features.
+										Open the Workspaces page, connect your provider, and run a sync to generate workspace defaults automatically.
 									</EmptyDescription>
 								</EmptyHeader>
 							</Empty>
 						) : (
 							<div className="space-y-3">
-								{organizations.map((organization) => {
-									const isActive =
-										activeOrganization?.id === organization.id;
-
-									return (
-										<button
-											key={organization.id}
-											type="button"
-											onClick={async () => {
-												const result =
-													await authClient.organization.setActive({
-														organizationId: organization.id,
-													});
-
-												if (result.error) {
-													toast.error(
-														getAuthErrorMessage(
-															result.error,
-															"Unable to switch organizations.",
-														),
-													);
-													return;
-												}
-
-												toast.success(`Switched to ${organization.name}.`);
-												window.location.reload();
-											}}
-											className="flex w-full items-center justify-between gap-4 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-										>
-											<div className="min-w-0 space-y-1">
-												<div className="truncate font-medium">
-													{organization.name}
-												</div>
+								{workspaces.slice(0, 4).map((workspace) => (
+									<div
+										key={workspace.id}
+										className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3"
+									>
+										<div className="flex items-center justify-between gap-3">
+											<div className="min-w-0">
+												<div className="truncate font-medium">{workspace.name}</div>
 												<div className="truncate text-muted-foreground text-sm">
-													{organization.slug}
+													{workspace.ownerPath}
 												</div>
 											</div>
-											<Badge variant={isActive ? "secondary" : "outline"}>
-												{isActive ? "Active" : "Switch"}
-											</Badge>
-										</button>
-									);
-								})}
+											<div className="flex shrink-0 items-center gap-2">
+												<Badge variant="outline">{workspace.providerName}</Badge>
+												<Badge
+													variant={
+														workspace.id === activeWorkspace?.id
+															? "secondary"
+															: "outline"
+													}
+												>
+													{workspace.id === activeWorkspace?.id
+														? "Active"
+														: workspace.scope}
+												</Badge>
+											</div>
+										</div>
+									</div>
+								))}
 							</div>
 						)}
 					</CardContent>

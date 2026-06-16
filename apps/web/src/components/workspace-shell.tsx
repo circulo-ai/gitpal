@@ -42,15 +42,15 @@ export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
 	return (
 		<SidebarProvider>
 			<WorkspaceSidebar user={user} />
-			<SidebarInset className="flex min-h-svh flex-1 flex-col overflow-hidden">
+			<SidebarInset className="flex min-h-svh min-w-0 flex-1 flex-col overflow-hidden">
 				<header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-					<div className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 md:px-6 lg:px-8">
+					<div className="mx-auto flex h-16 min-w-0 w-full max-w-[1600px] items-center gap-3 px-4 md:px-6 lg:px-8">
 						<SidebarTrigger />
 						<Separator
 							orientation="vertical"
 							className="data-[orientation=vertical]:h-5"
 						/>
-						<Breadcrumb>
+						<Breadcrumb className="min-w-0">
 							<BreadcrumbList>
 								<BreadcrumbItem className="hidden md:block">
 									<BreadcrumbLink
@@ -70,17 +70,17 @@ export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
 									</BreadcrumbLink>
 								</BreadcrumbItem>
 								<BreadcrumbSeparator className="hidden md:block" />
-								<BreadcrumbItem>
+								<BreadcrumbItem className="min-w-0">
 									<BreadcrumbPage>{currentPage.title}</BreadcrumbPage>
 								</BreadcrumbItem>
 							</BreadcrumbList>
 						</Breadcrumb>
-						<div className="ml-auto">
+						<div className="ml-auto shrink-0">
 							<UserMenu user={user} />
 						</div>
 					</div>
 				</header>
-				<div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:px-8">
+				<div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[1600px] flex-1 flex-col overflow-x-hidden overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:px-8">
 					{children}
 				</div>
 			</SidebarInset>

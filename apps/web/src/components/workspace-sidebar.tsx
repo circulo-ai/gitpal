@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { authClient } from "@/lib/auth-client";
+import { trpc } from "@/utils/trpc";
 import {
 	Avatar,
 	AvatarFallback,
@@ -37,7 +38,8 @@ import {
 	SidebarMenuSubItem,
 } from "@gitpal/ui/components/sidebar";
 import { cn } from "@gitpal/ui/lib/utils";
-import { ChevronDownIcon, PlusIcon } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronDownIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -64,17 +66,27 @@ function getInitials(name: string) {
 		.toUpperCase();
 }
 
-function OrganizationSwitcher() {
+function formatScope(scope: "personal" | "organization" | "group") {
+	if (scope === "personal") {
+		return "Personal";
+	}
+
+	if (scope === "group") {
+		return "Group";
+	}
+
+	return "Organization";
+}
+
+function WorkspaceSwitcher() {
 	const router = useRouter();
-	const organizationsQuery = authClient.useListOrganizations();
+	const workspacesQuery = useQuery(trpc.repositories.workspaces.queryOptions());
 	const activeOrganizationQuery = authClient.useActiveOrganization();
-	const activeMemberRoleQuery = authClient.useActiveMemberRole();
-	const organizations = organizationsQuery.data ?? [];
+	const workspaces = workspacesQuery.data ?? [];
 	const activeOrganization = activeOrganizationQuery.data;
-	const activeMemberRole = activeMemberRoleQuery.data;
 	const [isSwitching, startTransition] = React.useTransition();
 
-	async function setActiveOrganization(organizationId: string | null) {
+	async function setActiveWorkspace(organizationId: string | null) {
 		startTransition(async () => {
 			await authClient.organization.setActive({
 				organizationId,
@@ -83,19 +95,31 @@ function OrganizationSwitcher() {
 		});
 	}
 
-	if (organizations.length === 0) {
+	React.useEffect(() => {
+		if (
+			workspaces.length === 0 ||
+			isSwitching ||
+			(activeOrganization &&
+				workspaces.some((workspace) => workspace.id === activeOrganization.id))
+		) {
+			return;
+		}
+
+		void setActiveWorkspace(workspaces[0]?.id ?? null);
+	}, [activeOrganization, isSwitching, workspaces]);
+
+	if (workspaces.length === 0) {
 		return (
 			<SidebarGroup>
-				<SidebarGroupLabel>Organization</SidebarGroupLabel>
+				<SidebarGroupLabel>Workspace</SidebarGroupLabel>
 				<SidebarGroupContent>
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SidebarMenuButton
-								tooltip="Create an organization"
-								render={<Link href="/account/general" />}
+								tooltip="Sync workspaces"
+								render={<Link href="/account/team-management" />}
 							>
-								<PlusIcon />
-								<span>Create organization</span>
+								<span>Sync workspaces</span>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
 					</SidebarMenu>
@@ -104,11 +128,13 @@ function OrganizationSwitcher() {
 		);
 	}
 
-	const currentOrganization = activeOrganization ?? organizations[0];
+	const currentWorkspace =
+		workspaces.find((workspace) => workspace.id === activeOrganization?.id) ??
+		workspaces[0];
 
 	return (
 		<SidebarGroup>
-			<SidebarGroupLabel>Organization</SidebarGroupLabel>
+			<SidebarGroupLabel>Workspace</SidebarGroupLabel>
 			<SidebarGroupContent>
 				<SidebarMenu>
 					<SidebarMenuItem>
@@ -117,44 +143,49 @@ function OrganizationSwitcher() {
 								render={
 									<SidebarMenuButton
 										size="lg"
-										tooltip={currentOrganization.name}
-										className="min-w-0"
+										tooltip={currentWorkspace.name}
+										className="min-w-0 justify-start border border-sidebar-border/60 bg-sidebar-accent/20 hover:bg-sidebar-accent/40"
 									/>
 								}
 							>
 								<div className="flex min-w-0 flex-1 items-center gap-3">
 									<div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/60 text-xs font-medium">
-										{currentOrganization.name.slice(0, 2).toUpperCase()}
+										{currentWorkspace.name.slice(0, 2).toUpperCase()}
 									</div>
 									<span className="flex min-w-0 flex-1 flex-col">
 										<span className="truncate font-medium">
-											{currentOrganization.name}
+											{currentWorkspace.name}
 										</span>
 										<span className="truncate text-muted-foreground text-xs">
-											{activeMemberRole?.role
-												? `${activeMemberRole.role} access`
-												: "Organization access"}
+											{`${formatScope(currentWorkspace.scope)} • ${currentWorkspace.role} access`}
 										</span>
 									</span>
 									<ChevronDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground" />
 								</div>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="start" className="w-72">
-								<DropdownMenuLabel>Switch organization</DropdownMenuLabel>
-								<DropdownMenuSeparator />
 								<DropdownMenuGroup>
-									{organizations.map((organization) => (
+									<DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
+									<DropdownMenuSeparator />
+									{workspaces.map((workspace) => (
 										<DropdownMenuItem
-											key={organization.id}
+											key={workspace.id}
 											disabled={isSwitching}
 											onSelect={(event) => {
 												event.preventDefault();
-												void setActiveOrganization(organization.id);
+												void setActiveWorkspace(workspace.id);
 											}}
 										>
 											<div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-												<span className="truncate">{organization.name}</span>
-												{organization.id === currentOrganization.id ? (
+												<div className="min-w-0">
+													<div className="truncate font-medium">
+														{workspace.name}
+													</div>
+													<div className="truncate text-muted-foreground text-xs">
+														{formatScope(workspace.scope)}
+													</div>
+												</div>
+												{workspace.id === currentWorkspace.id ? (
 													<Badge variant="secondary" className="shrink-0">
 														Active
 													</Badge>
@@ -163,9 +194,11 @@ function OrganizationSwitcher() {
 										</DropdownMenuItem>
 									))}
 								</DropdownMenuGroup>
-				<DropdownMenuSeparator />
-								<DropdownMenuItem render={<Link href="/account/general" />}>
-									Manage organizations
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									render={<Link href="/account/team-management" />}
+								>
+									Manage workspaces
 								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
@@ -205,6 +238,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 						<SidebarMenuButton
 							size="lg"
 							tooltip="GitPal"
+							className="justify-start"
 							render={<Link href="/dashboard/summary" />}
 						>
 							<GitPalMark className="size-8 text-[0.65rem]" />
@@ -212,11 +246,11 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
-				<OrganizationSwitcher />
+				<WorkspaceSwitcher />
 			</SidebarHeader>
 			<SidebarContent className="gap-3">
 				<SidebarGroup>
-					<SidebarGroupLabel>Workspace</SidebarGroupLabel>
+					<SidebarGroupLabel>Navigation</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu>
 							{workspaceNavItems
@@ -229,6 +263,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 											<SidebarMenuButton
 												isActive={pathname === item.href}
 												tooltip={item.title}
+												className="justify-start"
 												render={<Link href={item.href} />}
 											>
 												<Icon />
@@ -247,6 +282,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 								<SidebarMenuButton
 									isActive={pathname.startsWith("/dashboard")}
 									tooltip="Git platform reviews"
+									className="justify-start"
 									onClick={() => setReviewsOpen((value) => !value)}
 									aria-expanded={reviewsOpen}
 									aria-controls="git-platform-reviews"
@@ -294,6 +330,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 								<SidebarMenuButton
 									isActive={pathname.startsWith("/account")}
 									tooltip="Account"
+									className="justify-start"
 									onClick={() => setAccountOpen((value) => !value)}
 									aria-expanded={accountOpen}
 									aria-controls="account-navigation"
@@ -338,21 +375,27 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 			<SidebarFooter>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" tooltip={user.email}>
-							<Avatar className="size-8 rounded-lg">
-								{user.image ? (
-									<AvatarImage src={user.image} alt={user.name} />
-								) : null}
-								<AvatarFallback className="rounded-lg">
-									{getInitials(user.name)}
-								</AvatarFallback>
-							</Avatar>
-							<span className="flex min-w-0 flex-col">
-								<span className="truncate font-medium">{user.name}</span>
-								<span className="truncate text-muted-foreground text-xs">
-									{user.email}
+						<SidebarMenuButton
+							size="lg"
+							tooltip={user.email}
+							className="justify-start px-2.5"
+						>
+							<div className="flex min-w-0 flex-1 items-center gap-3">
+								<Avatar className="size-8 rounded-lg">
+									{user.image ? (
+										<AvatarImage src={user.image} alt={user.name} />
+									) : null}
+									<AvatarFallback className="rounded-lg">
+										{getInitials(user.name)}
+									</AvatarFallback>
+								</Avatar>
+								<span className="flex min-w-0 flex-col">
+									<span className="truncate font-medium">{user.name}</span>
+									<span className="truncate text-muted-foreground text-xs">
+										{user.email}
+									</span>
 								</span>
-							</span>
+							</div>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>

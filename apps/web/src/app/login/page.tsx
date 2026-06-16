@@ -1,5 +1,5 @@
 import AuthPage from "@/components/auth-page";
-import { env } from "@gitpal/env/server";
+import { env } from "@gitpal/env/web-server";
 
 export default function LoginPage() {
 	return (

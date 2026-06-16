@@ -1,4 +1,4 @@
-import { env } from "@gitpal/env/server";
+import { env } from "@gitpal/env/web-server";
 
 type AuthUser = {
 	id: string;

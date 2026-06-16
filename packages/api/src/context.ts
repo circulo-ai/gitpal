@@ -1,8 +1,8 @@
 import { createDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import { env } from "@gitpal/env/server";
-import type { Context as HonoContext } from "hono";
 import { eq } from "drizzle-orm";
+import type { Context as HonoContext } from "hono";
 
 export type CreateContextOptions = {
 	context: HonoContext;
@@ -57,6 +57,10 @@ const authPackageName = "@gitpal/auth";
 const db = createDb();
 
 function resolveClientIp(headers: Headers) {
+	if (!env.TRUST_PROXY_HEADERS) {
+		return null;
+	}
+
 	const forwardedFor = headers.get("x-forwarded-for");
 	const forwardedIp = forwardedFor?.split(",")[0]?.trim();
 
@@ -130,7 +134,8 @@ export async function createContext({ context }: CreateContextOptions) {
 	const session = await auth.auth.api.getSession({
 		headers: context.req.raw.headers,
 	});
-	const resolvedSession = session ?? (env.NODE_ENV !== "production" ? getDevelopmentSession() : null);
+	const resolvedSession =
+		session ?? (env.NODE_ENV !== "production" ? getDevelopmentSession() : null);
 	const headers = context.req.raw.headers;
 	const url = new URL(context.req.raw.url);
 

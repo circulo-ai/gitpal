@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { joinNonEmptyParts } from "@gitpal/utils";
 import type { Redis } from "ioredis";
 
@@ -41,7 +42,7 @@ export async function withRedisLock<T>(params: {
 	ttlMs: number;
 	work: () => Promise<T>;
 }) {
-	const token = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+	const token = randomUUID();
 	const acquired = await params.redis.set(
 		params.key,
 		token,

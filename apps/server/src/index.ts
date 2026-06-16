@@ -1,27 +1,26 @@
 import { createContext } from "@gitpal/api/context";
-import { handleNowPaymentsWebhook } from "@gitpal/api/services/wallet";
-import { receiveProviderWebhook } from "@gitpal/api/services/repository-webhooks";
 import { appRouter } from "@gitpal/api/routers/index";
+import {
+	isNowPaymentsWebhookEnabled,
+	NowPaymentsValidationError,
+	parseNowPaymentsWebhook,
+} from "@gitpal/api/services/nowpayments";
+import { receiveProviderWebhook } from "@gitpal/api/services/repository-webhooks";
+import { handleNowPaymentsWebhook } from "@gitpal/api/services/wallet";
 import { auth } from "@gitpal/auth";
 import { env } from "@gitpal/env/server";
 import { createLogger } from "@gitpal/logger";
 import { trpcServer } from "@hono/trpc-server";
-import { Hono, type Context } from "hono";
+import { type Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import {
-	NowPaymentsValidationError,
-	isNowPaymentsWebhookEnabled,
-	parseNowPaymentsWebhook,
-} from "@gitpal/api/services/nowpayments";
+import { secureHeaders } from "hono/secure-headers";
 
 const app = new Hono();
 const log = createLogger("server");
 
-async function handleProviderWebhook(
-	c: Context,
-	providerId: string,
-) {
+async function handleProviderWebhook(c: Context, providerId: string) {
 	const rawBody = await c.req.text();
 	const result = await receiveProviderWebhook({
 		providerId,
@@ -29,10 +28,18 @@ async function handleProviderWebhook(
 		rawBody,
 	});
 
-	return c.json(result.body, result.status as 200 | 202 | 400 | 401 | 404);
+	return c.json(
+		result.body,
+		result.status as 200 | 202 | 400 | 401 | 404 | 503,
+	);
 }
 
 app.use(logger());
+app.use(
+	secureHeaders({
+		strictTransportSecurity: false,
+	}),
+);
 app.use(
 	"/*",
 	cors({
@@ -40,6 +47,13 @@ app.use(
 		allowMethods: ["GET", "POST", "OPTIONS"],
 		allowHeaders: ["Content-Type", "Authorization"],
 		credentials: true,
+	}),
+);
+app.use(
+	"/*",
+	bodyLimit({
+		maxSize: env.HTTP_MAX_REQUEST_BODY_BYTES,
+		onError: (c) => c.json({ ok: false, error: "payload_too_large" }, 413),
 	}),
 );
 
@@ -54,10 +68,7 @@ async function handleNowPaymentsWebhookRequest(c: Context) {
 			"NOWPayments webhook received before IPN secret was configured.",
 		);
 
-		return c.json(
-			{ ok: false, error: "nowpayments_not_configured" },
-			503,
-		);
+		return c.json({ ok: false, error: "nowpayments_not_configured" }, 503);
 	}
 
 	const signature = c.req.header("x-nowpayments-sig") ?? null;

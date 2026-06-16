@@ -20,6 +20,8 @@
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
 		"@gitpal/git": "workspace:*",
+		"@gitpal/jobs": "workspace:*",
+		"@gitpal/logger": "workspace:*",
 		"@gitpal/utils": "workspace:*",
 		"@trpc/client": "catalog:",
 		"@trpc/server": "catalog:",

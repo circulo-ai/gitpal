@@ -10,15 +10,21 @@ import {
 	type GitPullRequest,
 	type GitWebhookEnvelope,
 } from "@gitpal/git";
+import {
+	enqueueProviderWebhookReceiptJob,
+	type ProviderWebhookJobData,
+	providerWebhookJobSchema,
+} from "@gitpal/jobs";
+import { createLogger } from "@gitpal/logger";
 import type { WorkspaceSettings } from "@gitpal/utils";
 import { and, eq, inArray } from "drizzle-orm";
 
 import {
 	createAdapterFromAccount,
-	getAutomationActorForRepository,
-	getEnterpriseProviderMap,
 	type EnterpriseProvider,
 	type GitAccount,
+	getAutomationActorForRepository,
+	getEnterpriseProviderMap,
 } from "./git-provider-access";
 import {
 	type RepositoryReviewOutput,
@@ -27,6 +33,7 @@ import {
 import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 
 const db = createDb();
+const log = createLogger("repository-webhooks");
 const GIT_PROVIDER_PREFIX = "enterprise-git:";
 const GITHUB_WEBHOOK_EVENTS = [
 	"pull_request",
@@ -38,6 +45,8 @@ const GITLAB_WEBHOOK_EVENTS = ["pull_request", "note"] as const;
 
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 type PullRequestRow = typeof dashboardSchema.pullRequest.$inferSelect;
+type WebhookEventReceiptRow =
+	typeof dashboardSchema.webhookEventReceipt.$inferSelect;
 type ReviewRunKind = "review" | "mention" | "pre-merge";
 type ProviderType = "github" | "gitlab";
 
@@ -254,7 +263,8 @@ function extractGitLabContext(
 	const objectAttributes = asRecord(payload.object_attributes);
 	const mergeRequest = asRecord(payload.merge_request);
 	const lastCommit =
-		asRecord(objectAttributes?.last_commit) ?? asRecord(mergeRequest?.last_commit);
+		asRecord(objectAttributes?.last_commit) ??
+		asRecord(mergeRequest?.last_commit);
 	const noteableType = asString(objectAttributes?.noteable_type);
 
 	return {
@@ -267,7 +277,8 @@ function extractGitLabContext(
 			...extractLabelNames(mergeRequest?.labels),
 		],
 		commentBody:
-			asString(objectAttributes?.note) ?? asString(objectAttributes?.description),
+			asString(objectAttributes?.note) ??
+			asString(objectAttributes?.description),
 		reviewState: asString(objectAttributes?.state),
 		headSha: asString(lastCommit?.id),
 		baseSha: null,
@@ -288,7 +299,9 @@ function extractPullRequestContext(
 
 function matchesCommandTrigger(
 	body: string | null,
-	settings: WorkspaceSettings["webhooks"]["mentions"] | WorkspaceSettings["webhooks"]["preMerge"],
+	settings:
+		| WorkspaceSettings["webhooks"]["mentions"]
+		| WorkspaceSettings["webhooks"]["preMerge"],
 ) {
 	if (!body || !settings.enabled) {
 		return false;
@@ -297,7 +310,9 @@ function matchesCommandTrigger(
 	const normalizedBody = normalizeText(body);
 	const hasAlias =
 		settings.aliases.length === 0 ||
-		settings.aliases.some((alias) => normalizedBody.includes(normalizeText(alias)));
+		settings.aliases.some((alias) =>
+			normalizedBody.includes(normalizeText(alias)),
+		);
 	const hasCommand =
 		settings.commands.length === 0 ||
 		settings.commands.some((command) =>
@@ -535,7 +550,9 @@ async function updateRepositoryWebhookHeartbeat(repositoryIds: string[]) {
 			lastDeliveredAt: now,
 			updatedAt: now,
 		})
-		.where(inArray(dashboardSchema.repositoryWebhook.repositoryId, repositoryIds));
+		.where(
+			inArray(dashboardSchema.repositoryWebhook.repositoryId, repositoryIds),
+		);
 }
 
 async function createWebhookReceipt({
@@ -976,10 +993,7 @@ async function runWebhookReview({
 		return "ignored" as const;
 	}
 
-	if (
-		dispatch.kind !== "pre-merge" &&
-		!settings.ai.reviewer.enabled
-	) {
+	if (dispatch.kind !== "pre-merge" && !settings.ai.reviewer.enabled) {
 		return "ignored" as const;
 	}
 
@@ -1108,7 +1122,6 @@ async function processWebhookReceipt({
 
 	const context = extractPullRequestContext(target.providerType, envelope);
 	let processed = 0;
-	let ignored = 0;
 	let failed = 0;
 
 	for (const repository of repositories) {
@@ -1126,10 +1139,7 @@ async function processWebhookReceipt({
 
 		if (result === "failed") {
 			failed += 1;
-			continue;
 		}
-
-		ignored += 1;
 	}
 
 	await updateWebhookReceipt({
@@ -1142,6 +1152,98 @@ async function processWebhookReceipt({
 					: processed > 0
 						? "processed"
 						: "ignored",
+	});
+}
+
+async function getWebhookReceipt(receiptId: string) {
+	const [receipt] = await db
+		.select()
+		.from(dashboardSchema.webhookEventReceipt)
+		.where(eq(dashboardSchema.webhookEventReceipt.id, receiptId))
+		.limit(1);
+
+	return receipt ?? null;
+}
+
+function createWebhookEnvelopeFromReceipt(
+	receipt: WebhookEventReceiptRow,
+): GitWebhookEnvelope<Record<string, unknown>> {
+	const payload = receipt.payload ?? {};
+	const deliveryId = receipt.deliveryId.startsWith("no-delivery-id:")
+		? null
+		: receipt.deliveryId;
+
+	return {
+		providerId: receipt.providerId,
+		event: receipt.event,
+		action: receipt.action,
+		deliveryId,
+		repository: null,
+		sender: null,
+		payload,
+		headers: {},
+		rawBody: JSON.stringify(payload),
+	};
+}
+
+export async function processProviderWebhookReceiptJob(
+	input: ProviderWebhookJobData,
+) {
+	const data = providerWebhookJobSchema.parse(input);
+	const receipt = await getWebhookReceipt(data.receiptId);
+
+	if (!receipt) {
+		log.warn(
+			{
+				receiptId: data.receiptId,
+				providerId: data.providerId,
+			},
+			"Provider webhook receipt was not found.",
+		);
+		return;
+	}
+
+	if (receipt.providerId !== data.providerId) {
+		await updateWebhookReceipt({
+			receiptId: receipt.id,
+			status: "failed",
+		});
+		throw new Error("Provider webhook receipt provider mismatch.");
+	}
+
+	const target = await resolveWebhookTarget(receipt.providerId);
+
+	if (!target) {
+		await updateWebhookReceipt({
+			receiptId: receipt.id,
+			status: "failed",
+		});
+		throw new Error("Provider webhook target could not be resolved.");
+	}
+
+	const repositories = receipt.repositoryPath
+		? await findRepositoriesForWebhook({
+				providerId: receipt.providerId,
+				repositoryPath: receipt.repositoryPath,
+			})
+		: [];
+
+	if (repositories.length === 0) {
+		await updateWebhookReceipt({
+			receiptId: receipt.id,
+			status: "ignored",
+		});
+		return;
+	}
+
+	await updateRepositoryWebhookHeartbeat(
+		repositories.map((repository) => repository.id),
+	);
+	await processWebhookReceipt({
+		receiptId: receipt.id,
+		repositories,
+		envelope: createWebhookEnvelopeFromReceipt(receipt),
+		target,
 	});
 }
 
@@ -1241,7 +1343,10 @@ async function ensureRepositoryWebhookSubscription({
 		});
 
 	return {
-		status: matchingWebhook && webhookIsCompatible ? ("existing" as const) : ("created" as const),
+		status:
+			matchingWebhook && webhookIsCompatible
+				? ("existing" as const)
+				: ("created" as const),
 		error: null,
 	};
 }
@@ -1261,7 +1366,9 @@ export async function ensureRepositoryWebhooksForUser({
 	];
 
 	if (organizationId) {
-		conditions.push(eq(dashboardSchema.repository.organizationId, organizationId));
+		conditions.push(
+			eq(dashboardSchema.repository.organizationId, organizationId),
+		);
 	}
 
 	if (repositoryId) {
@@ -1286,7 +1393,9 @@ export async function ensureRepositoryWebhooksForUser({
 		.from(authSchema.account)
 		.where(eq(authSchema.account.userId, userId));
 	const enterpriseProviders = await getEnterpriseProviderMap();
-	const accountMap = new Map(accounts.map((account) => [account.providerId, account]));
+	const accountMap = new Map(
+		accounts.map((account) => [account.providerId, account]),
+	);
 	const result: RepositoryWebhookSyncResult = {
 		created: 0,
 		existing: 0,
@@ -1444,18 +1553,36 @@ export async function receiveProviderWebhook({
 			};
 		}
 
-		await updateRepositoryWebhookHeartbeat(repositories.map((repository) => repository.id));
-		void processWebhookReceipt({
-			receiptId: receipt.receiptId,
-			repositories,
-			envelope,
-			target,
-		}).catch(async () => {
+		await updateRepositoryWebhookHeartbeat(
+			repositories.map((repository) => repository.id),
+		);
+
+		try {
+			await enqueueProviderWebhookReceiptJob({
+				receiptId: receipt.receiptId,
+				providerId,
+			});
+		} catch (error) {
+			log.error(
+				{
+					err: error,
+					providerId,
+					receiptId: receipt.receiptId,
+				},
+				"Provider webhook receipt could not be queued.",
+			);
 			await updateWebhookReceipt({
 				receiptId: receipt.receiptId,
 				status: "failed",
 			});
-		});
+			return {
+				status: 503,
+				body: {
+					ok: false,
+					error: "webhook_queue_unavailable",
+				},
+			};
+		}
 
 		return {
 			status: 202,

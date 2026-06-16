@@ -51,6 +51,29 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    init: true
+    env_file:
+      - path: apps/server/.env
+        required: false
+    environment:
+      CORS_ORIGIN: http://localhost:3001
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/gitpal
+      REDIS_URL: redis://redis:6379
+      WORKFLOW_TARGET_WORLD: "@workflow-worlds/redis"
+      WORKFLOW_REDIS_URI: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   postgres:

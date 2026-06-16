@@ -30,17 +30,19 @@
 			"@trpc/client": "^11.16.0",
 			"@types/react": "^19.2.15",
 			"@types/react-dom": "^19.2.3",
-			"tailwindcss": "^4.1.18"
+			"tailwindcss": "^4.1.18",
+			"bullmq": "^5.78.1"
 		}
 	},
 	"type": "module",
 	"scripts": {
-		"dev": "turbo -F web -F server dev",
+		"dev": "turbo -F web -F server -F worker dev",
 		"dev:all": "turbo dev",
 		"build": "turbo build",
 		"check-types": "turbo check-types",
 		"dev:web": "turbo -F web dev",
 		"dev:server": "turbo -F server dev",
+		"dev:worker": "turbo -F worker dev",
 		"dev:docs": "turbo -F fumadocs dev",
 		"db:push": "turbo -F @gitpal/db db:push",
 		"db:studio": "turbo -F @gitpal/db db:studio",

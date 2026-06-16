@@ -1,0 +1,23 @@
+{
+	"name": "@gitpal/jobs",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"dependencies": {
+		"@gitpal/env": "workspace:*",
+		"@gitpal/logger": "workspace:*",
+		"@gitpal/redis": "workspace:*",
+		"bullmq": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@gitpal/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

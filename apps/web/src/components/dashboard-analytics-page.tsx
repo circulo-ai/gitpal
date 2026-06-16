@@ -73,9 +73,10 @@ import {
 	YAxis,
 } from "recharts";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
 import { queryClient, trpc } from "@/utils/trpc";
 import type { DashboardView } from "./workspace-nav";
+
+import { useActiveWorkspace } from "./active-workspace-provider";
 
 type DashboardAnalyticsPageProps = {
 	view: DashboardView;
@@ -201,17 +202,16 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
-	const activeOrganizationQuery = authClient.useActiveOrganization();
-	const activeOrganization = activeOrganizationQuery.data;
+	const { activeWorkspaceId } = useActiveWorkspace();
 	const params = React.useMemo(
 		() => new URLSearchParams(searchParams.toString()),
 		[searchParams],
 	);
 	const repositoriesQuery = useQuery({
 		...trpc.repositories.list.queryOptions({
-			organizationId: activeOrganization?.id,
+			organizationId: activeWorkspaceId ?? undefined,
 		}),
-		enabled: Boolean(activeOrganization),
+		enabled: Boolean(activeWorkspaceId),
 	});
 	const exportMutation = useMutation(
 		trpc.analytics.exportReviewMetrics.mutationOptions({
@@ -251,11 +251,19 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 
 	const range = getDateRangeFromSearch(params);
 	const filters = getFilters(params);
+	const repositorySelectItems = [
+		{ label: "All repositories", value: "all" },
+		...(repositoriesQuery.data?.map((repository) => ({
+			label: repository.fullName,
+			value: repository.id,
+		})) ?? []),
+	];
 
 	return (
 		<div className="flex flex-col gap-3 rounded-xl border bg-card p-3 md:flex-row md:items-center md:justify-between">
 			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
 				<Select
+					items={repositorySelectItems}
 					value={params.get("repository") ?? "all"}
 					onValueChange={(value) =>
 						updateParam("repository", value === "all" ? null : value)
@@ -347,9 +355,18 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 				<Button
 					variant="outline"
 					size="icon"
-					onClick={() => {
-						queryClient.invalidateQueries();
-					}}
+					onClick={() =>
+						Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: trpc.analytics.page.queryKey(),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: trpc.repositories.list.queryKey({
+									organizationId: activeWorkspaceId ?? undefined,
+								}),
+							}),
+						])
+					}
 				>
 					<RefreshCcwIcon />
 					<span className="sr-only">Refresh dashboard</span>
@@ -357,7 +374,12 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
 				{isExportView ? (
 					<Button
 						disabled={exportMutation.isPending}
-						onClick={() => exportMutation.mutate(filters)}
+						onClick={() =>
+							exportMutation.mutate({
+								organizationId: activeWorkspaceId ?? undefined,
+								...filters,
+							})
+						}
 					>
 						<DownloadIcon data-icon="inline-start" />
 						Export
@@ -562,7 +584,7 @@ function DashboardTable({ table }: { table: TableBlock }) {
 			<CardContent>
 				{table.rows.length > 0 ? (
 					<div className="flex flex-col gap-3">
-						<div className="overflow-hidden rounded-xl border">
+						<div className="overflow-x-auto rounded-xl border">
 							<Table>
 								<TableHeader>
 									<TableRow>
@@ -651,18 +673,46 @@ export function DashboardAnalyticsPage({
 	title,
 	description,
 }: DashboardAnalyticsPageProps) {
+	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
 	const searchParams = useSearchParams();
 	const filters = React.useMemo(
-		() => getFilters(new URLSearchParams(searchParams.toString())),
-		[searchParams],
+		() => ({
+			organizationId: activeWorkspaceId ?? undefined,
+			...getFilters(new URLSearchParams(searchParams.toString())),
+		}),
+		[activeWorkspaceId, searchParams],
 	);
-	const analyticsQuery = useQuery(
-		trpc.analytics.page.queryOptions({
+	const analyticsQuery = useQuery({
+		...trpc.analytics.page.queryOptions({
 			view,
 			...filters,
 		}),
-	);
+		enabled: Boolean(activeWorkspaceId),
+	});
 	const isExportView = view === "data-export";
+
+	if (!activeWorkspace) {
+		return (
+			<main className="flex flex-col gap-6">
+				<DashboardHeader title={title} description={description} />
+				<Card>
+					<CardContent className="pt-6">
+						<Empty className="min-h-96">
+							<EmptyHeader>
+								<EmptyMedia variant="icon">
+									<DatabaseIcon />
+								</EmptyMedia>
+								<EmptyTitle>No active workspace</EmptyTitle>
+								<EmptyDescription>
+									Sync provider access and pick a workspace before opening review analytics.
+								</EmptyDescription>
+							</EmptyHeader>
+						</Empty>
+					</CardContent>
+				</Card>
+			</main>
+		);
+	}
 
 	return (
 		<main className="flex flex-col gap-6">

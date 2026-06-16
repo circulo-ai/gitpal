@@ -1,5 +1,5 @@
-import { AccountApiKeysPage } from "@/components/account-api-keys-page";
+import { redirect } from "next/navigation";
 
 export default function DeveloperSettingsRoute() {
-	return <AccountApiKeysPage />;
+	redirect("/account/api-keys");
 }

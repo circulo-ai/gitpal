@@ -9,10 +9,15 @@ import {
 	type GitProviderAdapter,
 	type GitProviderCapabilities,
 	type GitPullRequest,
+	type GitPullRequestFile,
+	type GitPullRequestFileStatus,
 	type GitPullRequestCreateInput,
 	type GitPullRequestState,
 	type GitRepository,
+	type GitRepositoryFile,
 	type GitRepositoryRef,
+	type GitRepositorySearchKind,
+	type GitRepositorySearchResult,
 	type GitWorkspaceRef,
 	type GitWebhookAdapter,
 	type GitWebhookCreateInput,
@@ -245,6 +250,76 @@ function mapComment(
 	};
 }
 
+function normalizePullRequestFileStatus(
+	status: string | null | undefined,
+): GitPullRequestFileStatus {
+	switch (status) {
+		case "added":
+		case "modified":
+		case "removed":
+		case "renamed":
+		case "copied":
+			return status;
+		default:
+			return "changed";
+	}
+}
+
+function mapPullRequestFile(
+	file: Record<string, unknown>,
+	providerId: string,
+	repositoryPath: string,
+	pullRequestNumber: number,
+): GitPullRequestFile {
+	return {
+		providerId,
+		repositoryPath,
+		pullRequestNumber,
+		path: String(file.filename ?? ""),
+		previousPath:
+			typeof file.previous_filename === "string"
+				? file.previous_filename
+				: null,
+		status: normalizePullRequestFileStatus(
+			typeof file.status === "string" ? file.status : null,
+		),
+		additions: Number(file.additions ?? 0),
+		deletions: Number(file.deletions ?? 0),
+		patch: typeof file.patch === "string" ? file.patch : null,
+		htmlUrl:
+			typeof file.blob_url === "string"
+				? file.blob_url
+				: typeof file.raw_url === "string"
+					? file.raw_url
+					: null,
+	};
+}
+
+function mapSearchResult(
+	item: Record<string, unknown>,
+	providerId: string,
+	repositoryPath: string,
+): GitRepositorySearchResult {
+	return {
+		providerId,
+		repositoryPath,
+		kind: item.pull_request ? "pull_request" : "issue",
+		id: String(item.id ?? item.node_id ?? item.number ?? ""),
+		number: Number(item.number ?? 0),
+		title: String(item.title ?? ""),
+		body: typeof item.body === "string" ? item.body : null,
+		state: typeof item.state === "string" ? item.state : "open",
+		htmlUrl: typeof item.html_url === "string" ? item.html_url : "",
+		author: mapActor(
+			typeof item.user === "object" && item.user !== null
+				? (item.user as Record<string, unknown>)
+				: null,
+		),
+		createdAt: String(item.created_at ?? new Date().toISOString()),
+		updatedAt: String(item.updated_at ?? new Date().toISOString()),
+	};
+}
+
 function splitGitHubRepositoryPath(repositoryPath: string) {
 	const { owner, repo } = splitRepositoryPath(repositoryPath);
 	return { owner, repo };
@@ -397,6 +472,160 @@ export function createGitHubAdapter({
 			providerId,
 			input.repositoryPath,
 		);
+	}
+
+	async function listPullRequestFiles(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	) {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const response = await octokit.paginate(octokit.rest.pulls.listFiles, {
+			owner,
+			repo,
+			pull_number: input.pullRequestNumber,
+			per_page: 100,
+		});
+
+		return response.map((file) =>
+			mapPullRequestFile(
+				file as Record<string, unknown>,
+				providerId,
+				input.repositoryPath,
+				input.pullRequestNumber,
+			),
+		);
+	}
+
+	async function listPullRequestComments(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	) {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const [issueComments, reviewComments] = await Promise.all([
+			octokit.paginate(octokit.rest.issues.listComments, {
+				owner,
+				repo,
+				issue_number: input.pullRequestNumber,
+				per_page: 100,
+			}),
+			octokit.paginate(octokit.rest.pulls.listReviewComments, {
+				owner,
+				repo,
+				pull_number: input.pullRequestNumber,
+				per_page: 100,
+			}),
+		]);
+
+		return [...issueComments, ...reviewComments]
+			.map((comment) =>
+				mapComment(
+					comment as Record<string, unknown>,
+					providerId,
+					input.repositoryPath,
+					input.pullRequestNumber,
+				),
+			)
+			.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+	}
+
+	async function getFileContent(
+		input: GitRepositoryRef & { filePath: string; ref?: string },
+	) {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const response = await octokit.rest.repos.getContent({
+			owner,
+			repo,
+			path: input.filePath,
+			...(input.ref ? { ref: input.ref } : {}),
+		});
+		const file = response.data as Record<string, unknown>;
+
+		if (Array.isArray(response.data)) {
+			throw new GitProviderConfigurationError(
+				"Expected a file but received a directory listing.",
+				providerId,
+			);
+		}
+
+		const content =
+			typeof file.content === "string"
+				? file.content.replace(/\n/g, "")
+				: "";
+		const encoding =
+			file.encoding === "base64"
+				? "base64"
+				: file.encoding === "utf-8"
+					? "utf-8"
+					: "unknown";
+
+		return {
+			providerId,
+			repositoryPath: input.repositoryPath,
+			path: input.filePath,
+			ref: input.ref ?? null,
+			content:
+				encoding === "base64"
+					? Buffer.from(content, "base64").toString("utf8")
+					: content,
+			size: typeof file.size === "number" ? file.size : null,
+			sha: typeof file.sha === "string" ? file.sha : null,
+			encoding,
+		} satisfies GitRepositoryFile;
+	}
+
+	async function searchRepository(
+		input: GitRepositoryRef & {
+			query?: string;
+			kind?: GitRepositorySearchKind[];
+			limit?: number;
+		},
+	) {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const requestedKinds = input.kind ?? ["issue", "pull_request"];
+		const limit = Math.min(Math.max(input.limit ?? 10, 1), 20);
+		const query = input.query?.trim();
+
+		if (!query) {
+			const response = await octokit.paginate(octokit.rest.issues.listForRepo, {
+				owner,
+				repo,
+				state: "all",
+				sort: "updated",
+				direction: "desc",
+				per_page: limit,
+			});
+
+			return response
+				.map((item) =>
+					mapSearchResult(
+						item as Record<string, unknown>,
+						providerId,
+						input.repositoryPath,
+					),
+				)
+				.filter((item) => requestedKinds.includes(item.kind))
+				.slice(0, limit);
+		}
+
+		const qualifier =
+			requestedKinds.length === 1
+				? requestedKinds[0] === "issue"
+					? " is:issue"
+					: " is:pr"
+				: "";
+		const response = await octokit.rest.search.issuesAndPullRequests({
+			q: `repo:${owner}/${repo}${qualifier} ${query}`.trim(),
+			per_page: limit,
+		});
+
+		return response.data.items
+			.map((item) =>
+				mapSearchResult(
+					item as Record<string, unknown>,
+					providerId,
+					input.repositoryPath,
+				),
+			)
+			.filter((item) => requestedKinds.includes(item.kind))
+			.slice(0, limit);
 	}
 
 	async function createPullRequest(input: GitPullRequestCreateInput) {
@@ -586,6 +815,10 @@ export function createGitHubAdapter({
 		getRepository,
 		listPullRequests,
 		getPullRequest,
+		listPullRequestFiles,
+		listPullRequestComments,
+		getFileContent,
+		searchRepository,
 		createPullRequest,
 		createComment,
 		mergePullRequest,

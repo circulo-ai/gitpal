@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Badge } from "@gitpal/ui/components/badge";
-import { Button } from "@gitpal/ui/components/button";
 import {
 	Card,
 	CardContent,
@@ -14,10 +13,10 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@gitpal/ui/com
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { authClient } from "@/lib/auth-client";
 import { queryClient, trpc } from "@/utils/trpc";
 import type { WorkspaceSettings } from "@gitpal/utils";
 
+import { useActiveWorkspace } from "./active-workspace-provider";
 import { SettingsChangeDock } from "./settings-change-dock";
 import { WorkspaceSettingsForm } from "./workspace-settings-form";
 
@@ -26,13 +25,12 @@ function settingsLabel(name: string) {
 }
 
 export function OrganizationSettingsPanel() {
-	const activeOrganizationQuery = authClient.useActiveOrganization();
-	const activeOrganization = activeOrganizationQuery.data;
+	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
 	const organizationSettingsQuery = useQuery({
 		...trpc.repositories.getOrganizationSettings.queryOptions({
-			organizationId: activeOrganization?.id,
+			organizationId: activeWorkspaceId ?? undefined,
 		}),
-		enabled: Boolean(activeOrganization),
+		enabled: Boolean(activeWorkspaceId),
 	});
 	const [settings, setSettings] = React.useState<WorkspaceSettings | null>(null);
 	const [savedSettings, setSavedSettings] = React.useState<WorkspaceSettings | null>(
@@ -53,15 +51,15 @@ export function OrganizationSettingsPanel() {
 				setSavedSettings(data.settings);
 				await queryClient.invalidateQueries({
 					queryKey: trpc.repositories.getOrganizationSettings.queryKey({
-						organizationId: activeOrganization?.id,
+						organizationId: activeWorkspaceId ?? undefined,
 					}),
 				});
-				toast.success("Organization defaults updated.");
+				toast.success("Workspace defaults updated.");
 			},
 		}),
 	);
 
-	if (!activeOrganization) {
+	if (!activeWorkspace) {
 		return (
 			<Card>
 				<CardHeader>
@@ -88,7 +86,7 @@ export function OrganizationSettingsPanel() {
 		return (
 			<Card>
 				<CardHeader>
-					<CardTitle>{activeOrganization.name}</CardTitle>
+					<CardTitle>{activeWorkspace.name}</CardTitle>
 					<CardDescription>Loading workspace defaults...</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -105,22 +103,22 @@ export function OrganizationSettingsPanel() {
 	return (
 		<div className="relative pb-24">
 			<Card className="overflow-hidden">
-			<CardHeader className="gap-3">
-				<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-					<div className="space-y-1">
-						<CardTitle>{activeOrganization.name}</CardTitle>
-						<CardDescription>
-							Workspace defaults for repositories that inherit shared review behavior.
-						</CardDescription>
+				<CardHeader className="gap-3">
+					<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+						<div className="space-y-1">
+							<CardTitle>{activeWorkspace.name}</CardTitle>
+							<CardDescription>
+								Workspace defaults for repositories that inherit shared review behavior.
+							</CardDescription>
+						</div>
+						<Badge variant="outline" className="w-fit">
+							{settingsLabel(activeWorkspace.slug)}
+						</Badge>
 					</div>
-					<Badge variant="outline" className="w-fit">
-						{settingsLabel(activeOrganization.slug)}
-					</Badge>
-				</div>
-			</CardHeader>
-			<CardContent>
-				<WorkspaceSettingsForm value={settings} onChange={setSettings} />
-			</CardContent>
+				</CardHeader>
+				<CardContent>
+					<WorkspaceSettingsForm value={settings} onChange={setSettings} />
+				</CardContent>
 			</Card>
 			<SettingsChangeDock
 				open={isDirty}
@@ -138,7 +136,10 @@ export function OrganizationSettingsPanel() {
 						return;
 					}
 
-					saveMutation.mutate({ settings });
+					saveMutation.mutate({
+						organizationId: activeWorkspaceId ?? undefined,
+						settings,
+					});
 				}}
 			/>
 		</div>

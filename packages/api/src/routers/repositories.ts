@@ -16,17 +16,20 @@ import {
 	saveOrganizationWorkspaceSettings,
 	saveRepositoryWorkspaceSettings,
 } from "../services/workspace-settings";
+import { ensureRepositoryWebhooksForUser } from "../services/repository-webhooks";
 import { protectedProcedure, router } from "../index";
 import { workspaceSettingsSchema } from "@gitpal/utils";
-
-const repositoryToggleSchema = z.object({
-	repositoryId: z.string().min(1),
-	enabled: z.boolean(),
-});
 
 const organizationScopeSchema = z.object({
 	organizationId: z.string().min(1).optional(),
 });
+
+const repositoryToggleSchema = organizationScopeSchema.merge(
+	z.object({
+		repositoryId: z.string().min(1),
+		enabled: z.boolean(),
+	}),
+);
 
 const repositoryAddSchema = z.object({
 	providerId: z.string().min(1),
@@ -80,9 +83,45 @@ export const repositoriesRouter = router({
 		});
 	}),
 	sync: protectedProcedure.mutation(async ({ ctx }) => {
-		return ensureRepositoriesSyncedForUser({
+		const sync = await ensureRepositoriesSyncedForUser({
 			userId: ctx.session.user.id,
 		});
+		const webhooks = await ensureRepositoryWebhooksForUser({
+			userId: ctx.session.user.id,
+		});
+
+		return {
+			...sync,
+			webhooks,
+		};
+	}),
+	syncWebhooks: protectedProcedure
+		.input(
+			organizationScopeSchema.merge(
+				z.object({
+					repositoryId: z.string().min(1).optional(),
+				}),
+			).optional(),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const organizationId =
+				input?.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
+
+			if (organizationId) {
+				await requireOrganizationPermission({
+					userId: ctx.session.user.id,
+					organizationId,
+					permissions: {
+						repository: ["sync"],
+					},
+				});
+			}
+
+			return ensureRepositoryWebhooksForUser({
+				userId: ctx.session.user.id,
+				organizationId,
+				repositoryId: input?.repositoryId,
+			});
 	}),
 	addRepository: protectedProcedure
 		.input(repositoryAddSchema)
@@ -92,7 +131,7 @@ export const repositoriesRouter = router({
 			if (!organizationId) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
-					message: "Select an organization first.",
+					message: "Select a workspace first.",
 				});
 			}
 
@@ -118,17 +157,24 @@ export const repositoriesRouter = router({
 				});
 			}
 
+			await ensureRepositoryWebhooksForUser({
+				userId: ctx.session.user.id,
+				organizationId: repository.organizationId,
+				repositoryId: repository.repositoryId,
+			});
+
 			return repository;
 		}),
 	toggleEnabled: protectedProcedure
 		.input(repositoryToggleSchema)
 		.mutation(async ({ ctx, input }) => {
-			const organizationId = ctx.session.session.activeOrganizationId;
+			const organizationId =
+				input.organizationId ?? ctx.session.session.activeOrganizationId ?? null;
 
 			if (!organizationId) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
-					message: "Select an organization first.",
+					message: "Select a workspace first.",
 				});
 			}
 
@@ -154,6 +200,14 @@ export const repositoriesRouter = router({
 				});
 			}
 
+			if (input.enabled) {
+				await ensureRepositoryWebhooksForUser({
+					userId: ctx.session.user.id,
+					organizationId,
+					repositoryId: input.repositoryId,
+				});
+			}
+
 			return {
 				id: repository.repositoryId,
 				enabled: repository.enabled,
@@ -168,7 +222,7 @@ export const repositoriesRouter = router({
 			if (!organizationId) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
-					message: "Select an organization first.",
+					message: "Select a workspace first.",
 				});
 			}
 
@@ -193,7 +247,7 @@ export const repositoriesRouter = router({
 			if (!organizationId) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
-					message: "Select an organization first.",
+					message: "Select a workspace first.",
 				});
 			}
 
@@ -205,11 +259,18 @@ export const repositoriesRouter = router({
 				},
 			});
 
+			const settings = await saveOrganizationWorkspaceSettings({
+				organizationId,
+				settings: input.settings,
+			});
+
+			await ensureRepositoryWebhooksForUser({
+				userId: ctx.session.user.id,
+				organizationId,
+			});
+
 			return {
-				settings: await saveOrganizationWorkspaceSettings({
-					organizationId,
-					settings: input.settings,
-				}),
+				settings,
 			};
 		}),
 	getRepositorySettings: protectedProcedure
@@ -221,7 +282,7 @@ export const repositoriesRouter = router({
 			if (!organizationId) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
-					message: "Select an organization first.",
+					message: "Select a workspace first.",
 				});
 			}
 
@@ -248,7 +309,7 @@ export const repositoriesRouter = router({
 			if (!organizationId) {
 				throw new TRPCError({
 					code: "BAD_REQUEST",
-					message: "Select an organization first.",
+					message: "Select a workspace first.",
 				});
 			}
 
@@ -265,6 +326,12 @@ export const repositoriesRouter = router({
 				repositoryId: input.repositoryId,
 				useOrganizationSettings: input.useOrganizationSettings,
 				settings: input.settings,
+			});
+
+			await ensureRepositoryWebhooksForUser({
+				userId: ctx.session.user.id,
+				organizationId,
+				repositoryId: input.repositoryId,
 			});
 
 			return {

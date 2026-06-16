@@ -87,7 +87,7 @@ export async function requireOrganizationPermission({
 	if (!organizationId) {
 		throw new TRPCError({
 			code: "BAD_REQUEST",
-			message: "Select an organization first.",
+			message: "Select a workspace first.",
 		});
 	}
 
@@ -96,7 +96,7 @@ export async function requireOrganizationPermission({
 	if (!member) {
 		throw new TRPCError({
 			code: "FORBIDDEN",
-			message: "You are not a member of this organization.",
+			message: "You do not have access to this workspace.",
 		});
 	}
 
@@ -105,7 +105,7 @@ export async function requireOrganizationPermission({
 	if (!role) {
 		throw new TRPCError({
 			code: "FORBIDDEN",
-			message: "Your organization role does not have any permissions.",
+			message: "Your workspace role does not have any permissions.",
 		});
 	}
 

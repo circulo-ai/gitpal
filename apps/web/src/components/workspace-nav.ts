@@ -140,12 +140,8 @@ export function getWorkspacePageInfo(pathname: string) {
 	}
 
 	if (pathname.startsWith("/account/")) {
-		const normalizedPathname =
-			pathname === "/account/developer-settings"
-				? "/account/api-keys"
-				: pathname;
 		const item = accountNavItems.find(
-			(navItem) => navItem.href === normalizedPathname,
+			(navItem) => navItem.href === pathname,
 		);
 
 		return {

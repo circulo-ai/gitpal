@@ -152,6 +152,9 @@ export function BillingPage() {
 								<Input
 									value={amountUsd}
 									onChange={(event) => setAmountUsd(event.target.value)}
+									type="number"
+									min="5"
+									step="0.01"
 									inputMode="decimal"
 									placeholder="50"
 								/>
@@ -224,7 +227,7 @@ export function BillingPage() {
 							</CardHeader>
 							<CardContent>
 								{summary?.recentTopups.length ? (
-									<div className="overflow-hidden rounded-2xl border border-border/60">
+									<div className="overflow-x-auto rounded-2xl border border-border/60">
 										<Table>
 											<TableHeader>
 												<TableRow>

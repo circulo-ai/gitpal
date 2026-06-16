@@ -1,6 +1,21 @@
 import { z } from "zod";
 
 export type ReviewProfile = "chill" | "assertive";
+export type ReviewFocus =
+	| "balanced"
+	| "security"
+	| "performance"
+	| "maintainability";
+export type ThinkingEffort = "low" | "medium" | "high";
+export type ThinkingSummaryVisibility = "auto" | "detailed" | "hidden";
+export type WorkspaceManagedToolType =
+	| "repository-search"
+	| "related-issues"
+	| "related-pull-requests"
+	| "github-mcp"
+	| "gitlab-mcp"
+	| "web-search";
+export type WorkspaceManagedToolMode = "builtin" | "mcp";
 
 export type WorkspacePathInstruction = {
 	path: string;
@@ -10,6 +25,67 @@ export type WorkspacePathInstruction = {
 export type WorkspaceLabelInstruction = {
 	label: string;
 	instructions: string;
+};
+
+export type WorkspaceManagedTool = {
+	id: string;
+	type: WorkspaceManagedToolType;
+	label: string;
+	description: string;
+	enabled: boolean;
+	mode: WorkspaceManagedToolMode;
+	mcpServerName: string | null;
+	maxResults: number;
+};
+
+export type WorkspaceAutoReviewSettings = {
+	baseBranches: string[];
+	labels: string[];
+	skipLabels: string[];
+	onOpen: boolean;
+	onPush: boolean;
+	onReadyForReview: boolean;
+	onMention: boolean;
+	skipDrafts: boolean;
+};
+
+export type WorkspaceReviewContextSettings = {
+	contextAware: boolean;
+	includeRepositoryFiles: boolean;
+	includePullRequestHistory: boolean;
+	includeRelatedIssues: boolean;
+	includeRelatedPRs: boolean;
+	mentionRelatedWork: boolean;
+	maxRelatedItems: number;
+};
+
+export type WorkspaceReviewerSettings = {
+	enabled: boolean;
+	modelId: string;
+	maxSteps: number;
+	maxOutputTokens: number;
+	focus: ReviewFocus;
+	extraInstructions: string;
+	postSummaryComment: boolean;
+	postInlineFindings: boolean;
+};
+
+export type WorkspaceThinkingSettings = {
+	enabled: boolean;
+	effort: ThinkingEffort;
+	budgetTokens: number;
+	summaryVisibility: ThinkingSummaryVisibility;
+};
+
+export type WorkspaceWebhookCommandSettings = {
+	enabled: boolean;
+	commands: string[];
+	aliases: string[];
+};
+
+export type WorkspaceWebhookEventSettings = {
+	enabled: boolean;
+	actions: string[];
 };
 
 export type WorkspaceSettings = {
@@ -40,10 +116,16 @@ export type WorkspaceSettings = {
 			labelingInstructions: WorkspaceLabelInstruction[];
 			requestChangesWorkflow: boolean;
 			autoAssignReviewers: boolean;
-			autoReview: {
-				baseBranches: string[];
-				labels: string[];
-			};
+			autoReview: WorkspaceAutoReviewSettings;
+			context: WorkspaceReviewContextSettings;
+		};
+	};
+	ai: {
+		reviewer: WorkspaceReviewerSettings;
+		thinking: WorkspaceThinkingSettings;
+		tools: {
+			allowRepositoryOverrides: boolean;
+			available: WorkspaceManagedTool[];
 		};
 	};
 	finishingTouches: {
@@ -57,12 +139,24 @@ export type WorkspaceSettings = {
 		};
 	};
 	preMergeChecks: {
+		enabled: boolean;
 		descriptionCheck: boolean;
 		docstringCoverage: boolean;
+		requireAiReview: boolean;
+		blockOnOpenFindings: boolean;
+		requireContextScan: boolean;
 	};
 	statuses: {
 		autoApplyLabels: boolean;
 		autoTitleInstructions: string;
+		publishReviewSummary: boolean;
+		publishPreMergeSummary: boolean;
+	};
+	webhooks: {
+		mentions: WorkspaceWebhookCommandSettings;
+		pullRequests: WorkspaceWebhookEventSettings;
+		mergeRequests: WorkspaceWebhookEventSettings;
+		preMerge: WorkspaceWebhookCommandSettings;
 	};
 	fun: {
 		toneInstructions: string;
@@ -85,6 +179,79 @@ export const workspacePathInstructionSchema = z.object({
 export const workspaceLabelInstructionSchema = z.object({
 	label: z.string(),
 	instructions: z.string(),
+});
+
+export const workspaceManagedToolSchema = z.object({
+	id: z.string().min(1),
+	type: z.enum([
+		"repository-search",
+		"related-issues",
+		"related-pull-requests",
+		"github-mcp",
+		"gitlab-mcp",
+		"web-search",
+	]),
+	label: z.string(),
+	description: z.string(),
+	enabled: z.boolean(),
+	mode: z.enum(["builtin", "mcp"]),
+	mcpServerName: z.string().nullable(),
+	maxResults: z.number().int().min(1).max(50),
+});
+
+export const workspaceAutoReviewSettingsSchema = z.object({
+	baseBranches: z.array(z.string()),
+	labels: z.array(z.string()),
+	skipLabels: z.array(z.string()),
+	onOpen: z.boolean(),
+	onPush: z.boolean(),
+	onReadyForReview: z.boolean(),
+	onMention: z.boolean(),
+	skipDrafts: z.boolean(),
+});
+
+export const workspaceReviewContextSettingsSchema = z.object({
+	contextAware: z.boolean(),
+	includeRepositoryFiles: z.boolean(),
+	includePullRequestHistory: z.boolean(),
+	includeRelatedIssues: z.boolean(),
+	includeRelatedPRs: z.boolean(),
+	mentionRelatedWork: z.boolean(),
+	maxRelatedItems: z.number().int().min(1).max(20),
+});
+
+export const workspaceReviewerSettingsSchema = z.object({
+	enabled: z.boolean(),
+	modelId: z.string(),
+	maxSteps: z.number().int().min(1).max(50),
+	maxOutputTokens: z.number().int().min(256).max(32768),
+	focus: z.enum([
+		"balanced",
+		"security",
+		"performance",
+		"maintainability",
+	]),
+	extraInstructions: z.string(),
+	postSummaryComment: z.boolean(),
+	postInlineFindings: z.boolean(),
+});
+
+export const workspaceThinkingSettingsSchema = z.object({
+	enabled: z.boolean(),
+	effort: z.enum(["low", "medium", "high"]),
+	budgetTokens: z.number().int().min(1024).max(32000),
+	summaryVisibility: z.enum(["auto", "detailed", "hidden"]),
+});
+
+export const workspaceWebhookCommandSettingsSchema = z.object({
+	enabled: z.boolean(),
+	commands: z.array(z.string()),
+	aliases: z.array(z.string()),
+});
+
+export const workspaceWebhookEventSettingsSchema = z.object({
+	enabled: z.boolean(),
+	actions: z.array(z.string()),
 });
 
 export const workspaceSettingsSchema = z.object({
@@ -115,10 +282,16 @@ export const workspaceSettingsSchema = z.object({
 			labelingInstructions: z.array(workspaceLabelInstructionSchema),
 			requestChangesWorkflow: z.boolean(),
 			autoAssignReviewers: z.boolean(),
-			autoReview: z.object({
-				baseBranches: z.array(z.string()),
-				labels: z.array(z.string()),
-			}),
+			autoReview: workspaceAutoReviewSettingsSchema,
+			context: workspaceReviewContextSettingsSchema,
+		}),
+	}),
+	ai: z.object({
+		reviewer: workspaceReviewerSettingsSchema,
+		thinking: workspaceThinkingSettingsSchema,
+		tools: z.object({
+			allowRepositoryOverrides: z.boolean(),
+			available: z.array(workspaceManagedToolSchema),
 		}),
 	}),
 	finishingTouches: z.object({
@@ -132,12 +305,24 @@ export const workspaceSettingsSchema = z.object({
 		}),
 	}),
 	preMergeChecks: z.object({
+		enabled: z.boolean(),
 		descriptionCheck: z.boolean(),
 		docstringCoverage: z.boolean(),
+		requireAiReview: z.boolean(),
+		blockOnOpenFindings: z.boolean(),
+		requireContextScan: z.boolean(),
 	}),
 	statuses: z.object({
 		autoApplyLabels: z.boolean(),
 		autoTitleInstructions: z.string(),
+		publishReviewSummary: z.boolean(),
+		publishPreMergeSummary: z.boolean(),
+	}),
+	webhooks: z.object({
+		mentions: workspaceWebhookCommandSettingsSchema,
+		pullRequests: workspaceWebhookEventSettingsSchema,
+		mergeRequests: workspaceWebhookEventSettingsSchema,
+		preMerge: workspaceWebhookCommandSettingsSchema,
 	}),
 	fun: z.object({
 		toneInstructions: z.string(),
@@ -187,7 +372,112 @@ export const defaultWorkspaceSettings = {
 			autoReview: {
 				baseBranches: ["main"],
 				labels: [],
+				skipLabels: ["skip-gitpal"],
+				onOpen: true,
+				onPush: true,
+				onReadyForReview: true,
+				onMention: true,
+				skipDrafts: true,
 			},
+			context: {
+				contextAware: true,
+				includeRepositoryFiles: true,
+				includePullRequestHistory: true,
+				includeRelatedIssues: true,
+				includeRelatedPRs: true,
+				mentionRelatedWork: true,
+				maxRelatedItems: 6,
+			},
+		},
+	},
+	ai: {
+		reviewer: {
+			enabled: true,
+			modelId: "anthropic/claude-sonnet-4-5",
+			maxSteps: 8,
+			maxOutputTokens: 8192,
+			focus: "balanced",
+			extraInstructions:
+				"Review the whole change in repository context. Do not behave like a diff-only reviewer.",
+			postSummaryComment: true,
+			postInlineFindings: true,
+		},
+		thinking: {
+			enabled: true,
+			effort: "medium",
+			budgetTokens: 12000,
+			summaryVisibility: "auto",
+		},
+		tools: {
+			allowRepositoryOverrides: true,
+			available: [
+				{
+					id: "repository-search",
+					type: "repository-search",
+					label: "Repository search",
+					description:
+						"Search repository context across provider metadata, files, issues, and pull requests.",
+					enabled: true,
+					mode: "builtin",
+					mcpServerName: null,
+					maxResults: 8,
+				},
+				{
+					id: "related-issues",
+					type: "related-issues",
+					label: "Related issues",
+					description:
+						"Find related issues that should be referenced in the review.",
+					enabled: true,
+					mode: "builtin",
+					mcpServerName: null,
+					maxResults: 6,
+				},
+				{
+					id: "related-pull-requests",
+					type: "related-pull-requests",
+					label: "Related PRs / MRs",
+					description:
+						"Search recent pull requests and merge requests for overlapping work.",
+					enabled: true,
+					mode: "builtin",
+					mcpServerName: null,
+					maxResults: 6,
+				},
+				{
+					id: "github-mcp",
+					type: "github-mcp",
+					label: "GitHub MCP",
+					description:
+						"Use a GitHub MCP server for indexed repository search when available.",
+					enabled: false,
+					mode: "mcp",
+					mcpServerName: "github",
+					maxResults: 8,
+				},
+				{
+					id: "gitlab-mcp",
+					type: "gitlab-mcp",
+					label: "GitLab MCP",
+					description:
+						"Use a GitLab MCP server for indexed repository search when available.",
+					enabled: false,
+					mode: "mcp",
+					mcpServerName: "gitlab",
+					maxResults: 8,
+				},
+				{
+					id: "web-search",
+					type: "web-search",
+					label: "Web search",
+					description:
+						"Allow external web search for standards, docs, and third-party context.",
+					enabled: false,
+					mode: "builtin",
+					mcpServerName: null,
+					maxResults: 5,
+				},
+			],
 		},
 	},
 	finishingTouches: {
@@ -201,13 +491,39 @@ export const defaultWorkspaceSettings = {
 		},
 	},
 	preMergeChecks: {
+		enabled: true,
 		descriptionCheck: true,
 		docstringCoverage: true,
+		requireAiReview: true,
+		blockOnOpenFindings: true,
+		requireContextScan: true,
 	},
 	statuses: {
 		autoApplyLabels: true,
 		autoTitleInstructions:
 			"Write a clear PR title that reflects the scope and intent of the change.",
+		publishReviewSummary: true,
+		publishPreMergeSummary: true,
+	},
+	webhooks: {
+		mentions: {
+			enabled: true,
+			commands: ["review", "analyze"],
+			aliases: ["@gitpal", "@gitpal-ai", "/gitpal"],
+		},
+		pullRequests: {
+			enabled: true,
+			actions: ["opened", "reopened", "synchronize", "ready_for_review"],
+		},
+		mergeRequests: {
+			enabled: true,
+			actions: ["open", "reopen", "update", "approved"],
+		},
+		preMerge: {
+			enabled: true,
+			commands: ["pre-merge", "premerge", "merge-check"],
+			aliases: ["@gitpal", "/gitpal"],
+		},
 	},
 	fun: {
 		toneInstructions:
@@ -267,6 +583,19 @@ export function mergeWorkspaceSettings(
 	override?: DeepPartial<WorkspaceSettings> | null,
 ) {
 	return mergeValue(base, override ?? undefined);
+}
+
+export function normalizeWorkspaceSettings(value: unknown): WorkspaceSettings {
+	if (!isPlainObject(value)) {
+		return createDefaultWorkspaceSettings();
+	}
+
+	return workspaceSettingsSchema.parse(
+		mergeWorkspaceSettings(
+			createDefaultWorkspaceSettings(),
+			value as DeepPartial<WorkspaceSettings>,
+		),
+	);
 }
 
 export function resolveEffectiveWorkspaceSettings({

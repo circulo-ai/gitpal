@@ -20,6 +20,7 @@ export type LlmProviderDefinition = {
 	description: string;
 	family: LlmProviderFamily;
 	modelPrefixes: string[];
+	suggestedModels: string[];
 	baseUrl: string | null;
 	keyPlaceholder: string;
 };
@@ -31,6 +32,12 @@ export const llmProviderCatalog = [
 		description: "Direct Claude access with Anthropic API keys.",
 		family: "anthropic",
 		modelPrefixes: ["anthropic", "claude"],
+		suggestedModels: [
+			"anthropic/claude-opus-4.1",
+			"anthropic/claude-sonnet-4.6",
+			"anthropic/claude-sonnet-4.5",
+			"anthropic/claude-3.5-haiku",
+		],
 		baseUrl: null,
 		keyPlaceholder: "sk-ant-...",
 	},
@@ -40,6 +47,12 @@ export const llmProviderCatalog = [
 		description: "Gemini models through Google AI Studio keys.",
 		family: "google",
 		modelPrefixes: ["google", "gemini"],
+		suggestedModels: [
+			"google/gemini-2.5-pro",
+			"google/gemini-2.5-flash",
+			"google/gemini-2.0-flash",
+			"google/gemini-2.0-flash-lite",
+		],
 		baseUrl: null,
 		keyPlaceholder: "AIza...",
 	},
@@ -49,6 +62,12 @@ export const llmProviderCatalog = [
 		description: "OpenAI models and compatible endpoints with native OpenAI keys.",
 		family: "openai",
 		modelPrefixes: ["openai", "gpt", "o1", "o3", "o4"],
+		suggestedModels: [
+			"openai/gpt-5",
+			"openai/gpt-5-mini",
+			"openai/o4-mini",
+			"openai/o3",
+		],
 		baseUrl: null,
 		keyPlaceholder: "sk-proj-...",
 	},
@@ -58,6 +77,12 @@ export const llmProviderCatalog = [
 		description: "Route compatible models through OpenRouter with your own key.",
 		family: "openai-compatible",
 		modelPrefixes: ["openrouter"],
+		suggestedModels: [
+			"openrouter/anthropic/claude-sonnet-4.6",
+			"openrouter/openai/gpt-5",
+			"openrouter/google/gemini-2.5-pro",
+			"openrouter/deepseek/deepseek-chat",
+		],
 		baseUrl: "https://openrouter.ai/api/v1",
 		keyPlaceholder: "sk-or-...",
 	},
@@ -67,6 +92,11 @@ export const llmProviderCatalog = [
 		description: "Grok and xAI endpoints through an OpenAI-compatible API.",
 		family: "openai-compatible",
 		modelPrefixes: ["xai", "grok"],
+		suggestedModels: [
+			"xai/grok-4",
+			"xai/grok-3",
+			"xai/grok-3-mini",
+		],
 		baseUrl: "https://api.x.ai/v1",
 		keyPlaceholder: "xai-...",
 	},
@@ -76,6 +106,11 @@ export const llmProviderCatalog = [
 		description: "Ultra-low-latency OpenAI-compatible inference.",
 		family: "openai-compatible",
 		modelPrefixes: ["groq"],
+		suggestedModels: [
+			"groq/llama-3.3-70b-versatile",
+			"groq/qwen-qwq-32b",
+			"groq/deepseek-r1-distill-llama-70b",
+		],
 		baseUrl: "https://api.groq.com/openai/v1",
 		keyPlaceholder: "gsk_...",
 	},
@@ -85,6 +120,10 @@ export const llmProviderCatalog = [
 		description: "Direct DeepSeek models via OpenAI-compatible APIs.",
 		family: "openai-compatible",
 		modelPrefixes: ["deepseek"],
+		suggestedModels: [
+			"deepseek/deepseek-chat",
+			"deepseek/deepseek-reasoner",
+		],
 		baseUrl: "https://api.deepseek.com/v1",
 		keyPlaceholder: "sk-...",
 	},
@@ -94,6 +133,11 @@ export const llmProviderCatalog = [
 		description: "Mistral platform models via OpenAI-compatible APIs.",
 		family: "openai-compatible",
 		modelPrefixes: ["mistral"],
+		suggestedModels: [
+			"mistral/mistral-large",
+			"mistral/mistral-small",
+			"mistral/codestral",
+		],
 		baseUrl: "https://api.mistral.ai/v1",
 		keyPlaceholder: "sk-...",
 	},
@@ -103,6 +147,11 @@ export const llmProviderCatalog = [
 		description: "Search-grounded models via Perplexity's API.",
 		family: "openai-compatible",
 		modelPrefixes: ["perplexity", "sonar"],
+		suggestedModels: [
+			"perplexity/sonar",
+			"perplexity/sonar-pro",
+			"perplexity/sonar-reasoning",
+		],
 		baseUrl: "https://api.perplexity.ai",
 		keyPlaceholder: "pplx-...",
 	},
@@ -112,6 +161,11 @@ export const llmProviderCatalog = [
 		description: "Open models and serverless inference through Together.",
 		family: "openai-compatible",
 		modelPrefixes: ["together", "togetherai"],
+		suggestedModels: [
+			"togetherai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			"togetherai/Qwen/Qwen2.5-72B-Instruct-Turbo",
+			"togetherai/deepseek-ai/DeepSeek-V3",
+		],
 		baseUrl: "https://api.together.xyz/v1",
 		keyPlaceholder: "sk-...",
 	},
@@ -121,6 +175,10 @@ export const llmProviderCatalog = [
 		description: "High-throughput OpenAI-compatible inference.",
 		family: "openai-compatible",
 		modelPrefixes: ["fireworks"],
+		suggestedModels: [
+			"fireworks/accounts/fireworks/models/llama-v3p1-70b-instruct",
+			"fireworks/accounts/fireworks/models/qwen3-235b-a22b",
+		],
 		baseUrl: "https://api.fireworks.ai/inference/v1",
 		keyPlaceholder: "fw_...",
 	},
@@ -130,6 +188,10 @@ export const llmProviderCatalog = [
 		description: "Fast OpenAI-compatible inference on Cerebras.",
 		family: "openai-compatible",
 		modelPrefixes: ["cerebras"],
+		suggestedModels: [
+			"cerebras/llama-4-scout-17b-16e-instruct",
+			"cerebras/qwen-3-235b-a22b-instruct-2507",
+		],
 		baseUrl: "https://api.cerebras.ai/v1",
 		keyPlaceholder: "csk-...",
 	},

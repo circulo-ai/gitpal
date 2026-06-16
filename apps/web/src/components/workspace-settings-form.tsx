@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { Badge } from "@gitpal/ui/components/badge";
 import { Button } from "@gitpal/ui/components/button";
 import {
 	Card,
@@ -22,13 +21,11 @@ import { Separator } from "@gitpal/ui/components/separator";
 import { Switch } from "@gitpal/ui/components/switch";
 import { Textarea } from "@gitpal/ui/components/textarea";
 import { cn } from "@gitpal/ui/lib/utils";
-import {
-	PlusIcon,
-	Trash2Icon,
-} from "lucide-react";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 
 import type {
 	WorkspaceLabelInstruction,
+	WorkspaceManagedTool,
 	WorkspacePathInstruction,
 	WorkspaceSettings,
 } from "@gitpal/utils";
@@ -57,17 +54,18 @@ type StringListEditorProps = {
 	onChange: (values: string[]) => void;
 };
 
-type InstructionListEditorProps<T extends WorkspacePathInstruction | WorkspaceLabelInstruction> =
-	{
-		title: string;
-		description: string;
-		items: T[];
-		placeholderLabel: string;
-		keyField: keyof T;
-		keyPlaceholder: string;
-		disabled?: boolean;
-		onChange: (items: T[]) => void;
-	};
+type InstructionListEditorProps<
+	T extends WorkspacePathInstruction | WorkspaceLabelInstruction,
+> = {
+	title: string;
+	description: string;
+	items: T[];
+	placeholderLabel: string;
+	keyField: keyof T;
+	keyPlaceholder: string;
+	disabled?: boolean;
+	onChange: (items: T[]) => void;
+};
 
 function cloneSettings(value: WorkspaceSettings) {
 	return structuredClone(value);
@@ -83,6 +81,20 @@ function updateSettings(
 	onChange(draft);
 }
 
+function updateNumber(
+	currentValue: number,
+	nextValue: string,
+	limits: {
+		min: number;
+		max: number;
+	},
+) {
+	return Math.min(
+		limits.max,
+		Math.max(limits.min, Number(nextValue) || currentValue),
+	);
+}
+
 function SectionToggleRow({
 	title,
 	description,
@@ -91,7 +103,7 @@ function SectionToggleRow({
 	onCheckedChange,
 }: SectionToggleRowProps) {
 	return (
-		<div className="flex items-start justify-between gap-6 rounded-2xl border border-border/60 bg-card/60 px-4 py-3">
+		<div className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card/60 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
 			<div className="space-y-1">
 				<div className="font-medium text-sm">{title}</div>
 				<p className="max-w-2xl text-muted-foreground text-sm">{description}</p>
@@ -100,6 +112,7 @@ function SectionToggleRow({
 				checked={checked}
 				disabled={disabled}
 				onCheckedChange={onCheckedChange}
+				className="self-end sm:self-auto"
 			/>
 		</div>
 	);
@@ -117,12 +130,11 @@ function PillList({
 	return (
 		<div className="flex flex-wrap gap-2">
 			{values.map((value) => (
-				<Badge
+				<div
 					key={value}
-					variant="secondary"
-					className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs"
+					className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs"
 				>
-					<span className="max-w-48 truncate">{value}</span>
+					<span className="max-w-56 truncate">{value}</span>
 					<button
 						type="button"
 						disabled={disabled}
@@ -135,7 +147,7 @@ function PillList({
 					>
 						<Trash2Icon className="size-3" />
 					</button>
-				</Badge>
+				</div>
 			))}
 		</div>
 	);
@@ -153,6 +165,7 @@ function StringListEditor({
 
 	function addValue() {
 		const nextValue = draft.trim();
+
 		if (!nextValue) {
 			return;
 		}
@@ -175,9 +188,7 @@ function StringListEditor({
 			<PillList
 				values={values}
 				disabled={disabled}
-				onRemove={(value) => {
-					onChange(values.filter((entry) => entry !== value));
-				}}
+				onRemove={(item) => onChange(values.filter((value) => value !== item))}
 			/>
 			<div className="flex flex-col gap-2 sm:flex-row">
 				<Input
@@ -236,7 +247,7 @@ function InstructionListEditor<
 					return (
 						<div
 							key={`${keyValue}-${index}`}
-							className="grid gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 xl:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]"
+							className="grid gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 lg:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]"
 						>
 							<Input
 								value={keyValue}
@@ -280,7 +291,9 @@ function InstructionListEditor<
 								size="icon"
 								disabled={disabled}
 								onClick={() => {
-									onChange(items.filter((_, entryIndex) => entryIndex !== index) as T[]);
+									onChange(
+										items.filter((_, entryIndex) => entryIndex !== index) as T[],
+									);
 								}}
 								className="self-start"
 								aria-label="Remove item"
@@ -318,14 +331,145 @@ function InstructionListEditor<
 	);
 }
 
+function ToolSettingsEditor({
+	tools,
+	disabled,
+	onChange,
+}: {
+	tools: WorkspaceManagedTool[];
+	disabled?: boolean;
+	onChange: (tools: WorkspaceManagedTool[]) => void;
+}) {
+	return (
+		<div className="space-y-3">
+			{tools.map((toolSetting, index) => (
+				<div
+					key={toolSetting.id}
+					className="rounded-2xl border border-border/60 bg-muted/20 p-4"
+				>
+					<div className="flex flex-col gap-4">
+						<div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+							<div className="space-y-1">
+								<div className="font-medium text-sm">{toolSetting.label}</div>
+								<p className="text-muted-foreground text-sm">
+									{toolSetting.description}
+								</p>
+							</div>
+							<div className="rounded-full border px-2 py-0.5 text-xs">
+								{toolSetting.type}
+							</div>
+						</div>
+						<div className="grid gap-4 md:grid-cols-3">
+							<SectionToggleRow
+								title="Enabled"
+								description="Allow this tool during review runs."
+								checked={toolSetting.enabled}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									onChange(
+										tools.map((tool, toolIndex) =>
+											toolIndex === index
+												? {
+														...tool,
+														enabled: checked,
+													}
+												: tool,
+										),
+									);
+								}}
+							/>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Mode</div>
+								<Select
+									value={toolSetting.mode}
+									disabled={disabled}
+									onValueChange={(mode) => {
+										onChange(
+											tools.map((tool, toolIndex) =>
+												toolIndex === index
+													? {
+															...tool,
+															mode: mode as "builtin" | "mcp",
+														}
+													: tool,
+											),
+										);
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="Select mode" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="builtin">Built-in</SelectItem>
+										<SelectItem value="mcp">MCP</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Max results</div>
+								<Input
+									type="number"
+									min="1"
+									max="50"
+									value={String(toolSetting.maxResults)}
+									disabled={disabled}
+									onChange={(event) => {
+										onChange(
+											tools.map((tool, toolIndex) =>
+												toolIndex === index
+													? {
+															...tool,
+															maxResults: updateNumber(
+																tool.maxResults,
+																event.target.value,
+																{
+																	min: 1,
+																	max: 50,
+																},
+															),
+														}
+													: tool,
+											),
+										);
+									}}
+								/>
+							</div>
+						</div>
+						{toolSetting.mode === "mcp" ? (
+							<div className="space-y-2">
+								<div className="font-medium text-sm">MCP server name</div>
+								<Input
+									value={toolSetting.mcpServerName ?? ""}
+									disabled={disabled}
+									onChange={(event) => {
+										onChange(
+											tools.map((tool, toolIndex) =>
+												toolIndex === index
+													? {
+															...tool,
+															mcpServerName: event.target.value.trim() || null,
+														}
+													: tool,
+											),
+										);
+									}}
+									placeholder="github"
+								/>
+							</div>
+						) : null}
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
+
 export function WorkspaceSettingsForm({
 	value,
 	onChange,
 	disabled,
 	className,
 }: WorkspaceSettingsFormProps) {
-	const language = value.general.language;
-
 	return (
 		<div className={cn("space-y-4", className)}>
 			<Card>
@@ -343,7 +487,7 @@ export function WorkspaceSettingsForm({
 								Set the primary review locale. Use a valid BCP 47 language tag.
 							</p>
 							<Input
-								value={language}
+								value={value.general.language}
 								disabled={disabled}
 								onChange={(event) => {
 									updateSettings(value, onChange, (draft) => {
@@ -408,28 +552,23 @@ export function WorkspaceSettingsForm({
 				<CardHeader>
 					<CardTitle>Reviews</CardTitle>
 					<CardDescription>
-						High-level summaries, walkthrough details, and behavior instructions.
+						High-level summaries, walkthrough details, automation, and repository context.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-6">
 					<div className="space-y-3">
-						<div className="flex items-center justify-between gap-3">
-							<div>
-								<div className="font-medium text-sm">Summary</div>
-								<p className="text-muted-foreground text-sm">
-									High-level summary of the pull request changes.
-								</p>
-							</div>
-							<Switch
-								checked={value.reviews.summary.highLevelSummary}
-								disabled={disabled}
-								onCheckedChange={(checked) => {
-									updateSettings(value, onChange, (draft) => {
-										draft.reviews.summary.highLevelSummary = checked;
-									});
-								}}
-							/>
-						</div>
+						<div className="font-medium text-sm">Summary</div>
+						<SectionToggleRow
+							title="High-level summary"
+							description="Generate a concise summary of the pull request changes."
+							checked={value.reviews.summary.highLevelSummary}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.summary.highLevelSummary = checked;
+								});
+							}}
+						/>
 						<Textarea
 							value={value.reviews.summary.highLevelSummaryInstructions}
 							disabled={disabled}
@@ -458,7 +597,7 @@ export function WorkspaceSettingsForm({
 
 					<div className="space-y-3">
 						<div className="font-medium text-sm">Walkthrough</div>
-						<div className="space-y-3">
+						<div className="grid gap-3 md:grid-cols-2">
 							<SectionToggleRow
 								title="Collapse walkthrough"
 								description="Wrap the walkthrough in a collapsible Markdown section."
@@ -493,13 +632,14 @@ export function WorkspaceSettingsForm({
 								}}
 							/>
 							<SectionToggleRow
-								title="Estimate code review effort"
-								description="Estimate how much time a human review is likely to take."
+								title="Estimate review effort"
+								description="Estimate how much human review time the change is likely to take."
 								checked={value.reviews.walkthrough.estimateCodeReviewEffort}
 								disabled={disabled}
 								onCheckedChange={(checked) => {
 									updateSettings(value, onChange, (draft) => {
-										draft.reviews.walkthrough.estimateCodeReviewEffort = checked;
+										draft.reviews.walkthrough.estimateCodeReviewEffort =
+											checked;
 									});
 								}}
 							/>
@@ -525,74 +665,69 @@ export function WorkspaceSettingsForm({
 									});
 								}}
 							/>
-							<SectionToggleRow
-								title="Suggested labels"
-								description="Recommend labels based on the change context."
-								checked={value.reviews.walkthrough.suggestedLabels}
-								disabled={disabled}
-								onCheckedChange={(checked) => {
-									updateSettings(value, onChange, (draft) => {
-										draft.reviews.walkthrough.suggestedLabels = checked;
-									});
-								}}
-							/>
 						</div>
+						<SectionToggleRow
+							title="Suggested labels"
+							description="Recommend pull request labels based on the change context."
+							checked={value.reviews.walkthrough.suggestedLabels}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.walkthrough.suggestedLabels = checked;
+								});
+							}}
+						/>
 					</div>
 
 					<Separator />
 
 					<div className="space-y-4">
 						<div className="font-medium text-sm">Behavior</div>
-						<div className="space-y-4">
-							<div className="space-y-2">
-								<div className="font-medium text-sm">Path instructions</div>
-								<InstructionListEditor
-									title=""
-									description="Add path-specific guidance for code review."
-									items={value.reviews.behavior.pathInstructions}
-									placeholderLabel="Explain how this path should be reviewed."
-									keyField="path"
-									keyPlaceholder="src/**"
-									disabled={disabled}
-									onChange={(items) => {
-										updateSettings(value, onChange, (draft) => {
-											draft.reviews.behavior.pathInstructions = items as WorkspacePathInstruction[];
-										});
-									}}
-								/>
-							</div>
-							<StringListEditor
-								title="Path filters"
-								description="Include or exclude glob patterns during review."
-								placeholder="dist/**"
-								values={value.reviews.behavior.pathFilters}
-								disabled={disabled}
-								onChange={(values) => {
-									updateSettings(value, onChange, (draft) => {
-										draft.reviews.behavior.pathFilters = values;
-									});
-								}}
-							/>
-							<div className="space-y-2">
-								<div className="font-medium text-sm">Labeling instructions</div>
-								<InstructionListEditor
-									title=""
-									description="Define allowed labels and when to suggest them."
-									items={value.reviews.behavior.labelingInstructions}
-									placeholderLabel="Explain when this label should be suggested."
-									keyField="label"
-									keyPlaceholder="bug"
-									disabled={disabled}
-									onChange={(items) => {
-										updateSettings(value, onChange, (draft) => {
-											draft.reviews.behavior.labelingInstructions = items as WorkspaceLabelInstruction[];
-										});
-									}}
-								/>
-							</div>
+						<InstructionListEditor
+							title="Path instructions"
+							description="Add path-specific guidance for code review."
+							items={value.reviews.behavior.pathInstructions}
+							placeholderLabel="Explain how this path should be reviewed."
+							keyField="path"
+							keyPlaceholder="src/**"
+							disabled={disabled}
+							onChange={(items) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.pathInstructions = items as WorkspacePathInstruction[];
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Path filters"
+							description="Exclude or constrain paths during review."
+							placeholder="dist/**"
+							values={value.reviews.behavior.pathFilters}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.pathFilters = values;
+								});
+							}}
+						/>
+						<InstructionListEditor
+							title="Labeling instructions"
+							description="Define allowed labels and when the reviewer should suggest them."
+							items={value.reviews.behavior.labelingInstructions}
+							placeholderLabel="Explain when this label should be suggested."
+							keyField="label"
+							keyPlaceholder="bug"
+							disabled={disabled}
+							onChange={(items) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.labelingInstructions =
+										items as WorkspaceLabelInstruction[];
+								});
+							}}
+						/>
+						<div className="grid gap-3 md:grid-cols-2">
 							<SectionToggleRow
 								title="Request changes workflow"
-								description="Automatically approve once comments are resolved and no checks fail."
+								description="Treat blocking issues as change requests during the review flow."
 								checked={value.reviews.behavior.requestChangesWorkflow}
 								disabled={disabled}
 								onCheckedChange={(checked) => {
@@ -602,8 +737,8 @@ export function WorkspaceSettingsForm({
 								}}
 							/>
 							<SectionToggleRow
-								title="Auto assign reviewers"
-								description="Assign suggested reviewers to the pull request automatically."
+								title="Auto-assign reviewers"
+								description="Assign suggested reviewers automatically when the provider supports it."
 								checked={value.reviews.behavior.autoAssignReviewers}
 								disabled={disabled}
 								onCheckedChange={(checked) => {
@@ -612,30 +747,202 @@ export function WorkspaceSettingsForm({
 									});
 								}}
 							/>
-							<StringListEditor
-								title="Auto review branches"
-								description="Base branches that should trigger automatic review."
-								placeholder="main"
-								values={value.reviews.behavior.autoReview.baseBranches}
+						</div>
+						<StringListEditor
+							title="Auto review branches"
+							description="Base branches that should trigger automatic review."
+							placeholder="main"
+							values={value.reviews.behavior.autoReview.baseBranches}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.autoReview.baseBranches = values;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Auto review labels"
+							description="Only auto-review pull requests matching these labels."
+							placeholder="feature"
+							values={value.reviews.behavior.autoReview.labels}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.autoReview.labels = values;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Auto review skip labels"
+							description="Skip automatic review when any of these labels are present."
+							placeholder="skip-gitpal"
+							values={value.reviews.behavior.autoReview.skipLabels}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.autoReview.skipLabels = values;
+								});
+							}}
+						/>
+						<div className="grid gap-3 md:grid-cols-2">
+							<SectionToggleRow
+								title="Auto review on open"
+								description="Start a review automatically when a pull request is opened."
+								checked={value.reviews.behavior.autoReview.onOpen}
 								disabled={disabled}
-								onChange={(values) => {
+								onCheckedChange={(checked) => {
 									updateSettings(value, onChange, (draft) => {
-										draft.reviews.behavior.autoReview.baseBranches = values;
+										draft.reviews.behavior.autoReview.onOpen = checked;
 									});
 								}}
 							/>
-							<StringListEditor
-								title="Auto review labels"
-								description="Only auto-review pull requests matching these labels."
-								placeholder="feature"
-								values={value.reviews.behavior.autoReview.labels}
+							<SectionToggleRow
+								title="Auto review on push"
+								description="Re-run the review when new commits are pushed."
+								checked={value.reviews.behavior.autoReview.onPush}
 								disabled={disabled}
-								onChange={(values) => {
+								onCheckedChange={(checked) => {
 									updateSettings(value, onChange, (draft) => {
-										draft.reviews.behavior.autoReview.labels = values;
+										draft.reviews.behavior.autoReview.onPush = checked;
 									});
 								}}
 							/>
+							<SectionToggleRow
+								title="Auto review on ready"
+								description="Start the review when the pull request leaves draft mode."
+								checked={value.reviews.behavior.autoReview.onReadyForReview}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.reviews.behavior.autoReview.onReadyForReview =
+											checked;
+									});
+								}}
+							/>
+							<SectionToggleRow
+								title="Auto review on mention"
+								description="Trigger a review when the GitPal mention command is used."
+								checked={value.reviews.behavior.autoReview.onMention}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.reviews.behavior.autoReview.onMention = checked;
+									});
+								}}
+							/>
+						</div>
+						<SectionToggleRow
+							title="Skip drafts"
+							description="Do not auto-review draft pull requests until they are ready."
+							checked={value.reviews.behavior.autoReview.skipDrafts}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.behavior.autoReview.skipDrafts = checked;
+								});
+							}}
+						/>
+						<Separator />
+						<div className="space-y-4">
+							<div className="font-medium text-sm">Repository context</div>
+							<div className="grid gap-3 md:grid-cols-2">
+								<SectionToggleRow
+									title="Context-aware review"
+									description="Allow the reviewer to search repository context and related work."
+									checked={value.reviews.behavior.context.contextAware}
+									disabled={disabled}
+									onCheckedChange={(checked) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.contextAware = checked;
+										});
+									}}
+								/>
+								<SectionToggleRow
+									title="Repository files"
+									description="Use repository files beyond the diff when needed."
+									checked={value.reviews.behavior.context.includeRepositoryFiles}
+									disabled={disabled}
+									onCheckedChange={(checked) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.includeRepositoryFiles =
+												checked;
+										});
+									}}
+								/>
+								<SectionToggleRow
+									title="Pull request history"
+									description="Include earlier review discussion and history."
+									checked={value.reviews.behavior.context.includePullRequestHistory}
+									disabled={disabled}
+									onCheckedChange={(checked) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.includePullRequestHistory =
+												checked;
+										});
+									}}
+								/>
+								<SectionToggleRow
+									title="Related issues"
+									description="Search for related issues when they help explain the change."
+									checked={value.reviews.behavior.context.includeRelatedIssues}
+									disabled={disabled}
+									onCheckedChange={(checked) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.includeRelatedIssues =
+												checked;
+										});
+									}}
+								/>
+								<SectionToggleRow
+									title="Related pull requests"
+									description="Search for related pull requests or merge requests."
+									checked={value.reviews.behavior.context.includeRelatedPRs}
+									disabled={disabled}
+									onCheckedChange={(checked) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.includeRelatedPRs = checked;
+										});
+									}}
+								/>
+								<SectionToggleRow
+									title="Mention related work"
+									description="Publish related issues and pull requests in the result when there is clear evidence."
+									checked={value.reviews.behavior.context.mentionRelatedWork}
+									disabled={disabled}
+									onCheckedChange={(checked) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.mentionRelatedWork =
+												checked;
+										});
+									}}
+								/>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Max related items</div>
+								<p className="text-muted-foreground text-sm">
+									Cap the number of related issues or pull requests inspected per run.
+								</p>
+								<Input
+									type="number"
+									min="1"
+									max="20"
+									value={String(value.reviews.behavior.context.maxRelatedItems)}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.reviews.behavior.context.maxRelatedItems =
+												updateNumber(
+													draft.reviews.behavior.context.maxRelatedItems,
+													event.target.value,
+													{
+														min: 1,
+														max: 20,
+													},
+												);
+										});
+									}}
+								/>
+							</div>
 						</div>
 					</div>
 				</CardContent>
@@ -643,7 +950,271 @@ export function WorkspaceSettingsForm({
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Finishing touches</CardTitle>
+					<CardTitle>AI Reviewer</CardTitle>
+					<CardDescription>
+						Control the default review model, reasoning behavior, and tool access.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-6">
+					<div className="space-y-4">
+						<SectionToggleRow
+							title="AI reviewer"
+							description="Enable GitPal review generation for this workspace."
+							checked={value.ai.reviewer.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.ai.reviewer.enabled = checked;
+								});
+							}}
+						/>
+						<div className="grid gap-4 md:grid-cols-2">
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Model ID</div>
+								<Input
+									value={value.ai.reviewer.modelId}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.reviewer.modelId = event.target.value;
+										});
+									}}
+									placeholder="anthropic/claude-sonnet-4.6"
+								/>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Review focus</div>
+								<Select
+									value={value.ai.reviewer.focus}
+									disabled={disabled}
+									onValueChange={(focus) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.reviewer.focus = focus as
+												| "balanced"
+												| "security"
+												| "performance"
+												| "maintainability";
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="Select focus" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="balanced">Balanced</SelectItem>
+										<SelectItem value="security">Security</SelectItem>
+										<SelectItem value="performance">Performance</SelectItem>
+										<SelectItem value="maintainability">
+											Maintainability
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Max steps</div>
+								<Input
+									type="number"
+									min="1"
+									max="50"
+									value={String(value.ai.reviewer.maxSteps)}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.reviewer.maxSteps = updateNumber(
+												draft.ai.reviewer.maxSteps,
+												event.target.value,
+												{
+													min: 1,
+													max: 50,
+												},
+											);
+										});
+									}}
+								/>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Max output tokens</div>
+								<Input
+									type="number"
+									min="256"
+									max="32768"
+									value={String(value.ai.reviewer.maxOutputTokens)}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.reviewer.maxOutputTokens = updateNumber(
+												draft.ai.reviewer.maxOutputTokens,
+												event.target.value,
+												{
+													min: 256,
+													max: 32768,
+												},
+											);
+										});
+									}}
+								/>
+							</div>
+						</div>
+						<div className="space-y-2">
+							<div className="font-medium text-sm">Extra instructions</div>
+							<Textarea
+								value={value.ai.reviewer.extraInstructions}
+								disabled={disabled}
+								onChange={(event) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.reviewer.extraInstructions = event.target.value;
+									});
+								}}
+								placeholder="Review the whole change in repository context."
+							/>
+						</div>
+						<div className="grid gap-3 md:grid-cols-2">
+							<SectionToggleRow
+								title="Publish summary comment"
+								description="Post the final review summary comment back to the provider."
+								checked={value.ai.reviewer.postSummaryComment}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.reviewer.postSummaryComment = checked;
+									});
+								}}
+							/>
+							<SectionToggleRow
+								title="Publish inline findings"
+								description="Post file-specific findings inline when the provider supports anchors."
+								checked={value.ai.reviewer.postInlineFindings}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.reviewer.postInlineFindings = checked;
+									});
+								}}
+							/>
+						</div>
+					</div>
+
+					<Separator />
+
+					<div className="space-y-4">
+						<div className="font-medium text-sm">Thinking</div>
+						<SectionToggleRow
+							title="Extended reasoning"
+							description="Enable provider-specific reasoning features when the selected model supports them."
+							checked={value.ai.thinking.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.ai.thinking.enabled = checked;
+								});
+							}}
+						/>
+						<div className="grid gap-4 md:grid-cols-3">
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Effort</div>
+								<Select
+									value={value.ai.thinking.effort}
+									disabled={disabled}
+									onValueChange={(effort) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.thinking.effort = effort as
+												| "low"
+												| "medium"
+												| "high";
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="Select effort" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="low">Low</SelectItem>
+										<SelectItem value="medium">Medium</SelectItem>
+										<SelectItem value="high">High</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Budget tokens</div>
+								<Input
+									type="number"
+									min="1024"
+									max="32000"
+									value={String(value.ai.thinking.budgetTokens)}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.thinking.budgetTokens = updateNumber(
+												draft.ai.thinking.budgetTokens,
+												event.target.value,
+												{
+													min: 1024,
+													max: 32000,
+												},
+											);
+										});
+									}}
+								/>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Summary visibility</div>
+								<Select
+									value={value.ai.thinking.summaryVisibility}
+									disabled={disabled}
+									onValueChange={(summaryVisibility) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.thinking.summaryVisibility =
+												summaryVisibility as
+													| "auto"
+													| "detailed"
+													| "hidden";
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="Select visibility" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="auto">Auto</SelectItem>
+										<SelectItem value="detailed">Detailed</SelectItem>
+										<SelectItem value="hidden">Hidden</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						</div>
+					</div>
+
+					<Separator />
+
+					<div className="space-y-4">
+						<div className="font-medium text-sm">Tools</div>
+						<SectionToggleRow
+							title="Allow repository overrides"
+							description="Let repositories override the workspace-level tool access policy."
+							checked={value.ai.tools.allowRepositoryOverrides}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.ai.tools.allowRepositoryOverrides = checked;
+								});
+							}}
+						/>
+						<ToolSettingsEditor
+							tools={value.ai.tools.available}
+							disabled={disabled}
+							onChange={(tools) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.ai.tools.available = tools;
+								});
+							}}
+						/>
+					</div>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Finishing Touches</CardTitle>
 					<CardDescription>
 						Docstrings and test generation options.
 					</CardDescription>
@@ -662,7 +1233,7 @@ export function WorkspaceSettingsForm({
 							}}
 						/>
 						<InstructionListEditor
-							title=""
+							title="Docstring path instructions"
 							description="Add path-specific guidelines for docstring generation."
 							items={value.finishingTouches.docstrings.pathInstructions}
 							placeholderLabel="Write the docstring guidance."
@@ -671,7 +1242,8 @@ export function WorkspaceSettingsForm({
 							disabled={disabled}
 							onChange={(items) => {
 								updateSettings(value, onChange, (draft) => {
-									draft.finishingTouches.docstrings.pathInstructions = items as WorkspacePathInstruction[];
+									draft.finishingTouches.docstrings.pathInstructions =
+										items as WorkspacePathInstruction[];
 								});
 							}}
 						/>
@@ -706,12 +1278,23 @@ export function WorkspaceSettingsForm({
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Pre-merge checks</CardTitle>
+					<CardTitle>Pre-merge Checks</CardTitle>
 					<CardDescription>
 						Validation checks that run before changes are merged.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-3">
+					<SectionToggleRow
+						title="Pre-merge checks"
+						description="Enable the pre-merge verification flow for this workspace."
+						checked={value.preMergeChecks.enabled}
+						disabled={disabled}
+						onCheckedChange={(checked) => {
+							updateSettings(value, onChange, (draft) => {
+								draft.preMergeChecks.enabled = checked;
+							});
+						}}
+					/>
 					<SectionToggleRow
 						title="Description check"
 						description="Ensure the pull request description is present and useful."
@@ -734,6 +1317,39 @@ export function WorkspaceSettingsForm({
 							});
 						}}
 					/>
+					<SectionToggleRow
+						title="Require AI review"
+						description="Block merge until an AI review run has completed successfully."
+						checked={value.preMergeChecks.requireAiReview}
+						disabled={disabled}
+						onCheckedChange={(checked) => {
+							updateSettings(value, onChange, (draft) => {
+								draft.preMergeChecks.requireAiReview = checked;
+							});
+						}}
+					/>
+					<SectionToggleRow
+						title="Block on open findings"
+						description="Prevent merge when unresolved blocking findings remain."
+						checked={value.preMergeChecks.blockOnOpenFindings}
+						disabled={disabled}
+						onCheckedChange={(checked) => {
+							updateSettings(value, onChange, (draft) => {
+								draft.preMergeChecks.blockOnOpenFindings = checked;
+							});
+						}}
+					/>
+					<SectionToggleRow
+						title="Require context scan"
+						description="Require repository context and related-work scanning before merge approval."
+						checked={value.preMergeChecks.requireContextScan}
+						disabled={disabled}
+						onCheckedChange={(checked) => {
+							updateSettings(value, onChange, (draft) => {
+								draft.preMergeChecks.requireContextScan = checked;
+							});
+						}}
+					/>
 				</CardContent>
 			</Card>
 
@@ -741,12 +1357,12 @@ export function WorkspaceSettingsForm({
 				<CardHeader>
 					<CardTitle>Statuses</CardTitle>
 					<CardDescription>
-						Behavior for labels and title generation.
+						Behavior for labels, titles, and published summaries.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
 					<SectionToggleRow
-						title="Auto apply labels"
+						title="Auto-apply labels"
 						description="Automatically apply suggested labels to the pull request."
 						checked={value.statuses.autoApplyLabels}
 						disabled={disabled}
@@ -767,6 +1383,174 @@ export function WorkspaceSettingsForm({
 								});
 							}}
 							placeholder="Write how titles should be generated."
+						/>
+					</div>
+					<div className="grid gap-3 md:grid-cols-2">
+						<SectionToggleRow
+							title="Publish review summary"
+							description="Publish the final AI review summary comment after review runs."
+							checked={value.statuses.publishReviewSummary}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.statuses.publishReviewSummary = checked;
+								});
+							}}
+						/>
+						<SectionToggleRow
+							title="Publish pre-merge summary"
+							description="Publish pre-merge summary comments when merge checks run."
+							checked={value.statuses.publishPreMergeSummary}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.statuses.publishPreMergeSummary = checked;
+								});
+							}}
+						/>
+					</div>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Webhooks</CardTitle>
+					<CardDescription>
+						Mention commands and automatic provider event triggers.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-6">
+					<div className="space-y-3">
+						<SectionToggleRow
+							title="Mention commands"
+							description="Enable GitPal mention commands inside issue or pull request comments."
+							checked={value.webhooks.mentions.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.mentions.enabled = checked;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Mention commands"
+							description="Accepted commands that should trigger a review run."
+							placeholder="review"
+							values={value.webhooks.mentions.commands}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.mentions.commands = values;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Mention aliases"
+							description="Aliases that can invoke GitPal in comments."
+							placeholder="@gitpal"
+							values={value.webhooks.mentions.aliases}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.mentions.aliases = values;
+								});
+							}}
+						/>
+					</div>
+
+					<Separator />
+
+					<div className="space-y-3">
+						<SectionToggleRow
+							title="Pull request events"
+							description="Enable automatic review triggers for pull request events."
+							checked={value.webhooks.pullRequests.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.pullRequests.enabled = checked;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Pull request actions"
+							description="Provider event actions that should trigger GitPal."
+							placeholder="opened"
+							values={value.webhooks.pullRequests.actions}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.pullRequests.actions = values;
+								});
+							}}
+						/>
+					</div>
+
+					<Separator />
+
+					<div className="space-y-3">
+						<SectionToggleRow
+							title="Merge request events"
+							description="Enable automatic review triggers for merge request events."
+							checked={value.webhooks.mergeRequests.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.mergeRequests.enabled = checked;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Merge request actions"
+							description="GitLab merge request actions that should trigger GitPal."
+							placeholder="update"
+							values={value.webhooks.mergeRequests.actions}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.mergeRequests.actions = values;
+								});
+							}}
+						/>
+					</div>
+
+					<Separator />
+
+					<div className="space-y-3">
+						<SectionToggleRow
+							title="Pre-merge command trigger"
+							description="Enable pre-merge checks through explicit commands."
+							checked={value.webhooks.preMerge.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.preMerge.enabled = checked;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Pre-merge commands"
+							description="Commands that should run the pre-merge flow."
+							placeholder="pre-merge"
+							values={value.webhooks.preMerge.commands}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.preMerge.commands = values;
+								});
+							}}
+						/>
+						<StringListEditor
+							title="Pre-merge aliases"
+							description="Aliases that can invoke the pre-merge flow."
+							placeholder="/gitpal"
+							values={value.webhooks.preMerge.aliases}
+							disabled={disabled}
+							onChange={(values) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.webhooks.preMerge.aliases = values;
+								});
+							}}
 						/>
 					</div>
 				</CardContent>

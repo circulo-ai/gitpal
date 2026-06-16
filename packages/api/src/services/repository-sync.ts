@@ -4,16 +4,19 @@ import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
 import {
-	createGitHubAdapter,
-	createGitLabAdapter,
-	type GitProviderAdapter,
 	type GitRepository,
 	type GitWorkspaceRef,
 } from "@gitpal/git";
 import { and, count, desc, eq, inArray, max, notInArray } from "drizzle-orm";
 
+import {
+	createAdapterFromAccount,
+	getAccountForProvider,
+	getEnterpriseProviderMap,
+	type EnterpriseProvider,
+} from "./git-provider-access";
+
 type Account = typeof authSchema.account.$inferSelect;
-type EnterpriseProvider = typeof authSchema.enterpriseGitProvider.$inferSelect;
 type RepositoryAccessRow = typeof dashboardSchema.repositoryAccess.$inferSelect;
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 
@@ -73,6 +76,8 @@ export type RepositorySummary = {
 	syncState: string;
 	lastSyncedAt: string | null;
 	lastSeenAt: string;
+	webhookConnected: boolean;
+	webhookLastDeliveredAt: string | null;
 };
 
 export type RepositorySyncResult = {
@@ -247,87 +252,6 @@ function readWorkspaceMetadata(
 		ownerHtmlUrl:
 			typeof metadata.ownerHtmlUrl === "string" ? metadata.ownerHtmlUrl : null,
 	};
-}
-
-async function createAdapterForAccount(
-	account: Account,
-	enterpriseProviders: Map<string, EnterpriseProvider>,
-): Promise<GitProviderAdapter | null> {
-	if (!account.accessToken) {
-		return null;
-	}
-
-	if (account.providerId === "github") {
-		return createGitHubAdapter({
-			providerId: "github",
-			token: account.accessToken,
-		});
-	}
-
-	if (account.providerId === "gitlab") {
-		return createGitLabAdapter({
-			providerId: "gitlab",
-			baseUrl: "https://gitlab.com",
-			apiBaseUrl: "https://gitlab.com/api/v4",
-			token: account.accessToken,
-		});
-	}
-
-	if (account.providerId.startsWith("enterprise-git:")) {
-		const providerId = account.providerId.replace("enterprise-git:", "");
-		const provider = enterpriseProviders.get(providerId);
-
-		if (!provider) {
-			return null;
-		}
-
-		return provider.type === "github"
-			? createGitHubAdapter({
-					providerId: account.providerId,
-					label: provider.name,
-					authBaseUrl: provider.baseUrl,
-					apiBaseUrl: provider.apiBaseUrl,
-					token: account.accessToken,
-				})
-			: createGitLabAdapter({
-					providerId: account.providerId,
-					label: provider.name,
-					baseUrl: provider.baseUrl,
-					apiBaseUrl: provider.apiBaseUrl,
-					token: account.accessToken,
-				});
-	}
-
-	return null;
-}
-
-async function getEnterpriseProviderMap() {
-	const enterpriseProviders = await db
-		.select()
-		.from(authSchema.enterpriseGitProvider);
-
-	return new Map(enterpriseProviders.map((provider) => [provider.id, provider]));
-}
-
-async function getAccountForProvider({
-	userId,
-	providerId,
-}: {
-	userId: string;
-	providerId: string;
-}) {
-	const [account] = await db
-		.select()
-		.from(authSchema.account)
-		.where(
-			and(
-				eq(authSchema.account.userId, userId),
-				eq(authSchema.account.providerId, providerId),
-			),
-		)
-		.limit(1);
-
-	return account ?? null;
 }
 
 async function getLatestSyncAt({
@@ -635,7 +559,10 @@ async function refreshRepositoriesForAccount(
 	account: Account,
 	enterpriseProviders: Map<string, EnterpriseProvider>,
 ) {
-	const adapter = await createAdapterForAccount(account, enterpriseProviders);
+	const adapter = createAdapterFromAccount({
+		account,
+		enterpriseProviders,
+	});
 
 	if (!adapter) {
 		return {
@@ -916,7 +843,10 @@ export async function addRepositoryForUser({
 	const provider = account.providerId.startsWith("enterprise-git:")
 		? enterpriseProviders.get(account.providerId.replace("enterprise-git:", ""))
 		: null;
-	const adapter = await createAdapterForAccount(account, enterpriseProviders);
+	const adapter = createAdapterFromAccount({
+		account,
+		enterpriseProviders,
+	});
 
 	if (!adapter) {
 		return null;
@@ -934,7 +864,7 @@ export async function addRepositoryForUser({
 			})
 		: organizationId;
 
-	await upsertRepositoryForUser({
+	const repositoryPrimaryId = await upsertRepositoryForUser({
 		userId,
 		account,
 		repository,
@@ -945,6 +875,7 @@ export async function addRepositoryForUser({
 	return {
 		repository,
 		organizationId: resolvedOrganizationId,
+		repositoryId: repositoryPrimaryId,
 	};
 }
 
@@ -980,7 +911,44 @@ export async function listRepositoriesForUser({
 		)
 		.orderBy(desc(dashboardSchema.repositoryAccess.lastSeenAt));
 
-	return rows.map(({ access, repository }) => mapRepositorySummary(access, repository));
+	const repositoryIds = rows.map(({ repository }) => repository.id);
+	const webhooks =
+		repositoryIds.length > 0
+			? await db
+					.select({
+						repositoryId: dashboardSchema.repositoryWebhook.repositoryId,
+						enabled: dashboardSchema.repositoryWebhook.enabled,
+						lastDeliveredAt: dashboardSchema.repositoryWebhook.lastDeliveredAt,
+					})
+					.from(dashboardSchema.repositoryWebhook)
+					.where(
+						inArray(dashboardSchema.repositoryWebhook.repositoryId, repositoryIds),
+					)
+			: [];
+	const webhookMap = new Map<
+		string,
+		{ connected: boolean; lastDeliveredAt: Date | null }
+	>();
+
+	for (const webhook of webhooks) {
+		const existing = webhookMap.get(webhook.repositoryId);
+		const connected = Boolean(webhook.enabled) || existing?.connected || false;
+		const lastDeliveredAt =
+			webhook.lastDeliveredAt && existing?.lastDeliveredAt
+				? webhook.lastDeliveredAt > existing.lastDeliveredAt
+					? webhook.lastDeliveredAt
+					: existing.lastDeliveredAt
+				: webhook.lastDeliveredAt ?? existing?.lastDeliveredAt ?? null;
+
+		webhookMap.set(webhook.repositoryId, {
+			connected,
+			lastDeliveredAt,
+		});
+	}
+
+	return rows.map(({ access, repository }) =>
+		mapRepositorySummary(access, repository, webhookMap.get(repository.id)),
+	);
 }
 
 export async function setRepositoryEnabledForUser({
@@ -1073,6 +1041,10 @@ export async function getEnabledRepositoryIdsForUser({
 function mapRepositorySummary(
 	access: RepositoryAccessRow,
 	repository: RepositoryRow,
+	webhook?: {
+		connected: boolean;
+		lastDeliveredAt: Date | null;
+	},
 ): RepositorySummary {
 	return {
 		id: repository.id,
@@ -1094,5 +1066,7 @@ function mapRepositorySummary(
 		syncState: repository.syncState,
 		lastSyncedAt: repository.lastSyncedAt?.toISOString() ?? null,
 		lastSeenAt: access.lastSeenAt.toISOString(),
+		webhookConnected: webhook?.connected ?? false,
+		webhookLastDeliveredAt: webhook?.lastDeliveredAt?.toISOString() ?? null,
 	};
 }

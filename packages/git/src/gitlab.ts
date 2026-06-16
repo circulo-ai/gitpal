@@ -7,10 +7,15 @@ import {
 	type GitProviderAdapter,
 	type GitProviderCapabilities,
 	type GitPullRequest,
+	type GitPullRequestFile,
+	type GitPullRequestFileStatus,
 	type GitPullRequestCreateInput,
 	type GitPullRequestState,
 	type GitRepository,
+	type GitRepositoryFile,
 	type GitRepositoryRef,
+	type GitRepositorySearchKind,
+	type GitRepositorySearchResult,
 	type GitWorkspaceRef,
 	type GitWebhookCreateInput,
 	type GitWebhookDeleteInput,
@@ -88,6 +93,25 @@ type GitLabMergeRequest = {
 	merge_commit_sha?: string | null;
 };
 
+type GitLabIssue = {
+	id: number;
+	iid: number;
+	title: string;
+	description?: string | null;
+	state: string;
+	web_url: string;
+	author?: {
+		id?: number;
+		username?: string;
+		name?: string | null;
+		public_email?: string | null;
+		avatar_url?: string | null;
+		web_url?: string | null;
+	} | null;
+	created_at: string;
+	updated_at: string;
+};
+
 type GitLabNote = {
 	id: number;
 	body: string;
@@ -111,6 +135,17 @@ type GitLabNote = {
 	} | null;
 	created_at?: string;
 	updated_at?: string;
+};
+
+type GitLabMergeRequestChangesResponse = {
+	changes?: Array<{
+		old_path?: string;
+		new_path?: string;
+		diff?: string | null;
+		new_file?: boolean;
+		renamed_file?: boolean;
+		deleted_file?: boolean;
+	}> | null;
 };
 
 type GitLabHook = {
@@ -214,6 +249,28 @@ const gitlabMergeRequestSchema = z.object({
 	merge_commit_sha: z.string().nullable().optional(),
 });
 
+const gitlabIssueSchema = z.object({
+	id: z.number(),
+	iid: z.number(),
+	title: z.string(),
+	description: z.string().nullable().optional(),
+	state: z.string(),
+	web_url: z.string(),
+	author: z
+		.object({
+			id: z.number().optional(),
+			username: z.string().optional(),
+			name: z.string().nullable().optional(),
+			public_email: z.string().nullable().optional(),
+			avatar_url: z.string().nullable().optional(),
+			web_url: z.string().nullable().optional(),
+		})
+		.nullable()
+		.optional(),
+	created_at: z.string(),
+	updated_at: z.string(),
+});
+
 const gitlabNoteSchema = z.object({
 	id: z.number(),
 	body: z.string(),
@@ -271,7 +328,7 @@ function mapActor(
 		| {
 				id?: number;
 				username?: string;
-				name?: string;
+				name?: string | null;
 				public_email?: string | null;
 				avatar_url?: string | null;
 				web_url?: string | null;
@@ -377,8 +434,28 @@ function mapPullRequest(
 		updatedAt: mergeRequest.updated_at,
 		mergedAt,
 		closedAt: mergeRequest.closed_at ?? null,
-		mergeCommitSha: mergeRequest.merge_commit_sha ?? null,
+	mergeCommitSha: mergeRequest.merge_commit_sha ?? null,
 	};
+}
+
+function getGitLabFileStatus(change: {
+	new_file?: boolean;
+	renamed_file?: boolean;
+	deleted_file?: boolean;
+}): GitPullRequestFileStatus {
+	if (change.deleted_file) {
+		return "removed";
+	}
+
+	if (change.renamed_file) {
+		return "renamed";
+	}
+
+	if (change.new_file) {
+		return "added";
+	}
+
+	return "modified";
 }
 
 function mapComment(
@@ -402,6 +479,59 @@ function mapComment(
 		author: mapActor(note.author ?? undefined),
 		createdAt: note.created_at ?? new Date().toISOString(),
 		updatedAt: note.updated_at ?? note.created_at ?? new Date().toISOString(),
+	};
+}
+
+function mapPullRequestFile(
+	change: NonNullable<GitLabMergeRequestChangesResponse["changes"]>[number],
+	providerId: string,
+	repositoryPath: string,
+	pullRequestNumber: number,
+): GitPullRequestFile {
+	const nextPath = change.new_path ?? change.old_path ?? "";
+	const previousPath =
+		change.old_path && change.old_path !== nextPath ? change.old_path : null;
+	const patch = change.diff ?? null;
+	const additions =
+		patch?.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+			.length ?? 0;
+	const deletions =
+		patch?.split("\n").filter((line) => line.startsWith("-") && !line.startsWith("---"))
+			.length ?? 0;
+
+	return {
+		providerId,
+		repositoryPath,
+		pullRequestNumber,
+		path: nextPath,
+		previousPath,
+		status: getGitLabFileStatus(change),
+		additions,
+		deletions,
+		patch,
+		htmlUrl: null,
+	};
+}
+
+function mapSearchResult(
+	item: GitLabIssue | GitLabMergeRequest,
+	providerId: string,
+	repositoryPath: string,
+	kind: GitRepositorySearchKind,
+): GitRepositorySearchResult {
+	return {
+		providerId,
+		repositoryPath,
+		kind,
+		id: String(item.id),
+		number: item.iid,
+		title: item.title,
+		body: item.description ?? null,
+		state: item.state,
+		htmlUrl: item.web_url,
+		author: mapActor(item.author ?? undefined),
+		createdAt: item.created_at,
+		updatedAt: item.updated_at,
 	};
 }
 
@@ -660,6 +790,183 @@ export function createGitLabAdapter({
 		return mapPullRequest(mergeRequest, providerId, input.repositoryPath);
 	}
 
+	async function listPullRequestFiles(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	) {
+		const response = await requestJson<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/merge_requests/${input.pullRequestNumber}/changes`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+			},
+			providerId,
+		);
+
+		const changes = ((response as GitLabMergeRequestChangesResponse).changes ??
+			[]) as NonNullable<GitLabMergeRequestChangesResponse["changes"]>;
+
+		return changes.map((change) =>
+			mapPullRequestFile(
+				change,
+				providerId,
+				input.repositoryPath,
+				input.pullRequestNumber,
+			),
+		);
+	}
+
+	async function listPullRequestComments(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	) {
+		const response = await requestJson<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/merge_requests/${input.pullRequestNumber}/notes`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+			},
+			providerId,
+		);
+
+		const notes = z.array(gitlabNoteSchema).parse(response);
+		return notes.map((note) =>
+			mapComment(
+				note,
+				providerId,
+				input.repositoryPath,
+				input.pullRequestNumber,
+			),
+		);
+	}
+
+	async function getFileContent(
+		input: GitRepositoryRef & { filePath: string; ref?: string },
+	) {
+		const response = await requestJson<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/repository/files/${encodeURIComponent(input.filePath)}?ref=${encodeURIComponent(
+				input.ref ?? "HEAD",
+			)}`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+			},
+			providerId,
+		);
+		const file = response as Record<string, unknown>;
+		const rawContent = typeof file.content === "string" ? file.content : "";
+		const encoding =
+			file.encoding === "base64"
+				? "base64"
+				: file.encoding === "utf-8"
+					? "utf-8"
+					: "unknown";
+
+		return {
+			providerId,
+			repositoryPath: input.repositoryPath,
+			path: input.filePath,
+			ref: input.ref ?? "HEAD",
+			content:
+				encoding === "base64"
+					? Buffer.from(rawContent, "base64").toString("utf8")
+					: rawContent,
+			size: typeof file.size === "number" ? file.size : null,
+			sha: typeof file.blob_id === "string" ? file.blob_id : null,
+			encoding,
+		} satisfies GitRepositoryFile;
+	}
+
+	async function searchRepository(
+		input: GitRepositoryRef & {
+			query?: string;
+			kind?: GitRepositorySearchKind[];
+			limit?: number;
+		},
+	) {
+		const requestedKinds = input.kind ?? ["issue", "pull_request"];
+		const limit = Math.min(Math.max(input.limit ?? 10, 1), 20);
+		const query = input.query?.trim();
+		const searchParams = query
+			? `&search=${encodeURIComponent(query)}`
+			: "";
+		const requests: Array<Promise<GitRepositorySearchResult[]>> = [];
+
+		if (requestedKinds.includes("issue")) {
+			requests.push(
+				requestJson<unknown>(
+					`${createRepositoryUrl(
+						normalizedApiBaseUrl,
+						input.repositoryPath,
+					)}/issues?state=all&per_page=${limit}${searchParams}`,
+					{
+						headers: {
+							...createGitLabRequestHeaders(token, tokenType),
+						},
+					},
+					providerId,
+				).then((response) =>
+					z
+						.array(gitlabIssueSchema)
+						.parse(response)
+						.map((issue) =>
+							mapSearchResult(
+								issue,
+								providerId,
+								input.repositoryPath,
+								"issue",
+							),
+						),
+				),
+			);
+		}
+
+		if (requestedKinds.includes("pull_request")) {
+			requests.push(
+				requestJson<unknown>(
+					`${createRepositoryUrl(
+						normalizedApiBaseUrl,
+						input.repositoryPath,
+					)}/merge_requests?state=all&per_page=${limit}${searchParams}`,
+					{
+						headers: {
+							...createGitLabRequestHeaders(token, tokenType),
+						},
+					},
+					providerId,
+				).then((response) =>
+					z
+						.array(gitlabMergeRequestSchema)
+						.parse(response)
+						.map((mergeRequest) =>
+							mapSearchResult(
+								mergeRequest,
+								providerId,
+								input.repositoryPath,
+								"pull_request",
+							),
+						),
+				),
+			);
+		}
+
+		const results = (await Promise.all(requests))
+			.flat()
+			.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+
+		return results.slice(0, limit);
+	}
+
 	async function createPullRequest(input: GitPullRequestCreateInput) {
 		const response = await requestJson<unknown>(
 			`${createRepositoryUrl(
@@ -824,6 +1131,10 @@ export function createGitLabAdapter({
 		getRepository,
 		listPullRequests,
 		getPullRequest,
+		listPullRequestFiles,
+		listPullRequestComments,
+		getFileContent,
+		searchRepository,
 		createPullRequest,
 		createComment,
 		mergePullRequest,

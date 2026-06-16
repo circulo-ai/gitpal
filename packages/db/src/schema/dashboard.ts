@@ -125,10 +125,59 @@ export const pullRequest = pgTable(
 	],
 );
 
+export const reviewRun = pgTable(
+	"review_run",
+	{
+		id: text("id").primaryKey(),
+		repositoryId: text("repository_id")
+			.notNull()
+			.references(() => repository.id, { onDelete: "cascade" }),
+		pullRequestId: text("pull_request_id").references(() => pullRequest.id, {
+			onDelete: "set null",
+		}),
+		reviewKind: text("review_kind").default("review").notNull(),
+		trigger: text("trigger").default("pull_request").notNull(),
+		providerId: text("provider_id").notNull(),
+		providerDeliveryId: text("provider_delivery_id"),
+		providerEvent: text("provider_event"),
+		providerAction: text("provider_action"),
+		status: text("status").default("queued").notNull(),
+		modelId: text("model_id"),
+		thinkingEnabled: boolean("thinking_enabled").default(false).notNull(),
+		summary: text("summary"),
+		finalCommentBody: text("final_comment_body"),
+		result: jsonb("result")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
+		startedAt: timestamp("started_at"),
+		completedAt: timestamp("completed_at"),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		index("review_run_repository_id_idx").on(table.repositoryId),
+		index("review_run_pull_request_id_idx").on(table.pullRequestId),
+		index("review_run_status_idx").on(table.status),
+		index("review_run_created_at_idx").on(table.createdAt),
+		uniqueIndex("review_run_provider_delivery_kind_idx").on(
+			table.providerId,
+			table.providerDeliveryId,
+			table.reviewKind,
+		),
+	],
+);
+
 export const reviewComment = pgTable(
 	"review_comment",
 	{
 		id: text("id").primaryKey(),
+		reviewRunId: text("review_run_id").references(() => reviewRun.id, {
+			onDelete: "set null",
+		}),
 		pullRequestId: text("pull_request_id")
 			.notNull()
 			.references(() => pullRequest.id, { onDelete: "cascade" }),
@@ -140,7 +189,15 @@ export const reviewComment = pgTable(
 		authorLogin: text("author_login"),
 		severity: text("severity").default("medium").notNull(),
 		category: text("category").default("maintainability").notNull(),
+		title: text("title"),
 		body: text("body"),
+		filePath: text("file_path"),
+		line: integer("line"),
+		startLine: integer("start_line"),
+		metadata: jsonb("metadata")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
 		accepted: boolean("accepted").default(false).notNull(),
 		resolved: boolean("resolved").default(false).notNull(),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -150,11 +207,13 @@ export const reviewComment = pgTable(
 			.notNull(),
 	},
 	(table) => [
+		index("review_comment_review_run_id_idx").on(table.reviewRunId),
 		index("review_comment_repository_id_idx").on(table.repositoryId),
 		index("review_comment_pull_request_id_idx").on(table.pullRequestId),
 		index("review_comment_created_at_idx").on(table.createdAt),
 		index("review_comment_severity_idx").on(table.severity),
 		index("review_comment_category_idx").on(table.category),
+		index("review_comment_file_path_idx").on(table.filePath),
 	],
 );
 
@@ -190,6 +249,9 @@ export const preMergeCheckRun = pgTable(
 	"pre_merge_check_run",
 	{
 		id: text("id").primaryKey(),
+		reviewRunId: text("review_run_id").references(() => reviewRun.id, {
+			onDelete: "set null",
+		}),
 		repositoryId: text("repository_id")
 			.notNull()
 			.references(() => repository.id, { onDelete: "cascade" }),
@@ -199,10 +261,15 @@ export const preMergeCheckRun = pgTable(
 		checkName: text("check_name").notNull(),
 		checkType: text("check_type").default("built-in").notNull(),
 		status: text("status").default("passed").notNull(),
+		details: jsonb("details")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
 		startedAt: timestamp("started_at").defaultNow().notNull(),
 		completedAt: timestamp("completed_at"),
 	},
 	(table) => [
+		index("pre_merge_check_run_review_run_id_idx").on(table.reviewRunId),
 		index("pre_merge_check_run_repository_id_idx").on(table.repositoryId),
 		index("pre_merge_check_run_started_at_idx").on(table.startedAt),
 		index("pre_merge_check_run_status_idx").on(table.status),
@@ -306,6 +373,73 @@ export const repositorySettings = pgTable(
 	],
 );
 
+export const repositoryWebhook = pgTable(
+	"repository_webhook",
+	{
+		id: text("id").primaryKey(),
+		repositoryId: text("repository_id")
+			.notNull()
+			.references(() => repository.id, { onDelete: "cascade" }),
+		providerId: text("provider_id").notNull(),
+		providerWebhookId: text("provider_webhook_id").notNull(),
+		deliveryUrl: text("delivery_url").notNull(),
+		events: jsonb("events").$type<string[]>().default([]).notNull(),
+		enabled: boolean("enabled").default(true).notNull(),
+		secretPreview: text("secret_preview"),
+		verifiedAt: timestamp("verified_at"),
+		lastDeliveredAt: timestamp("last_delivered_at"),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("repository_webhook_repo_provider_hook_idx").on(
+			table.repositoryId,
+			table.providerId,
+			table.providerWebhookId,
+		),
+		index("repository_webhook_repository_id_idx").on(table.repositoryId),
+		index("repository_webhook_provider_id_idx").on(table.providerId),
+	],
+);
+
+export const webhookEventReceipt = pgTable(
+	"webhook_event_receipt",
+	{
+		id: text("id").primaryKey(),
+		repositoryId: text("repository_id").references(() => repository.id, {
+			onDelete: "set null",
+		}),
+		providerId: text("provider_id").notNull(),
+		deliveryId: text("delivery_id").notNull(),
+		repositoryPath: text("repository_path"),
+		event: text("event").notNull(),
+		action: text("action"),
+		status: text("status").default("received").notNull(),
+		payload: jsonb("payload")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
+		receivedAt: timestamp("received_at").defaultNow().notNull(),
+		processedAt: timestamp("processed_at"),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("webhook_event_receipt_provider_delivery_idx").on(
+			table.providerId,
+			table.deliveryId,
+		),
+		index("webhook_event_receipt_repository_id_idx").on(table.repositoryId),
+		index("webhook_event_receipt_event_idx").on(table.event),
+		index("webhook_event_receipt_status_idx").on(table.status),
+	],
+);
+
 export const repositoryRelations = relations(repository, ({ one, many }) => ({
 	organization: one(organization, {
 		fields: [repository.organizationId],
@@ -314,11 +448,14 @@ export const repositoryRelations = relations(repository, ({ one, many }) => ({
 	access: many(repositoryAccess),
 	settings: many(repositorySettings),
 	pullRequests: many(pullRequest),
+	reviewRuns: many(reviewRun),
 	reviewComments: many(reviewComment),
 	toolFindings: many(toolFinding),
 	preMergeCheckRuns: many(preMergeCheckRun),
 	knowledgeBaseLearnings: many(knowledgeBaseLearning),
 	reportDeliveries: many(reportDelivery),
+	webhooks: many(repositoryWebhook),
+	webhookReceipts: many(webhookEventReceipt),
 }));
 
 export const organizationSettingsRelations = relations(
@@ -364,13 +501,31 @@ export const pullRequestRelations = relations(pullRequest, ({ one, many }) => ({
 		fields: [pullRequest.repositoryId],
 		references: [repository.id],
 	}),
+	reviewRuns: many(reviewRun),
 	reviewComments: many(reviewComment),
 	toolFindings: many(toolFinding),
 	preMergeCheckRuns: many(preMergeCheckRun),
 	knowledgeBaseLearnings: many(knowledgeBaseLearning),
 }));
 
+export const reviewRunRelations = relations(reviewRun, ({ one, many }) => ({
+	repository: one(repository, {
+		fields: [reviewRun.repositoryId],
+		references: [repository.id],
+	}),
+	pullRequest: one(pullRequest, {
+		fields: [reviewRun.pullRequestId],
+		references: [pullRequest.id],
+	}),
+	reviewComments: many(reviewComment),
+	preMergeCheckRuns: many(preMergeCheckRun),
+}));
+
 export const reviewCommentRelations = relations(reviewComment, ({ one }) => ({
+	reviewRun: one(reviewRun, {
+		fields: [reviewComment.reviewRunId],
+		references: [reviewRun.id],
+	}),
 	repository: one(repository, {
 		fields: [reviewComment.repositoryId],
 		references: [repository.id],
@@ -380,3 +535,23 @@ export const reviewCommentRelations = relations(reviewComment, ({ one }) => ({
 		references: [pullRequest.id],
 	}),
 }));
+
+export const repositoryWebhookRelations = relations(
+	repositoryWebhook,
+	({ one }) => ({
+		repository: one(repository, {
+			fields: [repositoryWebhook.repositoryId],
+			references: [repository.id],
+		}),
+	}),
+);
+
+export const webhookEventReceiptRelations = relations(
+	webhookEventReceipt,
+	({ one }) => ({
+		repository: one(repository, {
+			fields: [webhookEventReceipt.repositoryId],
+			references: [repository.id],
+		}),
+	}),
+);

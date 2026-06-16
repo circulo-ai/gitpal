@@ -4,6 +4,7 @@ import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import {
 	createDefaultRepositorySettings,
 	createDefaultWorkspaceSettings,
+	normalizeWorkspaceSettings,
 	resolveEffectiveWorkspaceSettings,
 	type RepositorySettingsRecord,
 	type WorkspaceSettings,
@@ -33,7 +34,9 @@ function getRepositorySettingsId(organizationId: string, repositoryId: string) {
 function toWorkspaceSettings(
 	value: WorkspaceSettings | Record<string, unknown> | null | undefined,
 ) {
-	return workspaceSettingsSchema.parse(value ?? createDefaultWorkspaceSettings());
+	return normalizeWorkspaceSettings(
+		value ?? createDefaultWorkspaceSettings(),
+	);
 }
 
 function toRepositorySettings(
@@ -69,20 +72,21 @@ export async function saveOrganizationWorkspaceSettings({
 	settings: WorkspaceSettings;
 }) {
 	const validatedSettings = workspaceSettingsSchema.parse(settings);
+	const normalizedSettings = normalizeWorkspaceSettings(validatedSettings);
 	const now = new Date();
 	const [row] = await db
 		.insert(dashboardSchema.organizationSettings)
 		.values({
 			id: getOrganizationSettingsId(organizationId),
 			organizationId,
-			settings: validatedSettings,
+			settings: normalizedSettings,
 			createdAt: now,
 			updatedAt: now,
 		})
 		.onConflictDoUpdate({
 			target: dashboardSchema.organizationSettings.organizationId,
 			set: {
-				settings: validatedSettings,
+				settings: normalizedSettings,
 				updatedAt: now,
 			},
 		})
@@ -195,6 +199,7 @@ export async function saveRepositoryWorkspaceSettings({
 	settings: WorkspaceSettings;
 }) {
 	const validatedSettings = workspaceSettingsSchema.parse(settings);
+	const normalizedSettings = normalizeWorkspaceSettings(validatedSettings);
 	const now = new Date();
 	const [row] = await db
 		.insert(dashboardSchema.repositorySettings)
@@ -203,7 +208,7 @@ export async function saveRepositoryWorkspaceSettings({
 			organizationId,
 			repositoryId,
 			useOrganizationSettings,
-			settings: validatedSettings,
+			settings: normalizedSettings,
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -214,7 +219,7 @@ export async function saveRepositoryWorkspaceSettings({
 			],
 			set: {
 				useOrganizationSettings,
-				settings: validatedSettings,
+				settings: normalizedSettings,
 				updatedAt: now,
 			},
 		})

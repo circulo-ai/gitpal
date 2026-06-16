@@ -24,6 +24,7 @@ const dashboardViewSchema = z.enum([
 ]);
 
 const dashboardFiltersSchema = z.object({
+	organizationId: z.string().min(1).optional(),
 	repositoryIds: z.array(z.string()).optional(),
 	usernames: z.array(z.string()).optional(),
 	teams: z.array(z.string()).optional(),
@@ -1438,7 +1439,9 @@ export const analyticsRouter = router({
 		.query(async ({ ctx, input }) => {
 			const analyticsContext = await loadAnalyticsContext(
 				ctx.session.user.id,
-				ctx.session.session.activeOrganizationId ?? null,
+				input.organizationId ??
+					ctx.session.session.activeOrganizationId ??
+					null,
 				input,
 			);
 			return buildPayload(input.view, analyticsContext);
@@ -1448,7 +1451,9 @@ export const analyticsRouter = router({
 		.mutation(async ({ ctx, input }) => {
 			const analyticsContext = await loadAnalyticsContext(
 				ctx.session.user.id,
-				ctx.session.session.activeOrganizationId ?? null,
+				input.organizationId ??
+					ctx.session.session.activeOrganizationId ??
+					null,
 				input,
 			);
 			const rows = createReviewMetricRows(analyticsContext);

@@ -32,6 +32,7 @@ export const env = createEnv({
 			.url()
 			.default("https://openrouter.ai/api/v1"),
 		GITPAL_AI_MODEL: z.string().default("anthropic/claude-sonnet-4.6"),
+		GITPAL_WEBHOOK_BASE_URL: z.url().optional(),
 		GITPAL_WALLET_REVENUE_SHARE_PERCENT: z.coerce
 			.number()
 			.min(0)
@@ -39,8 +40,10 @@ export const env = createEnv({
 			.default(5),
 		GITHUB_CLIENT_ID: z.string().optional(),
 		GITHUB_CLIENT_SECRET: z.string().optional(),
+		GITHUB_WEBHOOK_SECRET: z.string().optional(),
 		GITLAB_CLIENT_ID: z.string().optional(),
 		GITLAB_CLIENT_SECRET: z.string().optional(),
+		GITLAB_WEBHOOK_SECRET: z.string().optional(),
 		NOWPAYMENTS_API_BASE_URL: z
 			.url()
 			.default("https://api.nowpayments.io"),

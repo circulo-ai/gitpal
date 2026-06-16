@@ -64,6 +64,27 @@ export type GitPullRequest = {
 	mergeCommitSha: string | null;
 };
 
+export type GitPullRequestFileStatus =
+	| "added"
+	| "modified"
+	| "removed"
+	| "renamed"
+	| "copied"
+	| "changed";
+
+export type GitPullRequestFile = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	pullRequestNumber: number;
+	path: string;
+	previousPath: string | null;
+	status: GitPullRequestFileStatus;
+	additions: number;
+	deletions: number;
+	patch: string | null;
+	htmlUrl: string | null;
+};
+
 export type GitComment = {
 	providerId: GitProviderId;
 	repositoryPath: string;
@@ -74,6 +95,34 @@ export type GitComment = {
 	path: string | null;
 	line: number | null;
 	side: "LEFT" | "RIGHT" | null;
+	author: GitActor | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type GitRepositoryFile = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	path: string;
+	ref: string | null;
+	content: string;
+	size: number | null;
+	sha: string | null;
+	encoding: "utf-8" | "base64" | "unknown";
+};
+
+export type GitRepositorySearchKind = "issue" | "pull_request";
+
+export type GitRepositorySearchResult = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	kind: GitRepositorySearchKind;
+	id: string;
+	number: number;
+	title: string;
+	body: string | null;
+	state: string;
+	htmlUrl: string;
 	author: GitActor | null;
 	createdAt: string;
 	updatedAt: string;
@@ -171,6 +220,22 @@ export interface GitProviderAdapter {
 	getPullRequest(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	): Promise<GitPullRequest>;
+	listPullRequestFiles(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	): Promise<GitPullRequestFile[]>;
+	listPullRequestComments(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	): Promise<GitComment[]>;
+	getFileContent(
+		input: GitRepositoryRef & { filePath: string; ref?: string },
+	): Promise<GitRepositoryFile>;
+	searchRepository(
+		input: GitRepositoryRef & {
+			query?: string;
+			kind?: GitRepositorySearchKind[];
+			limit?: number;
+		},
+	): Promise<GitRepositorySearchResult[]>;
 	createPullRequest(input: GitPullRequestCreateInput): Promise<GitPullRequest>;
 	createComment(input: GitCommentInput): Promise<GitComment>;
 	mergePullRequest(

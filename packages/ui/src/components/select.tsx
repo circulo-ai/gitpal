@@ -5,7 +5,11 @@ import { cn } from "@gitpal/ui/lib/utils";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import type * as React from "react";
 
-const Select = SelectPrimitive.Root;
+function Select<Value, Multiple extends boolean | undefined = false>(
+	props: SelectPrimitive.Root.Props<Value, Multiple>,
+) {
+	return <SelectPrimitive.Root {...props} />;
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
 	return (

@@ -36,17 +36,17 @@ export function SettingsChangeDock({
 		>
 			<div
 				className={cn(
-					"pointer-events-auto flex w-full max-w-3xl items-center justify-between gap-4 rounded-3xl border border-border/70 bg-background/96 px-4 py-3 shadow-lg shadow-black/10 backdrop-blur",
+					"pointer-events-auto flex w-full max-w-3xl flex-col gap-4 rounded-3xl border border-border/70 bg-background/96 px-4 py-3 shadow-lg shadow-black/10 backdrop-blur sm:flex-row sm:items-center sm:justify-between",
 					!open && "pointer-events-none",
 				)}
 			>
 				<div className="min-w-0">
 					<div className="font-medium text-sm">{title}</div>
-					<p className="truncate text-muted-foreground text-sm">
+					<p className="text-muted-foreground text-sm">
 						{description}
 					</p>
 				</div>
-				<div className="flex shrink-0 items-center gap-2">
+				<div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
 					<Button type="button" variant="outline" onClick={onDiscard}>
 						{discardLabel}
 					</Button>

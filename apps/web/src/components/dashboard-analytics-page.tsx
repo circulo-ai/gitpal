@@ -1,5 +1,33 @@
 "use client";
 
+// ─── External imports ────────────────────────────────────────────────────────
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { format, subDays } from "date-fns";
+import {
+  CalendarIcon,
+  DatabaseIcon,
+  DownloadIcon,
+  RefreshCcwIcon,
+} from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import * as React from "react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { toast } from "sonner";
+
+// ─── UI components ────────────────────────────────────────────────────────────
 import { Badge } from "@gitpal/ui/components/badge";
 import { Button } from "@gitpal/ui/components/button";
 import {
@@ -24,6 +52,7 @@ import {
   EmptyTitle,
 } from "@gitpal/ui/components/empty";
 import { Input } from "@gitpal/ui/components/input";
+import { Label } from "@gitpal/ui/components/label";
 import {
   Popover,
   PopoverContent,
@@ -47,141 +76,194 @@ import {
   TableRow,
 } from "@gitpal/ui/components/table";
 import { cn } from "@gitpal/ui/lib/utils";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { format, subDays } from "date-fns";
-import {
-  CalendarIcon,
-  DatabaseIcon,
-  DownloadIcon,
-  RefreshCcwIcon,
-  SearchIcon,
-} from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import * as React from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { toast } from "sonner";
-import { queryClient, trpc } from "@/utils/trpc";
-import type { DashboardView } from "./workspace-nav";
 
+// ─── Internal imports ─────────────────────────────────────────────────────────
 import { useActiveWorkspace } from "./active-workspace-provider";
-import { Label } from "@gitpal/ui/components/label";
+import type { DashboardView } from "./workspace-nav";
+import { queryClient, trpc } from "@/utils/trpc";
 
-type DashboardAnalyticsPageProps = {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface DashboardAnalyticsPageProps {
   view: DashboardView;
   title: string;
   description: string;
-};
+}
 
-type ChartBlock = {
+export interface ChartSeries {
+  key: string;
+  label: string;
+}
+
+export interface ChartBlock {
   id: string;
   title: string;
   description?: string;
   type: "bar" | "line" | "area" | "pie";
   data: Array<Record<string, number | string>>;
-  series: Array<{ key: string; label: string }>;
+  series: ChartSeries[];
   emptyLabel?: string;
-};
+}
 
-type TableBlock = {
+export interface TableColumn {
+  key: string;
+  label: string;
+}
+
+export interface TableBlock {
   id: string;
   title: string;
   description?: string;
   pageSize: number;
-  columns: Array<{ key: string; label: string }>;
+  columns: TableColumn[];
   rows: Array<Record<string, number | string | boolean | null>>;
-};
+}
 
-const presetRanges = [
+export interface StatCard {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PRESET_RANGES = [
   { label: "Last 7 days", value: "7" },
   { label: "Last 30 days", value: "30" },
   { label: "Last 90 days", value: "90" },
 ] as const;
 
-const chartColors = [
+const CHART_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
-];
+] as const;
 
-function getDateRangeFromSearch(searchParams: URLSearchParams) {
-  const to = searchParams.get("to")
-    ? new Date(String(searchParams.get("to")))
-    : new Date();
-  const from = searchParams.get("from")
-    ? new Date(String(searchParams.get("from")))
-    : subDays(to, 30);
+const DEFAULT_LOOKBACK_DAYS = 30;
+const SKELETON_CARD_COUNT = 4;
 
-  return {
-    from: Number.isNaN(from.getTime()) ? subDays(new Date(), 30) : from,
-    to: Number.isNaN(to.getTime()) ? new Date() : to,
-  };
-}
+// ─── Utility functions ────────────────────────────────────────────────────────
 
-function toIsoDate(date: Date) {
+function toIsoDate(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
-function getFilters(searchParams: URLSearchParams) {
-  const range = getDateRangeFromSearch(searchParams);
+function safeDateOrFallback(raw: string | null, fallback: Date): Date {
+  if (!raw) return fallback;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function getDateRangeFromSearch(searchParams: URLSearchParams): {
+  from: Date;
+  to: Date;
+} {
+  const now = new Date();
+  const to = safeDateOrFallback(searchParams.get("to"), now);
+  const from = safeDateOrFallback(
+    searchParams.get("from"),
+    subDays(to, DEFAULT_LOOKBACK_DAYS),
+  );
+  return { from, to };
+}
+
+function getFiltersFromSearch(searchParams: URLSearchParams) {
+  const { from, to } = getDateRangeFromSearch(searchParams);
+
+  const single = (key: string): string[] => {
+    const val = searchParams.get(key);
+    return val ? [val] : [];
+  };
 
   return {
-    repositoryIds: searchParams.get("repository")
-      ? [String(searchParams.get("repository"))]
-      : [],
-    usernames: searchParams.get("user")
-      ? [String(searchParams.get("user"))]
-      : [],
-    teams: searchParams.get("team") ? [String(searchParams.get("team"))] : [],
+    repositoryIds: single("repository"),
+    usernames: single("user"),
+    teams: single("team"),
     timezone: searchParams.get("timezone") ?? "UTC",
     dateRange: {
-      from: range.from.toISOString(),
-      to: range.to.toISOString(),
+      from: from.toISOString(),
+      to: to.toISOString(),
     },
   };
 }
 
-function hasChartData(chart: ChartBlock) {
+function hasChartData(chart: ChartBlock): boolean {
   return chart.data.some((row) =>
-    chart.series.some((series) => Number(row[series.key] ?? 0) > 0),
+    chart.series.some((s) => Number(row[s.key] ?? 0) > 0),
   );
 }
 
-function getChartConfig(chart: ChartBlock): ChartConfig {
+function buildChartConfig(chart: ChartBlock): ChartConfig {
   return Object.fromEntries(
     chart.series.map((series, index) => [
       series.key,
       {
         label: series.label,
-        color: chartColors[index % chartColors.length],
+        color: CHART_COLORS[index % CHART_COLORS.length],
       },
     ]),
   );
+}
+
+function inferCategoryKey(data: ChartBlock["data"]): string {
+  return data.some((row) => "week" in row) ? "week" : "name";
+}
+
+// ─── Custom hook ──────────────────────────────────────────────────────────────
+
+function useDashboardParams() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const params = React.useMemo(
+    () => new URLSearchParams(searchParams.toString()),
+    [searchParams],
+  );
+
+  const updateParam = React.useCallback(
+    (key: string, value: string | null) => {
+      const next = new URLSearchParams(params);
+      if (value) {
+        next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      router.replace(`${pathname}?${next.toString()}` as never);
+    },
+    [params, pathname, router],
+  );
+
+  const applyPreset = React.useCallback(
+    (days: number) => {
+      const to = new Date();
+      const from = subDays(to, days);
+      const next = new URLSearchParams(params);
+      next.set("from", toIsoDate(from));
+      next.set("to", toIsoDate(to));
+      router.replace(`${pathname}?${next.toString()}` as never);
+    },
+    [params, pathname, router],
+  );
+
+  return { params, updateParam, applyPreset };
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+interface DashboardHeaderProps {
+  title: string;
+  description: string;
+  updatedAt?: string;
 }
 
 function DashboardHeader({
   title,
   description,
   updatedAt,
-}: {
-  title: string;
-  description: string;
-  updatedAt?: string;
-}) {
+}: DashboardHeaderProps) {
   return (
     <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
       <div className="flex flex-col gap-1">
@@ -190,81 +272,88 @@ function DashboardHeader({
         </h1>
         <p className="max-w-3xl text-muted-foreground text-sm">{description}</p>
       </div>
-      {updatedAt ? (
+      {updatedAt && (
         <Badge variant="outline">
           Updated {format(new Date(updatedAt), "MMM d, HH:mm")}
         </Badge>
-      ) : null}
+      )}
     </div>
   );
 }
 
-function DashboardFilters({ isExportView }: { isExportView: boolean }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface DashboardFiltersProps {
+  isExportView: boolean;
+}
+
+function DashboardFilters({ isExportView }: DashboardFiltersProps) {
+  const { params, updateParam, applyPreset } = useDashboardParams();
   const { activeWorkspaceId } = useActiveWorkspace();
-  const params = React.useMemo(
-    () => new URLSearchParams(searchParams.toString()),
-    [searchParams],
-  );
+
   const repositoriesQuery = useQuery({
     ...trpc.repositories.list.queryOptions({
       organizationId: activeWorkspaceId ?? undefined,
     }),
     enabled: Boolean(activeWorkspaceId),
   });
+
   const exportMutation = useMutation(
     trpc.analytics.exportReviewMetrics.mutationOptions({
       onSuccess: (file) => {
         const blob = new Blob([file.content], { type: file.contentType });
-        const url = URL.createObjectURL(blob);
+        const objectUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.href = url;
+        link.href = objectUrl;
         link.download = file.filename;
         link.click();
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(objectUrl);
         toast.success("Review metrics export is ready.");
       },
     }),
   );
 
-  function updateParam(key: string, value: string | null) {
-    const next = new URLSearchParams(params);
-
-    if (value) {
-      next.set(key, value);
-    } else {
-      next.delete(key);
-    }
-
-    router.replace(`${pathname}?${next.toString()}` as never);
-  }
-
-  function applyPreset(days: number) {
-    const to = new Date();
-    const from = subDays(to, days);
-    const next = new URLSearchParams(params);
-    next.set("from", toIsoDate(from));
-    next.set("to", toIsoDate(to));
-    router.replace(`${pathname}?${next.toString()}` as never);
-  }
-
   const range = getDateRangeFromSearch(params);
-  const filters = getFilters(params);
-  const repositorySelectItems = [
+  const filters = getFiltersFromSearch(params);
+
+  const repositoryItems = [
     { label: "All repositories", value: "all" },
-    ...(repositoriesQuery.data?.map((repository) => ({
-      label: repository.fullName,
-      value: repository.id,
+    ...(repositoriesQuery.data?.map((repo) => ({
+      label: repo.fullName,
+      value: repo.id,
     })) ?? []),
   ];
+
+  const handleRefresh = React.useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: trpc.analytics.page.queryKey(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: trpc.repositories.list.queryKey({
+            organizationId: activeWorkspaceId ?? undefined,
+          }),
+        }),
+      ]),
+    [activeWorkspaceId],
+  );
+
+  const handleExport = React.useCallback(
+    () =>
+      exportMutation.mutate({
+        organizationId: activeWorkspaceId ?? undefined,
+        ...filters,
+      }),
+    [exportMutation, activeWorkspaceId, filters],
+  );
 
   return (
     <div className="flex flex-col gap-3 rounded-xl p-3 md:flex-row md:items-center md:justify-between">
       <div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
+        {/* Repository filter */}
         <Select
-          items={repositorySelectItems}
+          items={repositoryItems}
           value={params.get("repository") ?? "all"}
           onValueChange={(value) =>
             updateParam("repository", value === "all" ? null : value)
@@ -275,34 +364,16 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
           </SelectTrigger>
           <SelectContent align="start">
             <SelectGroup>
-              <SelectItem value="all">All repositories</SelectItem>
-              {repositoriesQuery.data?.map((repository) => (
-                <SelectItem key={repository.id} value={repository.id}>
-                  {repository.fullName}
+              {repositoryItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
                 </SelectItem>
               ))}
             </SelectGroup>
           </SelectContent>
         </Select>
-        {/* <div className="relative">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={params.get("user") ?? ""}
-            onChange={(event) =>
-              updateParam("user", event.target.value.trim() || null)
-            }
-            placeholder="Username"
-            className="pl-9 md:w-44"
-          />
-        </div> */}
-        {/* <Input
-          value={params.get("team") ?? ""}
-          onChange={(event) =>
-            updateParam("team", event.target.value.trim() || null)
-          }
-          placeholder="Team"
-          className="md:w-40"
-        /> */}
+
+        {/* Date range picker */}
         <Popover>
           <PopoverTrigger
             render={
@@ -310,12 +381,13 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
             }
           >
             <CalendarIcon data-icon="inline-start" />
-            {format(range.from, "MMM d")} - {format(range.to, "MMM d")}
+            {format(range.from, "MMM d")} – {format(range.to, "MMM d")}
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72">
             <div className="flex flex-col gap-3">
+              {/* Quick presets */}
               <div className="flex flex-wrap gap-2">
-                {presetRanges.map((preset) => (
+                {PRESET_RANGES.map((preset) => (
                   <Button
                     key={preset.value}
                     type="button"
@@ -327,6 +399,8 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
                   </Button>
                 ))}
               </div>
+
+              {/* Custom range */}
               <div className="grid gap-2">
                 <Label className="text-muted-foreground text-xs" htmlFor="from">
                   From
@@ -335,7 +409,7 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
                   id="from"
                   type="date"
                   value={toIsoDate(range.from)}
-                  onChange={(event) => updateParam("from", event.target.value)}
+                  onChange={(e) => updateParam("from", e.target.value)}
                 />
                 <Label className="text-muted-foreground text-xs" htmlFor="to">
                   To
@@ -344,64 +418,49 @@ function DashboardFilters({ isExportView }: { isExportView: boolean }) {
                   id="to"
                   type="date"
                   value={toIsoDate(range.to)}
-                  onChange={(event) => updateParam("to", event.target.value)}
+                  onChange={(e) => updateParam("to", e.target.value)}
                 />
               </div>
             </div>
           </PopoverContent>
         </Popover>
       </div>
+
       <div className="flex items-center gap-2">
         <Button
           variant="outline"
           size="icon"
-          onClick={() =>
-            Promise.all([
-              queryClient.invalidateQueries({
-                queryKey: trpc.analytics.page.queryKey(),
-              }),
-              queryClient.invalidateQueries({
-                queryKey: trpc.repositories.list.queryKey({
-                  organizationId: activeWorkspaceId ?? undefined,
-                }),
-              }),
-            ])
-          }
+          onClick={handleRefresh}
+          aria-label="Refresh dashboard"
         >
           <RefreshCcwIcon />
           <span className="sr-only">Refresh dashboard</span>
         </Button>
-        {isExportView ? (
-          <Button
-            disabled={exportMutation.isPending}
-            onClick={() =>
-              exportMutation.mutate({
-                organizationId: activeWorkspaceId ?? undefined,
-                ...filters,
-              })
-            }
-          >
+
+        {isExportView && (
+          <Button disabled={exportMutation.isPending} onClick={handleExport}>
             <DownloadIcon data-icon="inline-start" />
             Export
           </Button>
-        ) : null}
+        )}
       </div>
     </div>
   );
 }
 
-function MetricCards({
-  stats,
-  isLoading,
-}: {
-  stats?: Array<{ label: string; value: string; description?: string }>;
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MetricCardsProps {
+  stats?: StatCard[];
   isLoading: boolean;
-}) {
+}
+
+function MetricCards({ stats, isLoading }: MetricCardsProps) {
   if (isLoading) {
     return (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <Card key={index}>
+        {Array.from({ length: SKELETON_CARD_COUNT }).map((_, i) => (
+          <Card key={i}>
             <CardHeader>
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-8 w-20" />
@@ -412,9 +471,7 @@ function MetricCards({
     );
   }
 
-  if (!stats?.length) {
-    return null;
-  }
+  if (!stats?.length) return null;
 
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -425,17 +482,19 @@ function MetricCards({
             <CardTitle className="text-3xl tabular-nums">
               {stat.value}
             </CardTitle>
-            {stat.description ? (
+            {stat.description && (
               <CardAction>
                 <Badge variant="outline">{stat.description}</Badge>
               </CardAction>
-            ) : null}
+            )}
           </CardHeader>
         </Card>
       ))}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function EmptyChart({ label }: { label?: string }) {
   return (
@@ -453,108 +512,122 @@ function EmptyChart({ label }: { label?: string }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 function DashboardChart({ chart }: { chart: ChartBlock }) {
-  const config = getChartConfig(chart);
+  const config = buildChartConfig(chart);
   const hasData = hasChartData(chart);
   const primarySeries = chart.series[0];
-  const categoryKey = chart.data.some((row) => "week" in row) ? "week" : "name";
+  const categoryKey = inferCategoryKey(chart.data);
+
+  const axisProps = {
+    tickLine: false,
+    axisLine: false,
+    tickMargin: 8,
+  } as const;
+
+  const renderChart = () => {
+    if (!hasData || !primarySeries) {
+      return <EmptyChart label={chart.emptyLabel} />;
+    }
+
+    if (chart.type === "bar") {
+      return (
+        <BarChart data={chart.data} accessibilityLayer>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey={categoryKey} {...axisProps} />
+          <YAxis {...axisProps} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          {chart.series.map((series, index) => (
+            <Bar
+              key={series.key}
+              dataKey={series.key}
+              fill={`var(--color-${series.key})`}
+              radius={index === chart.series.length - 1 ? 6 : 0}
+            />
+          ))}
+        </BarChart>
+      );
+    }
+
+    if (chart.type === "line") {
+      return (
+        <LineChart data={chart.data} accessibilityLayer>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey={categoryKey} {...axisProps} />
+          <YAxis {...axisProps} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          {chart.series.map((series) => (
+            <Line
+              key={series.key}
+              type="monotone"
+              dataKey={series.key}
+              stroke={`var(--color-${series.key})`}
+              strokeWidth={2}
+              dot={false}
+            />
+          ))}
+        </LineChart>
+      );
+    }
+
+    if (chart.type === "area") {
+      return (
+        <AreaChart data={chart.data} accessibilityLayer>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey={categoryKey} {...axisProps} />
+          <YAxis {...axisProps} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          {chart.series.map((series) => (
+            <Area
+              key={series.key}
+              type="monotone"
+              dataKey={series.key}
+              fill={`var(--color-${series.key})`}
+              fillOpacity={0.18}
+              stroke={`var(--color-${series.key})`}
+              strokeWidth={2}
+            />
+          ))}
+        </AreaChart>
+      );
+    }
+
+    // Pie chart
+    return (
+      <PieChart accessibilityLayer>
+        <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+        <Pie
+          data={chart.data}
+          dataKey={primarySeries.key}
+          nameKey="name"
+          innerRadius={56}
+          outerRadius={96}
+          paddingAngle={2}
+        >
+          {chart.data.map((_, index) => (
+            <Cell
+              key={index}
+              fill={CHART_COLORS[index % CHART_COLORS.length]}
+            />
+          ))}
+        </Pie>
+      </PieChart>
+    );
+  };
 
   return (
-    <Card className={cn(chart.type === "pie" ? "" : "xl:col-span-2")}>
+    <Card className={cn(chart.type !== "pie" && "xl:col-span-2")}>
       <CardHeader>
         <CardTitle>{chart.title}</CardTitle>
-        {chart.description ? (
+        {chart.description && (
           <CardDescription>{chart.description}</CardDescription>
-        ) : null}
+        )}
       </CardHeader>
       <CardContent>
         {hasData && primarySeries ? (
           <ChartContainer config={config} className="h-72 w-full">
-            {chart.type === "bar" ? (
-              <BarChart data={chart.data} accessibilityLayer>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey={categoryKey}
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                {chart.series.map((series, index) => (
-                  <Bar
-                    key={series.key}
-                    dataKey={series.key}
-                    fill={`var(--color-${series.key})`}
-                    radius={index === chart.series.length - 1 ? 6 : 0}
-                  />
-                ))}
-              </BarChart>
-            ) : chart.type === "line" ? (
-              <LineChart data={chart.data} accessibilityLayer>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey={categoryKey}
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                {chart.series.map((series) => (
-                  <Line
-                    key={series.key}
-                    type="monotone"
-                    dataKey={series.key}
-                    stroke={`var(--color-${series.key})`}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                ))}
-              </LineChart>
-            ) : chart.type === "area" ? (
-              <AreaChart data={chart.data} accessibilityLayer>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey={categoryKey}
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                {chart.series.map((series) => (
-                  <Area
-                    key={series.key}
-                    type="monotone"
-                    dataKey={series.key}
-                    fill={`var(--color-${series.key})`}
-                    fillOpacity={0.18}
-                    stroke={`var(--color-${series.key})`}
-                    strokeWidth={2}
-                  />
-                ))}
-              </AreaChart>
-            ) : (
-              <PieChart accessibilityLayer>
-                <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                <Pie
-                  data={chart.data}
-                  dataKey={primarySeries.key}
-                  nameKey="name"
-                  innerRadius={56}
-                  outerRadius={96}
-                  paddingAngle={2}
-                >
-                  {chart.data.map((_, index) => (
-                    <Cell
-                      key={index}
-                      fill={chartColors[index % chartColors.length]}
-                    />
-                  ))}
-                </Pie>
-              </PieChart>
-            )}
+            {renderChart()}
           </ChartContainer>
         ) : (
           <EmptyChart label={chart.emptyLabel} />
@@ -564,19 +637,21 @@ function DashboardChart({ chart }: { chart: ChartBlock }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 function DashboardTable({ table }: { table: TableBlock }) {
   const [page, setPage] = React.useState(0);
   const totalPages = Math.max(1, Math.ceil(table.rows.length / table.pageSize));
   const start = page * table.pageSize;
-  const rows = table.rows.slice(start, start + table.pageSize);
+  const visibleRows = table.rows.slice(start, start + table.pageSize);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{table.title}</CardTitle>
-        {table.description ? (
+        {table.description && (
           <CardDescription>{table.description}</CardDescription>
-        ) : null}
+        )}
         <CardAction>
           <Badge variant="outline">{table.rows.length} rows</Badge>
         </CardAction>
@@ -588,20 +663,21 @@ function DashboardTable({ table }: { table: TableBlock }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {table.columns.map((column) => (
-                      <TableHead key={column.key}>{column.label}</TableHead>
+                    {table.columns.map((col) => (
+                      <TableHead key={col.key}>{col.label}</TableHead>
                     ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((row, rowIndex) => (
+                  {visibleRows.map((row, rowIndex) => (
                     <TableRow key={`${table.id}-${start + rowIndex}`}>
-                      {table.columns.map((column) => (
+                      {table.columns.map((col) => (
                         <TableCell
-                          key={column.key}
+                          key={col.key}
                           className="max-w-72 truncate"
+                          title={String(row[col.key] ?? "")}
                         >
-                          {String(row[column.key] ?? "-")}
+                          {String(row[col.key] ?? "–")}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -609,12 +685,14 @@ function DashboardTable({ table }: { table: TableBlock }) {
                 </TableBody>
               </Table>
             </div>
+
+            {/* Pagination */}
             <div className="flex items-center justify-end gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={page === 0}
-                onClick={() => setPage((value) => Math.max(0, value - 1))}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
               >
                 Previous
               </Button>
@@ -625,9 +703,7 @@ function DashboardTable({ table }: { table: TableBlock }) {
                 variant="outline"
                 size="sm"
                 disabled={page + 1 >= totalPages}
-                onClick={() =>
-                  setPage((value) => Math.min(totalPages - 1, value + 1))
-                }
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               >
                 Next
               </Button>
@@ -651,11 +727,13 @@ function DashboardTable({ table }: { table: TableBlock }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 function ChartSkeletons() {
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      {Array.from({ length: 4 }).map((_, index) => (
-        <Card key={index}>
+      {Array.from({ length: SKELETON_CARD_COUNT }).map((_, i) => (
+        <Card key={i}>
           <CardHeader>
             <Skeleton className="h-5 w-48" />
           </CardHeader>
@@ -668,6 +746,8 @@ function ChartSkeletons() {
   );
 }
 
+// ─── Main export ──────────────────────────────────────────────────────────────
+
 export function DashboardAnalyticsPage({
   view,
   title,
@@ -675,22 +755,23 @@ export function DashboardAnalyticsPage({
 }: DashboardAnalyticsPageProps) {
   const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
   const searchParams = useSearchParams();
+
   const filters = React.useMemo(
     () => ({
       organizationId: activeWorkspaceId ?? undefined,
-      ...getFilters(new URLSearchParams(searchParams.toString())),
+      ...getFiltersFromSearch(new URLSearchParams(searchParams.toString())),
     }),
     [activeWorkspaceId, searchParams],
   );
+
   const analyticsQuery = useQuery({
-    ...trpc.analytics.page.queryOptions({
-      view,
-      ...filters,
-    }),
+    ...trpc.analytics.page.queryOptions({ view, ...filters }),
     enabled: Boolean(activeWorkspaceId),
   });
+
   const isExportView = view === "data-export";
 
+  // ── No workspace ────────────────────────────────────────────────────────────
   if (!activeWorkspace) {
     return (
       <main className="flex flex-col gap-6">
@@ -715,6 +796,7 @@ export function DashboardAnalyticsPage({
     );
   }
 
+  // ── Main layout ─────────────────────────────────────────────────────────────
   return (
     <main className="flex flex-col gap-6">
       <DashboardHeader
@@ -722,23 +804,27 @@ export function DashboardAnalyticsPage({
         description={description}
         updatedAt={analyticsQuery.data?.updatedAt}
       />
+
       <DashboardFilters isExportView={isExportView} />
+
       <MetricCards
         stats={analyticsQuery.data?.stats}
         isLoading={analyticsQuery.isLoading}
       />
+
       {analyticsQuery.isLoading ? (
         <ChartSkeletons />
       ) : analyticsQuery.data ? (
         <>
-          {analyticsQuery.data.charts.length > 0 ? (
+          {analyticsQuery.data.charts.length > 0 && (
             <div className="grid gap-4 xl:grid-cols-2">
               {analyticsQuery.data.charts.map((chart) => (
                 <DashboardChart key={chart.id} chart={chart} />
               ))}
             </div>
-          ) : null}
-          {analyticsQuery.data.tables.length > 0 ? (
+          )}
+
+          {analyticsQuery.data.tables.length > 0 && (
             <div className="flex flex-col gap-4">
               {analyticsQuery.data.tables.map((table) => (
                 <DashboardTable
@@ -747,7 +833,7 @@ export function DashboardAnalyticsPage({
                 />
               ))}
             </div>
-          ) : null}
+          )}
         </>
       ) : (
         <Empty className="min-h-96">

@@ -2,6 +2,32 @@ import { GitProviderConfigurationError } from "./errors";
 
 export type GitProviderId = string;
 
+// --- AUTHENTICATION ABSTRACTION ---
+export type GitTokenAuth = {
+	type: "token";
+	token: string;
+	tokenType?: "bearer" | "private-token" | "basic";
+};
+
+export type GitHubAppAuth = {
+	type: "github-app";
+	appId: string;
+	privateKey: string;
+	installationId: number;
+	clientId?: string;
+	clientSecret?: string;
+};
+
+export type GitLabOAuth = {
+	type: "gitlab-oauth";
+	token: string;
+	refreshToken?: string;
+	clientId?: string;
+	clientSecret?: string;
+};
+
+export type GitProviderAuth = GitTokenAuth | GitHubAppAuth | GitLabOAuth;
+
 export type GitRepositoryRef = {
 	repositoryPath: string;
 };
@@ -16,7 +42,7 @@ export type GitActor = {
 	email: string | null;
 	avatarUrl: string | null;
 	htmlUrl: string | null;
-	kind?: "user" | "organization" | "group" | null;
+	kind?: "user" | "organization" | "group" | "bot" | null;
 };
 
 export type GitWorkspaceScope = "personal" | "organization" | "group";
@@ -160,6 +186,18 @@ export type GitWebhookEnvelope<TPayload = unknown> = {
 	rawBody: string;
 };
 
+// --- NEW CAPABILITY TYPES ---
+export type GitCommitState = "pending" | "success" | "error" | "failure";
+
+export type GitCommitStatusInput = {
+	repositoryPath: string;
+	commitSha: string;
+	state: GitCommitState;
+	targetUrl?: string;
+	description?: string;
+	context?: string;
+};
+
 export type GitCommentInput = {
 	repositoryPath: string;
 	pullRequestNumber: number;
@@ -201,6 +239,8 @@ export type GitProviderCapabilities = {
 	comments: true;
 	reviewers: true;
 	webhooks: true;
+	commitStatuses: boolean;
+	appAuthentication: boolean;
 };
 
 export type GitWebhookVerificationInput = {
@@ -221,6 +261,7 @@ export interface GitProviderAdapter {
 	readonly apiBaseUrl: string;
 	readonly capabilities: GitProviderCapabilities;
 	readonly webhooks: GitWebhookAdapter;
+	
 	getCurrentUser(): Promise<GitActor>;
 	listRepositories(): Promise<GitRepository[]>;
 	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
@@ -250,6 +291,7 @@ export interface GitProviderAdapter {
 		query?: string;
 		limit?: number;
 	}): Promise<GitRepositoryLabel[]>;
+	
 	createPullRequest(input: GitPullRequestCreateInput): Promise<GitPullRequest>;
 	createComment(input: GitCommentInput): Promise<GitComment>;
 	addIssueLabels(
@@ -274,6 +316,9 @@ export interface GitProviderAdapter {
 			message?: string;
 		},
 	): Promise<GitPullRequest>;
+	
+	createCommitStatus(input: GitCommitStatusInput): Promise<void>;
+	
 	listWebhooks(input: GitRepositoryRef): Promise<GitWebhookSubscription[]>;
 	createWebhook(input: GitWebhookCreateInput): Promise<GitWebhookSubscription>;
 	deleteWebhook(input: GitWebhookDeleteInput): Promise<void>;

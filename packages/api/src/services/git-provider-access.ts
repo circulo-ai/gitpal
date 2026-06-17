@@ -90,7 +90,10 @@ export async function createAdapterFromAccount({
   if (account.providerId === "github") {
     return createGitHubAdapter({
       providerId: "github",
-      token: accessToken,
+      auth: {
+        type: "token",
+        token: accessToken,
+      },
       webhookSecrets,
     });
   }
@@ -100,7 +103,10 @@ export async function createAdapterFromAccount({
       providerId: "gitlab",
       baseUrl: "https://gitlab.com",
       apiBaseUrl: "https://gitlab.com/api/v4",
-      token: accessToken,
+      auth: {
+        type: "token",
+        token: accessToken,
+      },
       webhookSecrets,
     });
   }
@@ -122,7 +128,10 @@ export async function createAdapterFromAccount({
       label: provider.name,
       authBaseUrl: provider.baseUrl,
       apiBaseUrl: provider.apiBaseUrl,
-      token: accessToken,
+      auth: {
+        type: "token",
+        token: accessToken,
+      },
       webhookSecrets,
     });
   }
@@ -132,7 +141,10 @@ export async function createAdapterFromAccount({
     label: provider.name,
     baseUrl: provider.baseUrl,
     apiBaseUrl: provider.apiBaseUrl,
-    token: accessToken,
+    auth: {
+      type: "token",
+      token: accessToken,
+    },
     webhookSecrets,
   });
 }

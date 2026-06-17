@@ -244,13 +244,14 @@ export const apiKey = pgTable(
 );
 
 export const rateLimit = pgTable(
-	"rate_limit",
-	{
-		key: text("key").primaryKey(),
-		count: integer("count").default(0).notNull(),
-		lastRequest: bigint("last_request", { mode: "number" }).notNull(),
-	},
-	() => [],
+    "rate_limit",
+    {
+        id: text("id").primaryKey(),
+        key: text("key").notNull().unique(),
+        count: integer("count").default(0).notNull(),
+        lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+    },
+    (table) => [uniqueIndex("rate_limit_key_idx").on(table.key)],
 );
 
 export const verification = pgTable(

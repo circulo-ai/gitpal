@@ -560,23 +560,24 @@ export function WorkspaceReviewPreviewDialog({
                     )}
 
                     {/* Suggested reviewers */}
-                    {preview.suggestedReviewers.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          Suggested reviewers:
-                        </span>
-                        {preview.suggestedReviewers.map((reviewer) => (
-                          <Badge
-                            key={reviewer}
-                            variant="outline"
-                            className="gap-1 text-xs"
-                          >
-                            <UserIcon className="size-3" />
-                            {reviewer}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
+                    {preview.suggestedReviewers &&
+                      preview.suggestedReviewers?.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            Suggested reviewers:
+                          </span>
+                          {preview.suggestedReviewers.map((reviewer) => (
+                            <Badge
+                              key={reviewer}
+                              variant="outline"
+                              className="gap-1 text-xs"
+                            >
+                              <UserIcon className="size-3" />
+                              {reviewer}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
 
                     {/* Poem easter egg */}
                     {preview.poem && (

@@ -595,7 +595,16 @@ export async function runTrackedAiGeneration<TResult>({
   execute,
 }: TrackAiGenerationInput<TResult>): Promise<TrackAiGenerationResult<TResult>> {
   const generationId = `ai_gen_${randomUUID()}`;
-  let usage: AiCallUsage | null = null;
+  let usage: AiCallUsage = {
+    inputTokens: 0,
+    inputNoCacheTokens: 0,
+    inputCacheReadTokens: 0,
+    inputCacheWriteTokens: 0,
+    outputTokens: 0,
+    outputTextTokens: 0,
+    outputReasoningTokens: 0,
+    totalTokens: 0,
+  };
   let providerMetadata: unknown = {};
   let providerGenerationId: string | null = null;
   let actualCostCents: number | null = null;

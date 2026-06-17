@@ -114,7 +114,7 @@ export function createProviderWebhookWorker(
 		{
 			connection: toBullMqConnection(connection),
 			autorun: false,
-			concurrency: env.GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY,
+			concurrency: env.GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY ?? 5,
 			limiter,
 			prefix: env.GITPAL_QUEUE_PREFIX,
 			...options,

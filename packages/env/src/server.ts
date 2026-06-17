@@ -40,19 +40,16 @@ export const env = createEnv({
     GITPAL_QUEUE_REMOVE_ON_FAIL: z.coerce.number().int().min(0).default(5_000),
     GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY: z.coerce
       .number()
-      .int()
-      .positive()
-      .default(2),
+      .min(1)
+      .default(5),
     GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX: z.coerce
       .number()
-      .int()
       .min(0)
-      .default(20),
+      .default(0),
     GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS: z.coerce
       .number()
-      .int()
-      .positive()
-      .default(1_000),
+      .min(0)
+      .default(1000),
     WORKFLOW_REDIS_URI: z.url().default("redis://localhost:6379"),
     WORKFLOW_BASE_URL: z.url().optional(),
     WORKFLOW_TARGET_WORLD: z.string().default("@workflow-worlds/redis"),

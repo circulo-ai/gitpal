@@ -1,5 +1,6 @@
 FROM node:24-slim AS base
 COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1 /usr/local/bin/bunx /usr/local/bin/bunx
 WORKDIR /app
 
 ENV SKIP_ENV_VALIDATION=1

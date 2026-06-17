@@ -8,4 +8,4 @@ COPY . .
 RUN bun install
 
 WORKDIR /app/packages/db
-CMD ["bun", "run", "db:migrate"]
+CMD ["bunx", "drizzle-kit", "migrate", "--force"]

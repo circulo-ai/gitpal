@@ -1,0 +1,38 @@
+---
+title: Integrations
+description: GitHub, GitLab, webhook events, and native reviewer assignment.
+---
+
+GitPal supports both GitHub and GitLab, including self-hosted variants. The app keeps provider-specific behavior where it matters and normalizes the shared flow where it can.
+
+## GitHub
+
+- Reviews are posted as pull request comments and inline findings when the provider supports anchors.
+- Reviewers are requested using GitHub usernames resolved from connected GitPal accounts.
+- Labels come from the repository's own label list, so the labeler never invents new labels.
+
+## GitLab
+
+- Merge requests are handled with the same review and label workflow.
+- Native reviewers are requested using GitLab reviewer IDs resolved from connected accounts.
+- Webhooks are matched against the repository path and provider ID, so the same path on another provider does not collide.
+
+## Webhooks
+
+- GitPal stores a webhook receipt before processing begins.
+- Duplicate deliveries are ignored by design.
+- Background jobs handle the actual review and labeler work, which keeps the webhook response fast and stable.
+
+## Provider-native reviewer assignment
+
+- Reviewer auto-assignment uses the repository access list plus the connected provider identity for each candidate.
+- The app avoids assigning the automation actor and skips the PR author when it can resolve both identities.
+- This is why there is no manual MCP server-name field for GitHub or GitLab tools in the UI: the provider binding comes from the connected account, not from a user-typed server label.
+
+## Integration checklist
+
+- `Connected account`: has access to the target provider and repository.
+- `Repository access`: includes the humans who should be considered for reviewers.
+- `Webhook secret`: matches the provider configuration.
+- `Delivery URL`: is publicly reachable and stable.
+- `Provider identity mapping`: lets GitPal resolve login or reviewer ID for each candidate.

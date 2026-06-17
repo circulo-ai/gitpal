@@ -1,13 +1,40 @@
 ---
-title: Hello World
-description: Your first document
+title: GitPal Documentation
+description: Production-ready docs for GitPal cloud and self-hosted deployments.
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+GitPal automates pull request reviews, issue and PR labeling, reviewer assignment, and tool-assisted context gathering across GitHub and GitLab.
 
-## What is Next?
+<Callout title="Built for production">
+  The docs below match the actual product behavior: curated model selection with custom overrides, provider-native reviewer assignment, wallet billing for GitPal-handled calls, and automatic MCP server binding.
+</Callout>
+
+## Start here
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
+  <Card title="Getting started" href="/docs/getting-started" description="Install GitPal, connect a provider, and run the first review." />
+  <Card title="Integrations" href="/docs/integrations" description="GitHub, GitLab, webhook delivery, and reviewer mapping." />
+  <Card title="AI review" href="/docs/ai" description="Reviewer, walkthrough, labeler, routing, and model selection." />
+  <Card title="Tools and MCP" href="/docs/tools" description="Built-in tools, MCP bindings, and repository context behavior." />
+  <Card title="Billing" href="/docs/billing" description="Wallet billing, BYOK routing, and generation settlement." />
+  <Card title="Operations" href="/docs/operations" description="Production readiness, observability, and troubleshooting." />
+  <Card title="Reference" href="/docs/reference" description="Settings glossary and the most important product terms." />
 </Cards>
+
+## What GitPal does
+
+- Review pull requests with repository context, related work, file history, and selected tools.
+- Assign labels from the repository's existing label catalog for issues and pull requests.
+- Request provider-native reviewers from connected GitHub or GitLab identities.
+- Route model calls through GitPal-managed providers or a user's own keys.
+- Persist generation usage and settlement details for auditability and billing.
+
+## How to think about the app
+
+- `AI review`: main reviewer, walkthrough generation, fun extras, and label suggestions.
+- `Integrations`: GitHub, GitLab, webhook delivery, and provider-native actions.
+- `Tools`: built-in tools, MCP bindings, repository overrides, and search context.
+- `Billing`: wallet debits, BYOK routing, and generation cost tracking.
+- `Operations`: production safety, logs, retries, and troubleshooting.
+
+Use the category pages to configure the product end to end, then use the settings preview to verify the comment that GitPal will publish on real PRs.

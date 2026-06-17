@@ -72,6 +72,14 @@ function getByokKeyId(userId: string, providerId: string, name: string) {
 	return `llm_key_${stableId([userId, providerId, name]).slice(0, 32)}`;
 }
 
+function normalizeModelId(value: string) {
+	const trimmed = value.trim();
+
+	return trimmed.toLowerCase().startsWith("openrouter/")
+		? trimmed.slice("openrouter/".length)
+		: trimmed;
+}
+
 function mapStoredKey(row: UserLlmApiKeyRow): StoredByokKeySummary {
 	const provider = getLlmProviderDefinition(row.providerId);
 
@@ -365,7 +373,8 @@ async function getMatchingDirectKey({
 	userId: string;
 	modelId: string;
 }) {
-	const inferredProviderId = inferProviderIdFromModel(modelId);
+	const normalizedModelId = normalizeModelId(modelId);
+	const inferredProviderId = inferProviderIdFromModel(normalizedModelId);
 
 	if (!inferredProviderId) {
 		return null;
@@ -387,7 +396,7 @@ async function getMatchingDirectKey({
 				row.providerId === inferredProviderId &&
 				matchesAllowedModels({
 					allowedModels: row.allowedModels,
-					modelId,
+					modelId: normalizedModelId,
 				}),
 		) ?? null
 	);
@@ -400,9 +409,10 @@ export async function previewModelRouteForUser({
 	userId: string;
 	modelId: string;
 }): Promise<ModelRoutePreview | null> {
+	const normalizedModelId = normalizeModelId(modelId);
 	const settings = await getByokRoutingSettingsForUser(userId);
 	const directKey = settings.preferUserKeys
-		? await getMatchingDirectKey({ userId, modelId })
+		? await getMatchingDirectKey({ userId, modelId: normalizedModelId })
 		: null;
 
 	if (directKey) {
@@ -479,7 +489,7 @@ export async function resolveLanguageModelForUser({
 	if (preview.mode === "router" && preview.routerId) {
 		const model = createRouterModel({
 			routerId: preview.routerId,
-			modelId,
+			modelId: normalizedModelId,
 		});
 
 		if (!model) {
@@ -512,7 +522,7 @@ export async function resolveLanguageModelForUser({
 	return {
 		model: createDirectProviderModel({
 			provider,
-			modelId,
+			modelId: normalizedModelId,
 			apiKey: decryptSecret(key.encryptedApiKey),
 			baseUrl: key.baseUrl,
 		}),

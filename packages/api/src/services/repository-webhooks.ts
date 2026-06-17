@@ -6,6 +6,7 @@ import { env } from "@gitpal/env/server";
 import {
 	createGitHubAdapter,
 	createGitLabAdapter,
+	type GitActor,
 	type GitProviderAdapter,
 	type GitPullRequest,
 	type GitRepository,
@@ -131,6 +132,12 @@ type LabelDispatch = {
 	kind: "issue" | "pull_request";
 	trigger: string;
 	manual: boolean;
+};
+
+type NativeReviewerRequest = {
+	reviewers?: string[];
+	reviewerIds?: number[];
+	teamReviewers?: string[];
 };
 
 const REQUIRED_WEBHOOK_EVENTS_BY_PROVIDER = {
@@ -594,7 +601,11 @@ function resolveReviewDispatch({
 	settings: WorkspaceSettings;
 	context: PullRequestEventContext;
 }): ReviewDispatch | null {
-	if (!settings.ai.reviewer.enabled && !settings.preMergeChecks.enabled) {
+	if (
+		!settings.ai.reviewer.enabled &&
+		!settings.preMergeChecks.enabled &&
+		!settings.reviews.behavior.autoAssignReviewers
+	) {
 		return null;
 	}
 
@@ -1060,11 +1071,12 @@ function buildLabelerSummaryMarkdown({
 	return sections.join("\n\n");
 }
 
-async function listSuggestedReviewersForRepository(repositoryId: string) {
-	const rows = await db
+async function listRepositoryReviewerCandidates(repositoryId: string) {
+	return db
 		.select({
 			access: dashboardSchema.repositoryAccess,
 			user: authSchema.user,
+			account: authSchema.account,
 		})
 		.from(dashboardSchema.repositoryAccess)
 		.innerJoin(
@@ -1078,6 +1090,13 @@ async function listSuggestedReviewersForRepository(repositoryId: string) {
 			authSchema.user,
 			eq(authSchema.user.id, dashboardSchema.repositoryAccess.userId),
 		)
+		.innerJoin(
+			authSchema.account,
+			and(
+				eq(authSchema.account.userId, dashboardSchema.repositoryAccess.userId),
+				eq(authSchema.account.providerId, dashboardSchema.repository.providerId),
+			),
+		)
 		.where(
 			and(
 				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
@@ -1085,11 +1104,165 @@ async function listSuggestedReviewersForRepository(repositoryId: string) {
 			),
 		)
 		.orderBy(desc(dashboardSchema.repositoryAccess.lastSeenAt))
-		.limit(3);
+		.limit(10);
+}
+
+async function listSuggestedReviewersForRepository(repositoryId: string) {
+	const rows = await listRepositoryReviewerCandidates(repositoryId);
 
 	return rows
 		.map(({ user }) => user.name?.trim() || user.email.split("@")[0] || user.id)
 		.filter(Boolean);
+}
+
+function getActorIdentityKey(actor: GitActor | null, providerType: ProviderType) {
+	if (!actor) {
+		return null;
+	}
+
+	if (providerType === "github") {
+		return actor.login?.trim().toLowerCase() ?? null;
+	}
+
+	return actor.id?.trim() ?? null;
+}
+
+async function requestProviderNativeReviewers({
+	repository,
+	automationActor,
+	pullRequest,
+	providerType,
+}: {
+	repository: RepositoryRow;
+	automationActor: Awaited<ReturnType<typeof getAutomationActorForRepository>>;
+	pullRequest: GitPullRequest;
+	providerType: ProviderType;
+}) {
+	if (!automationActor?.adapter.capabilities.reviewers) {
+		return {
+			applied: false,
+			reviewers: [] as string[],
+			reviewerIds: [] as number[],
+		};
+	}
+
+	const candidates = await listRepositoryReviewerCandidates(repository.id);
+	if (candidates.length === 0) {
+		return {
+			applied: false,
+			reviewers: [] as string[],
+			reviewerIds: [] as number[],
+		};
+	}
+
+	const enterpriseProviders = await getEnterpriseProviderMap();
+	const automationIdentity = await automationActor.adapter
+		.getCurrentUser()
+		.catch(() => null);
+	const pullRequestAuthorIdentity = pullRequest.author;
+	const target = {
+		reviewers: new Set<string>(),
+		reviewerIds: new Set<number>(),
+	};
+
+	for (const candidate of candidates) {
+		if (candidate.access.userId === automationActor.userId) {
+			continue;
+		}
+
+		const candidateAdapter = createAdapterFromAccount({
+			account: candidate.account as GitAccount,
+			enterpriseProviders,
+		});
+
+		if (!candidateAdapter?.capabilities.reviewers) {
+			continue;
+		}
+
+		const providerActor = await candidateAdapter.getCurrentUser().catch(() => null);
+		if (!providerActor) {
+			continue;
+		}
+
+		const providerIdentityKey = getActorIdentityKey(providerActor, providerType);
+		const automationIdentityKey = getActorIdentityKey(
+			automationIdentity,
+			providerType,
+		);
+		const pullRequestAuthorIdentityKey = getActorIdentityKey(
+			pullRequestAuthorIdentity,
+			providerType,
+		);
+
+		if (
+			providerIdentityKey &&
+			automationIdentityKey &&
+			providerIdentityKey === automationIdentityKey
+		) {
+			continue;
+		}
+
+		if (
+			providerIdentityKey &&
+			pullRequestAuthorIdentityKey &&
+			providerIdentityKey === pullRequestAuthorIdentityKey
+		) {
+			continue;
+		}
+
+		if (providerType === "github") {
+			const login = providerActor.login?.trim();
+			if (!login) {
+				continue;
+			}
+
+			target.reviewers.add(login);
+		} else {
+			const reviewerId = Number(providerActor.id);
+			if (!Number.isInteger(reviewerId) || reviewerId <= 0) {
+				continue;
+			}
+
+			target.reviewerIds.add(reviewerId);
+		}
+
+		if (target.reviewers.size + target.reviewerIds.size >= 3) {
+			break;
+		}
+	}
+
+	const request: NativeReviewerRequest = {
+		reviewers: [...target.reviewers],
+		reviewerIds: [...target.reviewerIds],
+	};
+
+	if (request.reviewers?.length === 0) {
+		delete request.reviewers;
+	}
+
+	if (request.reviewerIds?.length === 0) {
+		delete request.reviewerIds;
+	}
+
+	if (!request.reviewers && !request.reviewerIds) {
+		return {
+			applied: false,
+			reviewers: [] as string[],
+			reviewerIds: [] as number[],
+		};
+	}
+
+	await automationActor.adapter.requestPullRequestReviewers({
+		repositoryPath: repository.repositoryPath,
+		pullRequestNumber: pullRequest.number,
+		...request,
+	});
+
+	return {
+		applied: true,
+		reviewers: request.reviewers ?? [],
+		reviewerIds: request.reviewerIds ?? [],
+	};
 }
 
 function toGitRepository(repository: RepositoryRow): GitRepository {
@@ -1300,8 +1473,35 @@ async function runWebhookReview({
 		return "ignored" as const;
 	}
 
+	let nativeReviewerRequest:
+		| Awaited<ReturnType<typeof requestProviderNativeReviewers>>
+		| null = null;
+
+	if (dispatch.kind === "review" && settings.reviews.behavior.autoAssignReviewers) {
+		try {
+			nativeReviewerRequest = await requestProviderNativeReviewers({
+				repository,
+				automationActor,
+				pullRequest,
+				providerType,
+			});
+		} catch (error) {
+			log.warn(
+				{
+					err: error,
+					repositoryId: repository.id,
+					repositoryPath: repository.repositoryPath,
+					providerId: repository.providerId,
+				},
+				"Native reviewer assignment failed.",
+			);
+		}
+	}
+
 	if (dispatch.kind !== "pre-merge" && !settings.ai.reviewer.enabled) {
-		return "ignored" as const;
+		return dispatch.kind === "review" && nativeReviewerRequest?.applied
+			? "processed"
+			: "ignored";
 	}
 
 	const pullRequestRow = await upsertPullRequestSnapshot({
@@ -1378,6 +1578,7 @@ async function runWebhookReview({
 				commentMarkdown: reviewResult.commentMarkdown,
 				poem: reviewResult.poem,
 				suggestedReviewers,
+				nativeReviewerRequest,
 				text: reviewResult.text,
 				stepCount: reviewResult.steps.length,
 			},

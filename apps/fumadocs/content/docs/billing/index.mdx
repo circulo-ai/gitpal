@@ -1,0 +1,34 @@
+---
+title: Billing
+description: Wallet billing, bring-your-own-key routing, and generation settlement.
+---
+
+GitPal separates two billing paths:
+
+- Calls handled by GitPal-managed routes are billed to the user's wallet.
+- Calls served through the user's own provider key are not billed to the wallet.
+
+## Wallet-billed calls
+
+- The app records usage, generation metadata, and the resolved generation ID.
+- The wallet is debited only after the generation settles and the cost is known.
+- A small negative balance tolerance is allowed so transient settlement gaps do not break the user experience.
+
+## Bring your own keys
+
+- When a matching direct provider key exists, routing prefers that key if the user has configured it that way.
+- BYOK calls are treated as user-supplied capacity, not wallet-spend.
+- The route preview on the API-key page shows exactly how the current model ID will be handled.
+
+## What is stored
+
+- `ai_generation`: audit trail for model calls, usage, and settlement.
+- `wallet ledger`: balance updates and debit history.
+- `provider generation ID`: cost lookup and provider reconciliation.
+- `route metadata`: explains why a call was routed to a provider or wallet path.
+
+## Cost guidance
+
+- If the app handled the call, expect a wallet debit once the cost is resolved.
+- If the user's own key handled the call, the app should not bill the wallet.
+- If cost cannot be resolved for a wallet-billed generation, the settlement should fail instead of guessing.

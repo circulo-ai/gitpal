@@ -387,7 +387,7 @@ export const defaultWorkspaceSettings = {
 			relatedIssues: true,
 			relatedPRs: true,
 			suggestedLabels: true,
-			modelId: "anthropic/claude-sonnet-4-5",
+			modelId: "anthropic/claude-sonnet-4.6",
 		},
 		behavior: {
 			profile: "chill",
@@ -420,7 +420,7 @@ export const defaultWorkspaceSettings = {
 	ai: {
 		reviewer: {
 			enabled: true,
-			modelId: "anthropic/claude-sonnet-4-5",
+			modelId: "anthropic/claude-sonnet-4.6",
 			maxSteps: 8,
 			maxOutputTokens: 8192,
 			focus: "balanced",
@@ -431,7 +431,7 @@ export const defaultWorkspaceSettings = {
 		},
 		labeler: {
 			enabled: true,
-			modelId: "anthropic/claude-sonnet-4-5",
+			modelId: "anthropic/claude-sonnet-4.6",
 			maxLabels: 4,
 			maxOutputTokens: 1024,
 			applyOnIssues: true,
@@ -565,7 +565,7 @@ export const defaultWorkspaceSettings = {
 	fun: {
 		toneInstructions:
 			"Keep the review warm, direct, and lightly playful without becoming flippant.",
-		modelId: "anthropic/claude-sonnet-4-5",
+		modelId: "anthropic/claude-sonnet-4.6",
 		poem: false,
 		inProgressFortune: false,
 		art: false,
@@ -646,6 +646,9 @@ function normalizeManagedTool(tool: WorkspaceManagedTool): WorkspaceManagedTool 
 
 function normalizeModelId(value: string | null | undefined, fallback: string) {
 	const trimmed = value?.trim() || "";
+	if (trimmed.toLowerCase().startsWith("openrouter/")) {
+		return trimmed.slice("openrouter/".length) || fallback;
+	}
 	return trimmed || fallback;
 }
 

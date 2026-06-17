@@ -18,6 +18,7 @@ import {
 	type WorkspaceSettings,
 } from "@gitpal/utils";
 
+import { runTrackedAiGeneration } from "./ai-billing";
 import { resolveLanguageModelForUser } from "./llm-credentials";
 
 const reviewFindingSchema = z.object({
@@ -76,6 +77,9 @@ type ReviewContext = {
 	settings: WorkspaceSettings;
 	kind: ReviewRunKind;
 	suggestedReviewers?: string[];
+	repositoryDbId?: string | null;
+	pullRequestDbId?: string | null;
+	reviewRunId?: string | null;
 };
 
 type WebSearchResult = {
@@ -504,17 +508,37 @@ async function generateWalkthroughText({
 			return output.walkthrough;
 		}
 
-		const { model } = await resolveLanguageModelForUser({
+		const walkthroughResolution = await resolveLanguageModelForUser({
 			userId: context.userId,
 			modelId: walkthroughModelId,
 		});
-		const result = await generateText({
-			model,
-			maxOutputTokens: Math.min(
-				context.settings.ai.reviewer.maxOutputTokens,
-				2048,
-			),
-			prompt: `
+		const walkthroughRun = await runTrackedAiGeneration({
+			userId: context.userId,
+			callKind: "walkthrough",
+			modelId: walkthroughModelId,
+			routePreview: walkthroughResolution.preview,
+			repositoryId: context.repositoryDbId ?? null,
+			pullRequestId: context.pullRequestDbId ?? null,
+			reviewRunId: context.reviewRunId ?? null,
+			tags: [
+				"review-walkthrough",
+				context.repository.fullName,
+				context.pullRequest.number.toString(),
+			],
+			metadata: {
+				repository: context.repository.fullName,
+				pullRequestNumber: context.pullRequest.number,
+				kind: context.kind,
+			},
+			execute: async ({ providerOptions }) =>
+				generateText({
+					model: walkthroughResolution.model,
+					maxOutputTokens: Math.min(
+						context.settings.ai.reviewer.maxOutputTokens,
+						2048,
+					),
+					...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+					prompt: `
 You are rewriting the walkthrough section of a code review comment.
 
 Repository: ${context.repository.fullName}
@@ -550,9 +574,10 @@ ${buildPromptFilesSummary(files)}
 
 Rewrite the walkthrough as concise Markdown prose. Keep it grounded in the diff and repository context. Do not invent facts.
 `.trim(),
+				}),
 		});
 
-		return result.text.trim() || output.walkthrough;
+		return walkthroughRun.result.text.trim() || output.walkthrough;
 	} catch {
 		return output.walkthrough;
 	}
@@ -572,14 +597,34 @@ async function generateFunPoem({
 	}
 
 	try {
-		const { model } = await resolveLanguageModelForUser({
+		const poemResolution = await resolveLanguageModelForUser({
 			userId: context.userId,
 			modelId: context.settings.fun.modelId.trim(),
 		});
-		const result = await generateText({
-			model,
-			maxOutputTokens: 256,
-			prompt: `
+		const poemRun = await runTrackedAiGeneration({
+			userId: context.userId,
+			callKind: "fun",
+			modelId: context.settings.fun.modelId.trim(),
+			routePreview: poemResolution.preview,
+			repositoryId: context.repositoryDbId ?? null,
+			pullRequestId: context.pullRequestDbId ?? null,
+			reviewRunId: context.reviewRunId ?? null,
+			tags: [
+				"review-poem",
+				context.repository.fullName,
+				context.pullRequest.number.toString(),
+			],
+			metadata: {
+				repository: context.repository.fullName,
+				pullRequestNumber: context.pullRequest.number,
+				kind: context.kind,
+			},
+			execute: async ({ providerOptions }) =>
+				generateText({
+					model: poemResolution.model,
+					maxOutputTokens: 256,
+					...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+					prompt: `
 Write a short playful poem for a pull request review comment.
 
 Repository: ${context.repository.fullName}
@@ -595,9 +640,10 @@ ${context.settings.fun.toneInstructions}
 
 Keep it concise, warm, and suitable for a professional review comment. Output only the poem.
 `.trim(),
+				}),
 		});
 
-		return result.text.trim() || null;
+		return poemRun.result.text.trim() || null;
 	} catch {
 		return null;
 	}
@@ -796,35 +842,63 @@ function createReviewTools(context: ReviewContext) {
 }
 
 export async function runRepositoryReview(context: ReviewContext) {
-	const { model } = await resolveLanguageModelForUser({
+	const resolution = await resolveLanguageModelForUser({
 		userId: context.userId,
 		modelId: context.settings.ai.reviewer.modelId,
 	});
 	const reviewTools = createReviewTools(context);
-	const providerOptions = mapThinkingProviderOptions(context.settings);
+	const thinkingProviderOptions = mapThinkingProviderOptions(context.settings);
 	const seededContext = await loadSeededRepositoryContext(context);
-	const agent = new ToolLoopAgent({
-		model,
-		instructions: buildAgentInstructions(context.settings, context.kind),
-		tools: reviewTools,
-		output: Output.object({
-			schema: repositoryReviewOutputSchema,
-		}),
-		stopWhen: stepCountIs(context.settings.ai.reviewer.maxSteps),
-		maxOutputTokens: context.settings.ai.reviewer.maxOutputTokens,
-		...(providerOptions
-			? {
-					providerOptions: providerOptions as never,
-				}
-			: {}),
-	});
+	const reviewGeneration = await runTrackedAiGeneration({
+		userId: context.userId,
+		callKind: "review",
+		modelId: context.settings.ai.reviewer.modelId,
+		routePreview: resolution.preview,
+		repositoryId: context.repositoryDbId ?? null,
+		pullRequestId: context.pullRequestDbId ?? null,
+		reviewRunId: context.reviewRunId ?? null,
+		tags: [
+			"review",
+			context.repository.fullName,
+			context.pullRequest.number.toString(),
+			context.kind,
+		],
+		metadata: {
+			repository: context.repository.fullName,
+			pullRequestNumber: context.pullRequest.number,
+			kind: context.kind,
+		},
+		execute: async ({ providerOptions }) => {
+			const agent = new ToolLoopAgent({
+				model: resolution.model,
+				instructions: buildAgentInstructions(context.settings, context.kind),
+				tools: reviewTools,
+				output: Output.object({
+					schema: repositoryReviewOutputSchema,
+				}),
+				stopWhen: stepCountIs(context.settings.ai.reviewer.maxSteps),
+				maxOutputTokens: context.settings.ai.reviewer.maxOutputTokens,
+				...(
+					thinkingProviderOptions || providerOptions
+						? {
+								providerOptions: {
+									...(providerOptions ?? {}),
+									...(thinkingProviderOptions ?? {}),
+								} as never,
+							}
+						: {}
+				),
+			});
 
-	const result = await agent.generate({
-		prompt: buildPrompt({
-			...context,
-			seededContext,
-		}),
+			return agent.generate({
+				prompt: buildPrompt({
+					...context,
+					seededContext,
+				}),
+			});
+		},
 	});
+	const result = reviewGeneration.result;
 	const output = repositoryReviewOutputSchema.parse(result.output);
 	const walkthrough = await generateWalkthroughText({
 		context,
@@ -855,5 +929,7 @@ export async function runRepositoryReview(context: ReviewContext) {
 		poem,
 		text: result.text,
 		steps: result.steps,
+		generationId: reviewGeneration.settlement.generationId,
+		billing: reviewGeneration.settlement,
 	};
 }

@@ -1,0 +1,31 @@
+---
+title: Reference
+description: Settings glossary and the most important product terms.
+---
+
+This page is the quick glossary for the settings that show up in the app.
+
+## Settings glossary
+
+- `Reviewer model`: the model that performs the main review.
+- `Walkthrough model`: the model that rewrites the walkthrough section.
+- `Labeler model`: the model that selects labels from the repository catalog.
+- `Fun model`: the model that creates poems or other playful output.
+- `Language`: the UI language selector with a curated list and custom override.
+- `Auto-assign reviewers`: requests provider-native reviewers when the provider supports it.
+- `MCP binding`: automatically wires the GitHub or GitLab MCP server name.
+- `Wallet billing`: charges GitPal-handled generations to the user's wallet.
+- `BYOK routing`: uses the user's own provider key instead of wallet billing.
+
+## Terms
+
+- `review run`: one end-to-end AI review execution for a pull request or merge request.
+- `label run`: one labeling execution for an issue or pull request.
+- `generation`: one model call with persisted usage and settlement metadata.
+- `route preview`: the predicted execution path for the current model ID and user routing settings.
+
+## How to read the settings page
+
+- Use the curated selects first.
+- Switch to custom override only when you intentionally need a model that is not in the catalog.
+- Keep the preview dialog open to confirm the final output before letting the app act on real provider data.

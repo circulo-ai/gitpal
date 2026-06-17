@@ -51,6 +51,7 @@ const capabilities: GitProviderCapabilities = {
 	repositories: true,
 	pullRequests: true,
 	comments: true,
+	reviewers: true,
 	webhooks: true,
 };
 
@@ -429,6 +430,21 @@ export function createGitHubAdapter({
 		);
 	}
 
+	async function getCurrentUser(): Promise<GitActor> {
+		const response = await octokit.rest.users.getAuthenticated();
+		return (
+			mapActor(response.data as Record<string, unknown>) ?? {
+				id: String(response.data.id ?? "unknown"),
+				login: response.data.login ?? null,
+				name: response.data.name ?? response.data.login ?? null,
+				email: response.data.email ?? null,
+				avatarUrl: response.data.avatar_url ?? null,
+				htmlUrl: response.data.html_url ?? null,
+				kind: "user",
+			}
+		);
+	}
+
 	async function getRepository(
 		input: GitRepositoryRef,
 	): Promise<GitRepository> {
@@ -782,6 +798,31 @@ export function createGitHubAdapter({
 		});
 	}
 
+	async function requestPullRequestReviewers(
+		input: GitRepositoryRef & {
+			pullRequestNumber: number;
+			reviewers?: string[];
+			reviewerIds?: number[];
+			teamReviewers?: string[];
+		},
+	) {
+		const reviewers = input.reviewers ?? [];
+		const teamReviewers = input.teamReviewers ?? [];
+
+		if (reviewers.length === 0 && teamReviewers.length === 0) {
+			return;
+		}
+
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		await octokit.rest.pulls.requestReviewers({
+			owner,
+			repo,
+			pull_number: input.pullRequestNumber,
+			...(reviewers.length > 0 ? { reviewers } : {}),
+			...(teamReviewers.length > 0 ? { team_reviewers: teamReviewers } : {}),
+		});
+	}
+
 	async function mergePullRequest(
 		input: GitRepositoryRef & {
 			pullRequestNumber: number;
@@ -891,6 +932,7 @@ export function createGitHubAdapter({
 		capabilities,
 		webhooks: createGitHubWebhookVerifier(providerId, webhookSecrets),
 		listRepositories,
+		getCurrentUser,
 		getRepository,
 		listPullRequests,
 		getPullRequest,
@@ -903,6 +945,7 @@ export function createGitHubAdapter({
 		createComment,
 		addIssueLabels,
 		addPullRequestLabels,
+		requestPullRequestReviewers,
 		mergePullRequest,
 		listWebhooks,
 		createWebhook,

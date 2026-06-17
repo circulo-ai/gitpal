@@ -12,6 +12,7 @@ import {
 	type WorkspaceSettings,
 } from "@gitpal/utils";
 
+import { runTrackedAiGeneration } from "./ai-billing";
 import { resolveLanguageModelForUser } from "./llm-credentials";
 
 const labelSuggestionSchema = z.object({
@@ -45,6 +46,9 @@ export type LabelerContext = {
 	providerEvent: string;
 	providerAction: string | null;
 	repositoryLabels?: GitRepositoryLabel[];
+	repositoryDbId?: string | null;
+	pullRequestDbId?: string | null;
+	reviewRunId?: string | null;
 };
 
 export type LabelerResult = {
@@ -53,6 +57,7 @@ export type LabelerResult = {
 	appliedLabels: string[];
 	availableLabels: GitRepositoryLabel[];
 	text: string;
+	generationId?: string;
 };
 
 function trimPatch(patch: string | null, maxLines = 20) {
@@ -249,29 +254,57 @@ export async function runRepositoryLabeler(context: LabelerContext) {
 		};
 	}
 
-	const { model } = await resolveLanguageModelForUser({
+	const resolution = await resolveLanguageModelForUser({
 		userId: context.userId,
 		modelId: labelerSettings.modelId,
 	});
-	const result = await generateText({
-		model,
-		output: Output.object({
-			schema: labelerOutputSchema.extend({
-				labels: z.array(labelSuggestionSchema).max(labelerSettings.maxLabels).default([]),
-			}),
-		}),
-		maxOutputTokens: labelerSettings.maxOutputTokens,
-		prompt: buildLabelPrompt({
-			repository: context.repository,
-			settings: context.settings,
-			target: context.target,
-			repositoryLabels,
+	const generation = await runTrackedAiGeneration({
+		userId: context.userId,
+		callKind: "labeler",
+		modelId: labelerSettings.modelId,
+		routePreview: resolution.preview,
+		repositoryId: context.repositoryDbId ?? null,
+		pullRequestId: context.pullRequestDbId ?? null,
+		reviewRunId: context.reviewRunId ?? null,
+		tags: [
+			"labeler",
+			context.repository.fullName,
+			context.target.kind,
+			context.target.number.toString(),
+		],
+		metadata: {
+			repository: context.repository.fullName,
+			targetKind: context.target.kind,
+			targetNumber: context.target.number,
 			trigger: context.trigger,
 			providerEvent: context.providerEvent,
 			providerAction: context.providerAction,
-		}),
+		},
+		execute: async ({ providerOptions }) =>
+			generateText({
+				model: resolution.model,
+				output: Output.object({
+					schema: labelerOutputSchema.extend({
+						labels: z
+							.array(labelSuggestionSchema)
+							.max(labelerSettings.maxLabels)
+							.default([]),
+					}),
+				}),
+				maxOutputTokens: labelerSettings.maxOutputTokens,
+				...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+				prompt: buildLabelPrompt({
+					repository: context.repository,
+					settings: context.settings,
+					target: context.target,
+					repositoryLabels,
+					trigger: context.trigger,
+					providerEvent: context.providerEvent,
+					providerAction: context.providerAction,
+				}),
+			}),
 	});
-	const output = result.output;
+	const output = generation.result.output;
 	const suggestedLabels = normalizeSuggestedLabels(
 		output.labels,
 		repositoryLabels,
@@ -302,6 +335,7 @@ export async function runRepositoryLabeler(context: LabelerContext) {
 		suggestedLabels,
 		appliedLabels,
 		availableLabels: repositoryLabels,
-		text: result.text,
+		text: generation.result.text,
+		generationId: generation.settlement.generationId,
 	};
 }

@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { queryClient, trpc } from "@/utils/trpc";
 import type { LlmProviderId } from "@gitpal/utils";
 
+import { ModelIdPicker, buildCuratedModelGroups } from "./model-id-picker";
 import { MultiSelectField } from "./multi-select-field";
 import { SettingsChangeDock } from "./settings-change-dock";
 
@@ -76,6 +77,8 @@ const fallbackRouterOptions = [
   { label: "No fallback", value: "none" },
   ...routerOptions,
 ] as const;
+
+const CURATED_MODEL_GROUPS = buildCuratedModelGroups();
 
 export function AccountApiKeysPage() {
   const appKeysQuery = useQuery(trpc.apiKeys.app.list.queryOptions());
@@ -554,14 +557,17 @@ export function AccountApiKeysPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex flex-col gap-3 md:flex-row">
-                  <Input
-                    value={routePreviewModel}
-                    onChange={(event) =>
-                      setRoutePreviewModel(event.target.value)
-                    }
-                    placeholder="anthropic/claude-sonnet-4.6"
-                  />
+                <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div className="min-w-0 flex-1">
+                    <ModelIdPicker
+                      label="Preview model"
+                      value={routePreviewModel}
+                      onChange={setRoutePreviewModel}
+                      groups={CURATED_MODEL_GROUPS}
+                      helperText="Choose a curated model or paste any custom model ID to preview the effective route."
+                      customPlaceholder="anthropic/claude-sonnet-4.6"
+                    />
+                  </div>
                   <Button
                     type="button"
                     variant="outline"

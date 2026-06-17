@@ -2,16 +2,17 @@ import { createHash } from "node:crypto";
 import { createDb } from "@gitpal/db";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import { env } from "@gitpal/env/server";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 
 import {
-  createNowPaymentsCheckout,
-  isNowPaymentsCheckoutEnabled,
-  normalizeNowPaymentsStatus,
-  type NowPaymentsWebhookPayment,
+	createNowPaymentsCheckout,
+	isNowPaymentsCheckoutEnabled,
+	normalizeNowPaymentsStatus,
+	type NowPaymentsWebhookPayment,
 } from "./nowpayments";
 
 const db = createDb();
+type WalletDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
 const TOPUP_FINAL_STATUSES = new Set(["paid"]);
 const TOPUP_FAILURE_STATUSES = new Set([
   "failed",
@@ -67,46 +68,52 @@ function getTopupId(userId: string, orderId: string) {
 }
 
 function getLedgerId(sourceType: string, sourceId: string, entryType: string) {
-  return `ledger_${stableId([sourceType, sourceId, entryType]).slice(0, 32)}`;
+	return `ledger_${stableId([sourceType, sourceId, entryType]).slice(0, 32)}`;
 }
 
 function toUsdAmount(priceAmountUsdCents: number) {
-  return Number((priceAmountUsdCents / 100).toFixed(2));
+	return Number((priceAmountUsdCents / 100).toFixed(2));
 }
 
-async function ensureWalletForUser(userId: string) {
-  const [existing] = await db
-    .select()
-    .from(billingSchema.wallet)
-    .where(eq(billingSchema.wallet.userId, userId))
-    .limit(1);
+async function ensureWalletForUser(
+	userId: string,
+	executor: WalletDbExecutor = db,
+) {
+	const now = new Date();
+	const [created] = await executor
+		.insert(billingSchema.wallet)
+		.values({
+			id: getWalletId(userId),
+			userId,
+			currency: "USD",
+			availableBalanceCents: 0,
+			totalDepositedCents: 0,
+			totalCreditedCents: 0,
+			totalRevenueCents: 0,
+			totalSpentCents: 0,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.onConflictDoNothing({
+			target: billingSchema.wallet.userId,
+		})
+		.returning();
 
-  if (existing) {
-    return existing;
-  }
+	if (created) {
+		return created;
+	}
 
-  const now = new Date();
-  const [created] = await db
-    .insert(billingSchema.wallet)
-    .values({
-      id: getWalletId(userId),
-      userId,
-      currency: "USD",
-      availableBalanceCents: 0,
-      totalDepositedCents: 0,
-      totalCreditedCents: 0,
-      totalRevenueCents: 0,
-      totalSpentCents: 0,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
+	const [existing] = await executor
+		.select()
+		.from(billingSchema.wallet)
+		.where(eq(billingSchema.wallet.userId, userId))
+		.limit(1);
 
-  if (!created) {
-    throw new Error("Unable to create wallet.");
-  }
+	if (!existing) {
+		throw new Error("Unable to create wallet.");
+	}
 
-  return created;
+	return existing;
 }
 
 export async function getWalletSummaryForUser(
@@ -242,52 +249,144 @@ export async function createWalletTopupForUser({
 }
 
 export async function applyWalletUsageDebit({
-  userId,
-  amountCents,
+	userId,
+	amountCents,
   description,
   sourceId,
+  sourceType = "usage",
+	metadata = {},
 }: {
   userId: string;
   amountCents: number;
   description: string;
   sourceId: string;
+  sourceType?: string;
+	metadata?: Record<string, unknown>;
 }) {
-  if (amountCents <= 0) {
-    return;
+	return db.transaction((tx) =>
+		applyWalletUsageDebitInTransaction(tx, {
+			userId,
+			amountCents,
+			description,
+			sourceId,
+			sourceType,
+			metadata,
+		}),
+	);
+}
+
+export async function applyWalletUsageDebitInTransaction(
+	executor: WalletDbExecutor,
+	{
+		userId,
+		amountCents,
+		description,
+		sourceId,
+		sourceType = "usage",
+		metadata = {},
+	}: {
+		userId: string;
+		amountCents: number;
+		description: string;
+		sourceId: string;
+		sourceType?: string;
+		metadata?: Record<string, unknown>;
+	},
+) {
+	if (amountCents <= 0) {
+		return {
+			applied: false,
+      balanceAfterCents: null,
+      ledgerEntryId: null,
+      walletId: null,
+    };
   }
 
-  await db.transaction(async (tx) => {
-    const wallet = await ensureWalletForUser(userId);
-    const nextBalance = wallet.availableBalanceCents - amountCents;
+	const wallet = await ensureWalletForUser(userId, executor);
+	const entryId = getLedgerId(sourceType, sourceId, "usage-debit");
+	const now = new Date();
 
-    if (nextBalance < 0) {
-      throw new Error("Insufficient wallet balance.");
-    }
+	const [insertedLedger] = await executor
+		.insert(billingSchema.walletLedgerEntry)
+		.values({
+			id: entryId,
+			walletId: wallet.id,
+			userId,
+			type: "usage-debit",
+			amountCents: amountCents * -1,
+			balanceAfterCents: wallet.availableBalanceCents,
+			currency: "USD",
+			description,
+			sourceType,
+			sourceId,
+			metadata,
+			createdAt: now,
+		})
+		.onConflictDoNothing({
+			target: [
+				billingSchema.walletLedgerEntry.sourceType,
+				billingSchema.walletLedgerEntry.sourceId,
+				billingSchema.walletLedgerEntry.type,
+			],
+		})
+		.returning({
+			id: billingSchema.walletLedgerEntry.id,
+		});
 
-    await tx
-      .update(billingSchema.wallet)
-      .set({
-        availableBalanceCents: nextBalance,
-        totalSpentCents: wallet.totalSpentCents + amountCents,
-        updatedAt: new Date(),
-      })
-      .where(eq(billingSchema.wallet.id, wallet.id));
+	if (!insertedLedger) {
+		const [existingLedger] = await executor
+			.select()
+			.from(billingSchema.walletLedgerEntry)
+			.where(eq(billingSchema.walletLedgerEntry.id, entryId))
+			.limit(1);
 
-    await tx.insert(billingSchema.walletLedgerEntry).values({
-      id: getLedgerId("usage", sourceId, "usage-debit"),
-      walletId: wallet.id,
-      userId,
-      type: "usage-debit",
-      amountCents: amountCents * -1,
-      balanceAfterCents: nextBalance,
-      currency: "USD",
-      description,
-      sourceType: "usage",
-      sourceId,
-      metadata: {},
-      createdAt: new Date(),
-    });
-  });
+		if (!existingLedger) {
+			throw new Error("Unable to resolve existing wallet usage debit.");
+		}
+
+		return {
+			applied: false,
+			balanceAfterCents: existingLedger.balanceAfterCents,
+			ledgerEntryId: existingLedger.id,
+			walletId: existingLedger.walletId,
+		};
+	}
+
+	const [updatedWallet] = await executor
+		.update(billingSchema.wallet)
+		.set({
+			availableBalanceCents: sql`${billingSchema.wallet.availableBalanceCents} - ${amountCents}`,
+			totalSpentCents: sql`${billingSchema.wallet.totalSpentCents} + ${amountCents}`,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(billingSchema.wallet.id, wallet.id),
+				sql`${billingSchema.wallet.availableBalanceCents} - ${amountCents} >= -10`,
+			),
+		)
+		.returning({
+			id: billingSchema.wallet.id,
+			availableBalanceCents: billingSchema.wallet.availableBalanceCents,
+		});
+
+	if (!updatedWallet) {
+		throw new Error("Insufficient wallet balance.");
+	}
+
+	await executor
+		.update(billingSchema.walletLedgerEntry)
+		.set({
+			balanceAfterCents: updatedWallet.availableBalanceCents,
+		})
+		.where(eq(billingSchema.walletLedgerEntry.id, entryId));
+
+	return {
+		applied: true,
+		balanceAfterCents: updatedWallet.availableBalanceCents,
+		ledgerEntryId: entryId,
+		walletId: wallet.id,
+	};
 }
 
 export async function handleNowPaymentsWebhook(

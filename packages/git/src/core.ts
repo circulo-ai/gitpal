@@ -199,6 +199,7 @@ export type GitProviderCapabilities = {
 	repositories: true;
 	pullRequests: true;
 	comments: true;
+	reviewers: true;
 	webhooks: true;
 };
 
@@ -220,6 +221,7 @@ export interface GitProviderAdapter {
 	readonly apiBaseUrl: string;
 	readonly capabilities: GitProviderCapabilities;
 	readonly webhooks: GitWebhookAdapter;
+	getCurrentUser(): Promise<GitActor>;
 	listRepositories(): Promise<GitRepository[]>;
 	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
 	listPullRequests(
@@ -255,6 +257,14 @@ export interface GitProviderAdapter {
 	): Promise<void>;
 	addPullRequestLabels(
 		input: GitRepositoryRef & { pullRequestNumber: number; labels: string[] },
+	): Promise<void>;
+	requestPullRequestReviewers(
+		input: GitRepositoryRef & {
+			pullRequestNumber: number;
+			reviewers?: string[];
+			reviewerIds?: number[];
+			teamReviewers?: string[];
+		},
 	): Promise<void>;
 	mergePullRequest(
 		input: GitRepositoryRef & {

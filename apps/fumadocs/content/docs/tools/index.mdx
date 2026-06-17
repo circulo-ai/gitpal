@@ -1,0 +1,37 @@
+---
+title: Tools and MCP
+description: Built-in tools, MCP bindings, and repository context access.
+---
+
+GitPal gives the reviewer two kinds of tools: built-in app tools that run through GitPal's own adapters, and MCP-backed tools that can plug into a connected server.
+
+## Built-in tools
+
+- Repository search
+- Related issues
+- Related pull requests
+- Web search
+
+These tools are part of the app itself and do not require a separate server name or manual MCP wiring.
+
+## MCP-backed tools
+
+- GitHub MCP
+- GitLab MCP
+
+When these tools are enabled, the UI binds them automatically so the server name stays consistent across the app and runtime. Users should not need to guess or type a server name in normal workflows.
+
+## How the reviewer uses tools
+
+- The reviewer chooses context-aware tools when repository context scanning is enabled.
+- Search helpers are used before the model concludes that no related work exists.
+- Tool limits and repository overrides are respected by the workspace settings.
+
+## Tool policy checklist
+
+- `Allow repository overrides`: lets a repository replace workspace tool policy when permitted.
+- `Built-in enabled`: the app can use its own search and context tools.
+- `MCP enabled`: the app can use the configured MCP-backed provider tools.
+- `Max results`: controls how much search context the reviewer sees.
+
+If you are deciding whether to enable MCP at all, the default answer should be based on whether the repository already has a reliable external index or agent service that adds real value beyond the built-in provider adapters.

@@ -184,6 +184,7 @@ const capabilities: GitProviderCapabilities = {
 	repositories: true,
 	pullRequests: true,
 	comments: true,
+	reviewers: true,
 	webhooks: true,
 };
 
@@ -328,6 +329,15 @@ const gitlabLabelSchema = z.object({
 	name: z.string(),
 	description: z.string().nullable().optional(),
 	color: z.string().nullable().optional(),
+});
+
+const gitlabCurrentUserSchema = z.object({
+	id: z.number(),
+	username: z.string().optional(),
+	name: z.string().optional(),
+	public_email: z.string().nullable().optional(),
+	avatar_url: z.string().nullable().optional(),
+	web_url: z.string().nullable().optional(),
 });
 
 function mapActor(
@@ -759,6 +769,28 @@ export function createGitLabAdapter({
 		return projects.map((project) => mapRepository(project, providerId));
 	}
 
+	async function getCurrentUser(): Promise<GitActor> {
+		const response = await requestJson<unknown>(
+			`${normalizedApiBaseUrl}/user`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+			},
+			providerId,
+		);
+
+		return mapActor(gitlabCurrentUserSchema.parse(response)) ?? {
+			id: "unknown",
+			login: null,
+			name: null,
+			email: null,
+			avatarUrl: null,
+			htmlUrl: null,
+			kind: "user",
+		};
+	}
+
 	async function getRepository(
 		input: GitRepositoryRef,
 	): Promise<GitRepository> {
@@ -1010,26 +1042,38 @@ export function createGitLabAdapter({
 		const limit = Math.min(Math.max(input.limit ?? 100, 1), 100);
 		const query = input.query?.trim();
 		const searchParams = query ? `&search=${encodeURIComponent(query)}` : "";
-		const response = await requestJson<unknown>(
-			`${createRepositoryUrl(
-				normalizedApiBaseUrl,
-				input.repositoryPath,
-			)}/labels?with_counts=false&per_page=100${searchParams}`,
-			{
-				headers: {
-					...createGitLabRequestHeaders(token, tokenType),
-				},
-			},
-			providerId,
-		);
+		const pageSize = 100;
+		const labels: GitRepositoryLabel[] = [];
 
-		return z
-			.array(gitlabLabelSchema)
-			.parse(response)
-			.map((label) =>
-				mapRepositoryLabel(label, providerId, input.repositoryPath),
-			)
-			.slice(0, limit);
+		for (let page = 1; page <= 100; page += 1) {
+			const response = await requestJson<unknown>(
+				`${createRepositoryUrl(
+					normalizedApiBaseUrl,
+					input.repositoryPath,
+				)}/labels?with_counts=false&per_page=${pageSize}&page=${page}${searchParams}`,
+				{
+					headers: {
+						...createGitLabRequestHeaders(token, tokenType),
+					},
+				},
+				providerId,
+			);
+
+			const pageLabels = z
+				.array(gitlabLabelSchema)
+				.parse(response)
+				.map((label) =>
+					mapRepositoryLabel(label, providerId, input.repositoryPath),
+				);
+
+			labels.push(...pageLabels);
+
+			if (pageLabels.length < pageSize || labels.length >= limit) {
+				break;
+			}
+		}
+
+		return labels.slice(0, limit);
 	}
 
 	async function createPullRequest(input: GitPullRequestCreateInput) {
@@ -1143,6 +1187,40 @@ export function createGitLabAdapter({
 		);
 	}
 
+	async function requestPullRequestReviewers(
+		input: GitRepositoryRef & {
+			pullRequestNumber: number;
+			reviewers?: string[];
+			reviewerIds?: number[];
+			teamReviewers?: string[];
+		},
+	) {
+		const reviewerIds = input.reviewerIds ?? [];
+
+		if (reviewerIds.length === 0) {
+			return;
+		}
+
+		await requestJson<unknown>(
+			`${createMergeRequestUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+				input.pullRequestNumber,
+			)}`,
+			{
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+				body: JSON.stringify({
+					reviewer_ids: reviewerIds,
+				}),
+			},
+			providerId,
+		);
+	}
+
 	async function mergePullRequest(
 		input: GitRepositoryRef & {
 			pullRequestNumber: number;
@@ -1247,6 +1325,7 @@ export function createGitLabAdapter({
 		capabilities,
 		webhooks: createGitLabWebhookVerifier(providerId, webhookSecrets),
 		listRepositories,
+		getCurrentUser,
 		getRepository,
 		listPullRequests,
 		getPullRequest,
@@ -1259,6 +1338,7 @@ export function createGitLabAdapter({
 		createComment,
 		addIssueLabels,
 		addPullRequestLabels,
+		requestPullRequestReviewers,
 		mergePullRequest,
 		listWebhooks,
 		createWebhook,

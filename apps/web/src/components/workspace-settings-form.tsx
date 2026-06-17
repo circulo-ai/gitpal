@@ -29,6 +29,7 @@ import type {
 	WorkspacePathInstruction,
 	WorkspaceSettings,
 } from "@gitpal/utils";
+import { buildCuratedModelGroups, ModelIdPicker } from "./model-id-picker";
 import { WorkspaceReviewPreviewDialog } from "./workspace-review-preview-dialog";
 
 type WorkspaceSettingsFormProps = {
@@ -361,6 +362,7 @@ const LANGUAGE_OPTIONS = [
 ] as const;
 
 const CUSTOM_LANGUAGE_VALUE = "__custom__";
+const CURATED_MODEL_GROUPS = buildCuratedModelGroups();
 
 function isPresetLanguage(value: string) {
 	return LANGUAGE_OPTIONS.some((language) => language.value === value);
@@ -805,19 +807,19 @@ export function WorkspaceSettingsForm({
 								});
 							}}
 						/>
-						<div className="space-y-2">
-							<div className="font-medium text-sm">Walkthrough model ID</div>
-							<Input
-								value={value.reviews.walkthrough.modelId}
-								disabled={disabled}
-								onChange={(event) => {
-									updateSettings(value, onChange, (draft) => {
-										draft.reviews.walkthrough.modelId = event.target.value;
-									});
-								}}
-								placeholder="anthropic/claude-sonnet-4-5"
-							/>
-						</div>
+						<ModelIdPicker
+							label="Walkthrough model"
+							value={value.reviews.walkthrough.modelId}
+							onChange={(nextValue) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.reviews.walkthrough.modelId = nextValue;
+								});
+							}}
+							groups={CURATED_MODEL_GROUPS}
+							disabled={disabled}
+							helperText="Choose the model that rewrites the walkthrough section of the review comment."
+							customPlaceholder="anthropic/claude-sonnet-4.6"
+						/>
 					</div>
 
 					<Separator />
@@ -1110,19 +1112,19 @@ export function WorkspaceSettingsForm({
 							}}
 						/>
 						<div className="grid gap-4 md:grid-cols-2">
-							<div className="space-y-2">
-								<div className="font-medium text-sm">Model ID</div>
-								<Input
-									value={value.ai.reviewer.modelId}
-									disabled={disabled}
-									onChange={(event) => {
-										updateSettings(value, onChange, (draft) => {
-											draft.ai.reviewer.modelId = event.target.value;
-										});
-									}}
-									placeholder="anthropic/claude-sonnet-4.6"
-								/>
-							</div>
+							<ModelIdPicker
+								label="Reviewer model"
+								value={value.ai.reviewer.modelId}
+								onChange={(nextValue) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.reviewer.modelId = nextValue;
+									});
+								}}
+								groups={CURATED_MODEL_GROUPS}
+								disabled={disabled}
+								helperText="This model handles the main repository-aware code review."
+								customPlaceholder="anthropic/claude-sonnet-4.6"
+							/>
 							<div className="space-y-2">
 								<div className="font-medium text-sm">Review focus</div>
 								<Select
@@ -1251,19 +1253,19 @@ export function WorkspaceSettingsForm({
 							}}
 						/>
 						<div className="grid gap-4 md:grid-cols-3">
-							<div className="space-y-2">
-								<div className="font-medium text-sm">Model ID</div>
-								<Input
-									value={value.ai.labeler.modelId}
-									disabled={disabled}
-									onChange={(event) => {
-										updateSettings(value, onChange, (draft) => {
-											draft.ai.labeler.modelId = event.target.value;
-										});
-									}}
-									placeholder="anthropic/claude-sonnet-4-5"
-								/>
-							</div>
+							<ModelIdPicker
+								label="Labeler model"
+								value={value.ai.labeler.modelId}
+								onChange={(nextValue) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.labeler.modelId = nextValue;
+									});
+								}}
+								groups={CURATED_MODEL_GROUPS}
+								disabled={disabled}
+								helperText="This model suggests labels from the repository label catalog."
+								customPlaceholder="anthropic/claude-sonnet-4.6"
+							/>
 							<div className="space-y-2">
 								<div className="font-medium text-sm">Max labels</div>
 								<Input
@@ -1837,19 +1839,19 @@ export function WorkspaceSettingsForm({
 							placeholder="Keep the tone sharp but kind."
 						/>
 					</div>
-					<div className="space-y-2">
-						<div className="font-medium text-sm">Fun model ID</div>
-						<Input
-							value={value.fun.modelId}
-							disabled={disabled}
-							onChange={(event) => {
-								updateSettings(value, onChange, (draft) => {
-									draft.fun.modelId = event.target.value;
-								});
-							}}
-							placeholder="anthropic/claude-sonnet-4-5"
-						/>
-					</div>
+					<ModelIdPicker
+						label="Fun model"
+						value={value.fun.modelId}
+						onChange={(nextValue) => {
+							updateSettings(value, onChange, (draft) => {
+								draft.fun.modelId = nextValue;
+							});
+						}}
+						groups={CURATED_MODEL_GROUPS}
+						disabled={disabled}
+						helperText="This model creates the playful add-ons such as poems and fortunes."
+						customPlaceholder="anthropic/claude-sonnet-4.6"
+					/>
 					<div className="grid gap-3 md:grid-cols-3">
 						<SectionToggleRow
 							title="Poem"

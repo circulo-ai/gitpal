@@ -1,0 +1,44 @@
+---
+title: AI Review
+description: Reviewer, walkthrough, labeler, and model routing behavior.
+---
+
+GitPal uses separate model choices for the main reviewer, walkthrough rewriting, label generation, and playful extras. That lets you tune cost, style, and speed independently.
+
+## Reviewer model
+
+- Drives the main code review output.
+- Can use reasoning features when the selected provider supports them.
+- Appears in the settings preview so you can compare the current configuration before saving.
+
+## Walkthrough model
+
+- Rewrites the walkthrough section into concise Markdown prose.
+- Useful when you want the main review model and the final comment voice to differ.
+
+## Labeler model
+
+- Chooses labels only from the repository's fetched label list.
+- Applies labels only when the repository policy allows it.
+- Works on both issues and pull requests when enabled.
+
+## Fun model
+
+- Powers poems, fortunes, and other optional extras.
+- Keeps the product's playful output separate from the production review path.
+
+## Model selection
+
+- Curated selects keep the common models easy to choose.
+- The custom override path stays available for advanced users and direct provider IDs.
+- OpenRouter model IDs are normalized, so old `openrouter/...` values and bare model IDs both resolve cleanly.
+
+## Review output structure
+
+- `Summary`: short, high-signal overview of the change.
+- `Walkthrough`: repository-aware explanation of what changed.
+- `Findings`: actionable issues with severity and category.
+- `Related work`: issues or PRs that are actually relevant.
+- `Pre-merge checks`: gate checks before merge readiness.
+- `Suggested labels`: labels from the repository catalog.
+- `Suggested reviewers`: human reviewers that fit the change.

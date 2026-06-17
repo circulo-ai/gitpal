@@ -1,0 +1,14 @@
+{
+  "title": "GitPal Documentation",
+  "description": "Production docs for GitPal cloud, self-hosted deployments, AI review, labels, tools, and billing.",
+  "pagesIndex": "index",
+  "pages": [
+    "getting-started",
+    "integrations",
+    "ai",
+    "tools",
+    "billing",
+    "operations",
+    "reference"
+  ]
+}

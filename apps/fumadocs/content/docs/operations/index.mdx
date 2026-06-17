@@ -1,0 +1,35 @@
+---
+title: Operations
+description: Production readiness, observability, security, and troubleshooting.
+---
+
+GitPal is only production-ready when the webhook path, background jobs, provider credentials, billing, and database audit trail all work together.
+
+## Production checklist
+
+- Webhooks are reachable from GitHub or GitLab.
+- Background jobs can process receipts and complete review runs.
+- Provider credentials are valid for the repos you expect to manage.
+- Wallet and BYOK routing match the organization's billing policy.
+- The settings preview reflects the actual comment structure before rollout.
+
+## Observability
+
+- Webhook receipts show whether an event was received, processed, deduplicated, or failed.
+- Review runs and labeler runs store the final result payload for auditability.
+- AI generation rows capture usage, routing, and settlement state.
+
+## Security
+
+- Keep provider tokens scoped to the minimum required repository access.
+- Treat webhook secrets as production secrets.
+- Review role-based access carefully before enabling auto-assign reviewers or auto-apply labels.
+
+## Troubleshooting
+
+- `No review comment appears`: check the webhook receipt, review run status, and provider token validity.
+- `Labels are missing`: check the repository label catalog and labeler settings.
+- `Reviewers are not assigned`: check the connected provider account mapping and repository access list.
+- `Wallet balance looks wrong`: check AI generation rows, settlement cost, and ledger updates.
+
+If something looks off, start at the receipt, then the review run, then the generation row. That order usually tells you where the pipeline diverged.

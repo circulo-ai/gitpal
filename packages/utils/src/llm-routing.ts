@@ -78,10 +78,10 @@ export const llmProviderCatalog = [
 		family: "openai-compatible",
 		modelPrefixes: ["openrouter"],
 		suggestedModels: [
-			"openrouter/anthropic/claude-sonnet-4.6",
-			"openrouter/openai/gpt-5",
-			"openrouter/google/gemini-2.5-pro",
-			"openrouter/deepseek/deepseek-chat",
+			"anthropic/claude-sonnet-4.6",
+			"openai/gpt-5",
+			"google/gemini-2.5-pro",
+			"deepseek/deepseek-chat",
 		],
 		baseUrl: "https://openrouter.ai/api/v1",
 		keyPlaceholder: "sk-or-...",
@@ -254,6 +254,10 @@ export function inferProviderIdFromModel(
 		return null;
 	}
 
+	if (normalized.startsWith("openrouter/")) {
+		return inferProviderIdFromModel(normalized.slice("openrouter/".length));
+	}
+
 	const [prefix] = normalized.split("/", 1);
 
 	if (prefix) {
@@ -285,13 +289,26 @@ export function matchesAllowedModels({
 	}
 
 	const normalizedModelId = modelId.trim().toLowerCase();
+	const normalizedModelIdWithoutOpenRouterPrefix = normalizedModelId.startsWith(
+		"openrouter/",
+	)
+		? normalizedModelId.slice("openrouter/".length)
+		: normalizedModelId;
 
 	return allowedModels.some((candidate) => {
 		const normalizedCandidate = candidate.trim().toLowerCase();
+		const normalizedCandidateWithoutOpenRouterPrefix =
+			normalizedCandidate.startsWith("openrouter/")
+				? normalizedCandidate.slice("openrouter/".length)
+				: normalizedCandidate;
 
 		return (
 			normalizedCandidate === normalizedModelId ||
-			normalizedModelId.startsWith(`${normalizedCandidate}/`)
+			normalizedCandidateWithoutOpenRouterPrefix === normalizedModelIdWithoutOpenRouterPrefix ||
+			normalizedModelId.startsWith(`${normalizedCandidate}/`) ||
+			normalizedModelIdWithoutOpenRouterPrefix.startsWith(
+				`${normalizedCandidateWithoutOpenRouterPrefix}/`,
+			)
 		);
 	});
 }

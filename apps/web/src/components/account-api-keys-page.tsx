@@ -70,6 +70,7 @@ const expirationOptions = [
 const routerOptions = [
   { label: "Vercel AI Gateway", value: "ai-gateway" },
   { label: "OpenRouter", value: "openrouter" },
+  { label: "Ollama", value: "ollama" },
   { label: "Direct only", value: "direct" },
 ] as const;
 
@@ -114,13 +115,13 @@ export function AccountApiKeysPage() {
     enabled: false,
   });
   const [routingSettings, setRoutingSettings] = React.useState<{
-    defaultRouter: "ai-gateway" | "openrouter" | "direct";
-    fallbackRouter: "ai-gateway" | "openrouter" | "direct" | null;
+    defaultRouter: "ai-gateway" | "openrouter" | "ollama" | "direct";
+    fallbackRouter: "ai-gateway" | "openrouter"| "ollama" | "direct" | null;
     preferUserKeys: boolean;
   } | null>(null);
   const [savedRoutingSettings, setSavedRoutingSettings] = React.useState<{
-    defaultRouter: "ai-gateway" | "openrouter" | "direct";
-    fallbackRouter: "ai-gateway" | "openrouter" | "direct" | null;
+    defaultRouter: "ai-gateway" | "openrouter" | "ollama" | "direct";
+    fallbackRouter: "ai-gateway" | "openrouter" | "ollama" | "direct" | null;
     preferUserKeys: boolean;
   } | null>(null);
 
@@ -474,7 +475,7 @@ export function AccountApiKeysPage() {
                       setRoutingSettings({
                         ...routingSettings,
                         defaultRouter:
-                          (value as "ai-gateway" | "openrouter" | "direct") ??
+                          (value as "ai-gateway" | "openrouter" | "ollama" | "direct") ??
                           "ai-gateway",
                       });
                     }}
@@ -506,7 +507,7 @@ export function AccountApiKeysPage() {
                         fallbackRouter:
                           value === "none"
                             ? null
-                            : (value as "ai-gateway" | "openrouter" | "direct"),
+                            : (value as "ai-gateway" | "openrouter" | "ollama" | "direct"),
                       });
                     }}
                   >

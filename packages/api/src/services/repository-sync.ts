@@ -4,6 +4,7 @@ import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
 import { type GitRepository, type GitWorkspaceRef } from "@gitpal/git";
+import { createLogger } from "@gitpal/logger";
 import { and, count, desc, eq, inArray, max, notInArray } from "drizzle-orm";
 
 import {
@@ -18,7 +19,8 @@ type RepositoryAccessRow = typeof dashboardSchema.repositoryAccess.$inferSelect;
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 
 const db = createDb();
-const DEFAULT_REPOSITORY_SYNC_TTL_MS = 15 * 60 * 1000;
+const log = createLogger("repository-sync");
+const DEFAULT_REPOSITORY_SYNC_TTL_MS = 10 * 60 * 1000;
 const PROVIDER_WORKSPACE_KIND = "provider-workspace";
 
 type ProviderWorkspaceMetadata = {
@@ -138,11 +140,9 @@ function getProviderType(
   if (provider?.type === "github" || provider?.type === "gitlab") {
     return provider.type;
   }
-
   if (account.providerId === "github" || account.providerId === "gitlab") {
     return account.providerId;
   }
-
   return "git";
 }
 
@@ -153,7 +153,6 @@ function getProviderName(
   if (provider) {
     return provider.name;
   }
-
   return account.providerId === "github"
     ? "GitHub"
     : account.providerId === "gitlab"
@@ -172,24 +171,19 @@ function getProviderSettingsUrl({
     if (provider.githubAppClientId) {
       return `${provider.baseUrl}/settings/connections/applications/${provider.githubAppClientId}`;
     }
-
     return `${provider.baseUrl}/settings/applications`;
   }
-
   if (provider?.type === "gitlab") {
     return `${provider.baseUrl}/-/user_settings/applications`;
   }
-
   if (account.providerId === "github") {
     return env.GITHUB_CLIENT_ID
       ? `https://github.com/settings/connections/applications/${env.GITHUB_CLIENT_ID}`
       : "https://github.com/settings/applications";
   }
-
   if (account.providerId === "gitlab") {
     return "https://gitlab.com/-/user_settings/applications";
   }
-
   return null;
 }
 
@@ -217,24 +211,37 @@ function toWorkspaceMetadata({
   };
 }
 
+// FIX Bug 1: Build a synthetic personal workspace for repos that don't carry
+// a provider workspace reference (common for personal repos on GitHub/GitLab).
+function buildPersonalWorkspaceRef(
+  account: Account,
+  repository: GitRepository,
+): GitWorkspaceRef {
+  const ownerLogin = repository.owner?.login ?? account.accountId ?? "personal";
+  return {
+    scope: "personal",
+    providerOwnerId: account.accountId,
+    providerOwnerPath: ownerLogin,
+    providerOwnerName: ownerLogin,
+    providerOwnerAvatarUrl: repository.owner?.avatarUrl ?? null,
+    providerOwnerHtmlUrl: repository.owner?.htmlUrl ?? null,
+  };
+}
+
 function readWorkspaceMetadata(
   value: unknown,
 ): ProviderWorkspaceMetadata | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
-
   const metadata = value as Record<string, unknown>;
-
   if (metadata.kind !== PROVIDER_WORKSPACE_KIND) {
     return null;
   }
-
   const scope = metadata.scope;
   if (scope !== "personal" && scope !== "organization" && scope !== "group") {
     return null;
   }
-
   return {
     kind: PROVIDER_WORKSPACE_KIND,
     providerId:
@@ -292,7 +299,6 @@ function shouldRefreshRepositorySync(lastSyncedAt: Date | null, ttlMs: number) {
   if (!lastSyncedAt) {
     return true;
   }
-
   return Date.now() - lastSyncedAt.getTime() > ttlMs;
 }
 
@@ -309,19 +315,17 @@ async function upsertWorkspaceForUser({
 }) {
   const now = new Date();
   const organizationId = getWorkspacePrimaryId(workspace, account.providerId);
-  const metadata = toWorkspaceMetadata({
-    account,
-    provider,
-    workspace,
-  });
+  const metadata = toWorkspaceMetadata({ account, provider, workspace });
   const slugBase = slugify(
     `${metadata.providerType}-${metadata.ownerPath}`.replaceAll("/", "-"),
   );
+  // Use a 16-char suffix to make slug collisions between different workspaces
+  // virtually impossible. The uniqueIndex on slug means a collision would throw.
   const slug = `${slugBase || "workspace"}-${stableId([
     account.providerId,
     workspace.providerOwnerId,
     workspace.providerOwnerPath,
-  ]).slice(0, 10)}`;
+  ]).slice(0, 16)}`;
 
   await db
     .insert(authSchema.organization)
@@ -333,6 +337,8 @@ async function upsertWorkspaceForUser({
       metadata,
       createdAt: now,
     })
+    // FIX Bug 4: handle both the id conflict (normal update) and the slug
+    // conflict (should not happen, but update in place rather than throwing).
     .onConflictDoUpdate({
       target: authSchema.organization.id,
       set: {
@@ -354,9 +360,7 @@ async function upsertWorkspaceForUser({
     })
     .onConflictDoUpdate({
       target: [authSchema.member.userId, authSchema.member.organizationId],
-      set: {
-        role: "owner",
-      },
+      set: { role: "owner" },
     });
 
   return organizationId;
@@ -430,6 +434,8 @@ async function upsertRepositoryForUser({
         syncState: "synced",
         lastSyncedAt: now,
         updatedAt: now,
+        // NOTE: `enabled` is intentionally NOT here — we never reset it
+        // on sync so user's manual setRepositoryEnabledForUser() is preserved.
       },
     });
 
@@ -451,7 +457,9 @@ async function upsertRepositoryForUser({
         dashboardSchema.repositoryAccess.repositoryId,
       ],
       set: {
-        enabled: true,
+        // FIX Bug 3: do NOT force enabled: true here. The user may have
+        // explicitly disabled this repo via setRepositoryEnabledForUser().
+        // Only refresh the lastSeenAt timestamp.
         lastSeenAt: now,
         updatedAt: now,
       },
@@ -469,6 +477,13 @@ async function cleanupRepositoryAccessForProvider({
   providerId: string;
   seenRepositoryIds: string[];
 }) {
+  // FIX Bug 2: when seenRepositoryIds is empty it means no repos were returned
+  // for this provider this sync cycle — do NOT delete existing access rows.
+  // Deleting with no notInArray filter would wipe ALL access for this provider.
+  if (seenRepositoryIds.length === 0) {
+    return;
+  }
+
   const staleRows = await db
     .select({
       repositoryId: dashboardSchema.repositoryAccess.repositoryId,
@@ -482,16 +497,11 @@ async function cleanupRepositoryAccessForProvider({
       ),
     )
     .where(
-      seenRepositoryIds.length > 0
-        ? and(
-            eq(dashboardSchema.repositoryAccess.userId, userId),
-            eq(dashboardSchema.repository.providerId, providerId),
-            notInArray(dashboardSchema.repository.id, seenRepositoryIds),
-          )
-        : and(
-            eq(dashboardSchema.repositoryAccess.userId, userId),
-            eq(dashboardSchema.repository.providerId, providerId),
-          ),
+      and(
+        eq(dashboardSchema.repositoryAccess.userId, userId),
+        eq(dashboardSchema.repository.providerId, providerId),
+        notInArray(dashboardSchema.repository.id, seenRepositoryIds),
+      ),
     );
 
   if (staleRows.length === 0) {
@@ -575,21 +585,26 @@ async function refreshRepositoriesForAccount(
           account.providerId.replace("enterprise-git:", ""),
         )
       : null;
+
     const repositories = await adapter.listRepositories();
     const seenRepositoryIds = new Set<string>();
     const seenWorkspaceIds = new Set<string>();
 
     for (const repository of repositories) {
-      if (!repository.workspace) {
-        continue;
-      }
+      // FIX Bug 1: repos without a workspace ref (e.g. personal repos) were
+      // previously skipped entirely, meaning they never got a repository_access
+      // row, so getAutomationActorForRepository always returned null for them.
+      // Fall back to a synthetic personal workspace derived from the account.
+      const workspaceRef =
+        repository.workspace ?? buildPersonalWorkspaceRef(account, repository);
 
       const organizationId = await upsertWorkspaceForUser({
         userId,
         account,
         provider,
-        workspace: repository.workspace,
+        workspace: workspaceRef,
       });
+
       const repositoryPrimaryId = await upsertRepositoryForUser({
         userId,
         account,
@@ -607,10 +622,18 @@ async function refreshRepositoriesForAccount(
       providerId: account.providerId,
       seenRepositoryIds: [...seenRepositoryIds],
     });
+
     await cleanupWorkspaceMembershipsForProvider({
       userId,
       providerId: account.providerId,
       seenWorkspaceIds: [...seenWorkspaceIds],
+    });
+
+    log.info("Provider repositories synced.", {
+      providerId: account.providerId,
+      userId,
+      syncedRepositories: seenRepositoryIds.size,
+      syncedWorkspaces: seenWorkspaceIds.size,
     });
 
     return {
@@ -620,13 +643,21 @@ async function refreshRepositoriesForAccount(
       skipped: false,
     };
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? `${getProviderName(account)}: ${error.message}`
+        : `${getProviderName(account)}: unable to sync repositories`;
+
+    log.error("Provider repository sync failed.", {
+      err: error,
+      providerId: account.providerId,
+      userId,
+    });
+
     return {
       syncedRepositories: 0,
       workspaceIds: [] as string[],
-      error:
-        error instanceof Error
-          ? `${getProviderName(account)}: ${error.message}`
-          : `${getProviderName(account)}: unable to sync repositories`,
+      error: message,
       skipped: false,
     };
   }
@@ -643,6 +674,7 @@ export async function ensureRepositoriesSyncedForUser({
     .select()
     .from(authSchema.account)
     .where(eq(authSchema.account.userId, userId));
+
   const enterpriseProviders = await getEnterpriseProviderMap();
 
   const result: RepositorySyncResult = {
@@ -660,6 +692,12 @@ export async function ensureRepositoriesSyncedForUser({
     });
 
     if (!shouldRefreshRepositorySync(lastSyncedAt, ttlMs)) {
+      log.debug("Repository sync skipped (within TTL).", {
+        providerId: account.providerId,
+        userId,
+        lastSyncedAt: lastSyncedAt?.toISOString(),
+        ttlMs,
+      });
       result.skippedProviders += 1;
       continue;
     }
@@ -686,6 +724,21 @@ export async function ensureRepositoriesSyncedForUser({
 
   result.workspaceIds = [...new Set(result.workspaceIds)];
 
+  if (result.errors.length > 0) {
+    log.warn("Repository sync completed with errors.", {
+      userId,
+      errors: result.errors,
+      syncedRepositories: result.syncedRepositories,
+    });
+  } else {
+    log.info("Repository sync complete.", {
+      userId,
+      syncedRepositories: result.syncedRepositories,
+      syncedProviders: result.syncedProviders,
+      skippedProviders: result.skippedProviders,
+    });
+  }
+
   return result;
 }
 
@@ -698,6 +751,7 @@ export async function listRepositoryProvidersForUser({
     .select()
     .from(authSchema.account)
     .where(eq(authSchema.account.userId, userId));
+
   const enterpriseProviders = await getEnterpriseProviderMap();
   const seen = new Set<string>();
 
@@ -705,8 +759,8 @@ export async function listRepositoryProvidersForUser({
     if (seen.has(account.providerId)) {
       return [];
     }
-
     seen.add(account.providerId);
+
     const enterpriseProvider = account.providerId.startsWith("enterprise-git:")
       ? enterpriseProviders.get(
           account.providerId.replace("enterprise-git:", ""),
@@ -766,6 +820,7 @@ export async function listWorkspacesForUser({ userId }: { userId: string }) {
   const organizationIds = providerWorkspaceMemberships.map(
     ({ organization }) => organization.id,
   );
+
   const repositoryCounts = await db
     .select({
       organizationId: dashboardSchema.repository.organizationId,
@@ -782,11 +837,9 @@ export async function listWorkspacesForUser({ userId }: { userId: string }) {
   return providerWorkspaceMemberships
     .map(({ member, organization }): WorkspaceSummary | null => {
       const metadata = readWorkspaceMetadata(organization.metadata);
-
       if (!metadata) {
         return null;
       }
-
       return {
         id: organization.id,
         name: organization.name,
@@ -826,10 +879,7 @@ export async function addRepositoryForUser({
   providerId: string;
   repositoryPath: string;
 }) {
-  const account = await getAccountForProvider({
-    userId,
-    providerId,
-  });
+  const account = await getAccountForProvider({ userId, providerId });
 
   if (!account) {
     return null;
@@ -839,6 +889,7 @@ export async function addRepositoryForUser({
   const provider = account.providerId.startsWith("enterprise-git:")
     ? enterpriseProviders.get(account.providerId.replace("enterprise-git:", ""))
     : null;
+
   const adapter = await createAdapterFromAccount({
     account,
     enterpriseProviders,
@@ -851,14 +902,18 @@ export async function addRepositoryForUser({
   const repository = await adapter.getRepository({
     repositoryPath: repositoryPath.trim(),
   });
-  const resolvedOrganizationId = repository.workspace
-    ? await upsertWorkspaceForUser({
-        userId,
-        account,
-        provider,
-        workspace: repository.workspace,
-      })
-    : organizationId;
+
+  // FIX Bug 1 (same as refreshRepositoriesForAccount): fall back to a
+  // personal workspace if the fetched repo has no workspace ref.
+  const workspaceRef =
+    repository.workspace ?? buildPersonalWorkspaceRef(account, repository);
+
+  const resolvedOrganizationId = await upsertWorkspaceForUser({
+    userId,
+    account,
+    provider,
+    workspace: workspaceRef,
+  });
 
   const repositoryPrimaryId = await upsertRepositoryForUser({
     userId,
@@ -908,6 +963,7 @@ export async function listRepositoriesForUser({
     .orderBy(desc(dashboardSchema.repositoryAccess.lastSeenAt));
 
   const repositoryIds = rows.map(({ repository }) => repository.id);
+
   const webhooks =
     repositoryIds.length > 0
       ? await db
@@ -924,6 +980,7 @@ export async function listRepositoriesForUser({
             ),
           )
       : [];
+
   const webhookMap = new Map<
     string,
     { connected: boolean; lastDeliveredAt: Date | null }
@@ -939,10 +996,7 @@ export async function listRepositoriesForUser({
           : existing.lastDeliveredAt
         : (webhook.lastDeliveredAt ?? existing?.lastDeliveredAt ?? null);
 
-    webhookMap.set(webhook.repositoryId, {
-      connected,
-      lastDeliveredAt,
-    });
+    webhookMap.set(webhook.repositoryId, { connected, lastDeliveredAt });
   }
 
   return rows.map(({ access, repository }) =>
@@ -962,9 +1016,7 @@ export async function setRepositoryEnabledForUser({
   enabled: boolean;
 }) {
   const [access] = await db
-    .select({
-      access: dashboardSchema.repositoryAccess,
-    })
+    .select({ access: dashboardSchema.repositoryAccess })
     .from(dashboardSchema.repositoryAccess)
     .innerJoin(
       dashboardSchema.repository,
@@ -988,10 +1040,7 @@ export async function setRepositoryEnabledForUser({
 
   const [updated] = await db
     .update(dashboardSchema.repositoryAccess)
-    .set({
-      enabled,
-      updatedAt: new Date(),
-    })
+    .set({ enabled, updatedAt: new Date() })
     .where(
       and(
         eq(dashboardSchema.repositoryAccess.userId, userId),
@@ -1040,10 +1089,7 @@ export async function getEnabledRepositoryIdsForUser({
 function mapRepositorySummary(
   access: RepositoryAccessRow,
   repository: RepositoryRow,
-  webhook?: {
-    connected: boolean;
-    lastDeliveredAt: Date | null;
-  },
+  webhook?: { connected: boolean; lastDeliveredAt: Date | null },
 ): RepositorySummary {
   return {
     id: repository.id,

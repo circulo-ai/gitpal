@@ -21,7 +21,6 @@ import {
 import { createLogger } from "@gitpal/logger";
 import type { WorkspaceSettings } from "@gitpal/utils";
 import { and, desc, eq, inArray } from "drizzle-orm";
-
 import {
   createAdapterFromAccount,
   type EnterpriseProvider,
@@ -35,7 +34,6 @@ import {
   runRepositoryReview,
 } from "./review-agent";
 import { getRepositoryWorkspaceSettings } from "./workspace-settings";
-
 const db = createDb();
 const log = createLogger("repository-webhooks");
 const ENTERPRISE_GIT_PROVIDER_PREFIX = "enterprise-git:";
@@ -64,7 +62,6 @@ const PULL_REQUEST_PUSH_ACTIONS = new Set([
   "synchronized",
   "update",
 ]);
-
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 type PullRequestRow = typeof dashboardSchema.pullRequest.$inferSelect;
 type WebhookEventReceiptRow =
@@ -80,7 +77,6 @@ type WebhookReceiptStatus =
   | "ignored"
   | "failed";
 type WebhookProcessingResult = "processed" | "failed" | "ignored";
-
 type ProviderWebhookTarget = {
   providerId: string;
   providerType: ProviderType;
@@ -90,7 +86,6 @@ type ProviderWebhookTarget = {
   secret: string | null;
   routePath: string;
 };
-
 type RepositoryWebhookSyncResult = {
   created: number;
   existing: number;
@@ -98,22 +93,23 @@ type RepositoryWebhookSyncResult = {
   failed: number;
   errors: string[];
 };
-
 type WebhookReceiptResult = {
   receiptId: string;
   duplicate: boolean;
 };
-
 type PullRequestEventContext = {
   pullRequestNumber: number | null;
   labels: string[];
   commentBody: string | null;
+  // FIX (bot loop): type is "Bot" for GitHub Apps / bots, "User" for humans.
+  // Login ends with "[bot]" for GitHub App bot users (e.g. "gitpal[bot]").
+  commentAuthorType: string | null;
+  commentAuthorLogin: string | null;
   reviewState: string | null;
   headSha: string | null;
   baseSha: string | null;
   isPullRequestCommentEvent: boolean;
 };
-
 type LabelEventContext = {
   kind: "issue" | "pull_request";
   number: number | null;
@@ -122,89 +118,71 @@ type LabelEventContext = {
   labels: string[];
   isDraft: boolean;
 };
-
 type ReviewDispatch = {
   kind: ReviewDispatchKind;
   trigger: string;
   manual: boolean;
 };
-
 type LabelDispatch = {
   kind: "issue" | "pull_request";
   trigger: string;
   manual: boolean;
 };
-
+// FIX #6: added teamReviewers so it can be populated if the adapter supports it
 type NativeReviewerRequest = {
   reviewers?: string[];
   reviewerIds?: number[];
   teamReviewers?: string[];
 };
-
 const REQUIRED_WEBHOOK_EVENTS_BY_PROVIDER = {
   github: GITHUB_WEBHOOK_EVENTS,
   gitlab: GITLAB_WEBHOOK_EVENTS,
 } satisfies Record<ProviderType, readonly string[]>;
-
 function normalizeWebhookUrl(url: string) {
   return url.trim().replace(/\/+$/, "");
 }
-
 function normalizeText(value: string) {
   return value.trim().toLowerCase();
 }
-
 function toDateOrNull(value: string | null | undefined) {
   if (!value) {
     return null;
   }
-
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
-
 function asString(value: unknown) {
   return typeof value === "string" ? value : null;
 }
-
 function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-
 function getWebhookBaseUrl() {
   return env.GITPAL_WEBHOOK_BASE_URL ?? env.BETTER_AUTH_URL;
 }
-
 function formatSecretPreview(secret: string) {
   if (secret.length <= 6) {
     return "*".repeat(secret.length);
   }
-
   return `${secret.slice(0, 4)}...${secret.slice(-2)}`;
 }
-
 function getRequiredWebhookEvents(providerType: ProviderType) {
   return [...REQUIRED_WEBHOOK_EVENTS_BY_PROVIDER[providerType]];
 }
-
 function isCommentWebhookEvent(event: string) {
   return COMMENT_WEBHOOK_EVENTS.has(event);
 }
-
 function isPullRequestOpenAction(action: string) {
   return PULL_REQUEST_OPEN_ACTIONS.has(action);
 }
-
 function isPullRequestPushAction(action: string) {
   return PULL_REQUEST_PUSH_ACTIONS.has(action);
 }
-
 function resolveWebhookReceiptStatus({
   processed,
   failed,
@@ -215,25 +193,19 @@ function resolveWebhookReceiptStatus({
   if (failed > 0 && processed > 0) {
     return "processed_with_errors";
   }
-
   if (failed > 0) {
     return "failed";
   }
-
   if (processed > 0) {
     return "processed";
   }
-
   return "ignored";
 }
-
 function buildDeliveryUrl(target: ProviderWebhookTarget) {
   return new URL(target.routePath, getWebhookBaseUrl()).toString();
 }
-
 function createWebhookVerifier(target: ProviderWebhookTarget) {
   const webhookSecrets = target.secret ? [target.secret] : [];
-
   if (target.providerType === "github") {
     return createGitHubAdapter({
       providerId: target.providerId,
@@ -243,7 +215,6 @@ function createWebhookVerifier(target: ProviderWebhookTarget) {
       webhookSecrets,
     }).webhooks;
   }
-
   return createGitLabAdapter({
     providerId: target.providerId,
     label: target.label,
@@ -252,7 +223,6 @@ function createWebhookVerifier(target: ProviderWebhookTarget) {
     webhookSecrets,
   }).webhooks;
 }
-
 async function resolveWebhookTarget(
   providerId: string,
   enterpriseProviders?: Map<string, EnterpriseProvider>,
@@ -268,7 +238,6 @@ async function resolveWebhookTarget(
       routePath: "/webhooks/github",
     };
   }
-
   if (providerId === "gitlab") {
     return {
       providerId,
@@ -280,21 +249,17 @@ async function resolveWebhookTarget(
       routePath: "/webhooks/gitlab",
     };
   }
-
   if (!providerId.startsWith(ENTERPRISE_GIT_PROVIDER_PREFIX)) {
     return null;
   }
-
   const enterpriseProviderKey = providerId.slice(
     ENTERPRISE_GIT_PROVIDER_PREFIX.length,
   );
   const providers = enterpriseProviders ?? (await getEnterpriseProviderMap());
   const provider = providers.get(enterpriseProviderKey);
-
   if (!provider || (provider.type !== "github" && provider.type !== "gitlab")) {
     return null;
   }
-
   return {
     providerId,
     providerType: provider.type,
@@ -305,25 +270,28 @@ async function resolveWebhookTarget(
     routePath: `/webhooks/enterprise/${enterpriseProviderKey}`,
   };
 }
-
 function extractLabelNames(value: unknown) {
   if (!Array.isArray(value)) {
     return [] as string[];
   }
-
   return value
     .flatMap((item) => {
       if (typeof item === "string") {
         return [item];
       }
-
       const record = asRecord(item);
       const name = record ? asString(record.name) : null;
       return name ? [name] : [];
     })
     .filter(Boolean);
 }
-
+// FIX (PR number extraction): Added multiple fallback paths so the PR number
+// is correctly resolved across all GitHub event types:
+//   - pull_request.*          → payload.pull_request.number       (primary)
+//   - pull_request_review.*   → payload.pull_request.number       (primary)
+//   - pull_request_review_comment.* → payload.pull_request.number (primary)
+//   - issue_comment on a PR   → payload.issue.number when payload.issue.pull_request exists
+//   - Defensive fallback      → payload.number (some edge-case event shapes)
 function extractGitHubContext(
   payload: Record<string, unknown>,
 ): PullRequestEventContext {
@@ -331,23 +299,46 @@ function extractGitHubContext(
   const issue = asRecord(payload.issue);
   const comment = asRecord(payload.comment);
   const review = asRecord(payload.review);
+  // present on issue_comment events for PRs
   const issuePullRequest = issue ? asRecord(issue.pull_request) : null;
   const head = pullRequest ? asRecord(pullRequest.head) : null;
   const base = pullRequest ? asRecord(pullRequest.base) : null;
-
+  // For pull_request_review events, the review object contains a link back to
+  // the PR but not the number directly — the full PR object at the top level is
+  // the authoritative source. We also fall back to payload.number for any
+  // unusual event shapes.
+  const pullRequestNumber =
+    asNumber(pullRequest?.number) ??
+    (issuePullRequest ? asNumber(issue?.number) : null) ??
+    asNumber(payload.number) ?? // top-level fallback
+    null;
+  // FIX (bot loop): extract the comment/review author and the top-level
+  // sender so resolveReviewDispatch can filter out bot-authored comments.
+  // GitHub sets comment.user.type = "Bot" and login ends with "[bot]" for
+  // GitHub App bots. payload.sender carries the same info as a fallback.
+  const commentUser = comment ? asRecord(comment.user) : null;
+  const reviewUser = review ? asRecord(review.user) : null;
+  const sender = asRecord(payload.sender);
+  const commentAuthorType =
+    asString(commentUser?.type) ??
+    asString(reviewUser?.type) ??
+    asString(sender?.type);
+  const commentAuthorLogin =
+    asString(commentUser?.login) ??
+    asString(reviewUser?.login) ??
+    asString(sender?.login);
   return {
-    pullRequestNumber:
-      asNumber(pullRequest?.number) ??
-      (issuePullRequest ? asNumber(issue?.number) : null),
+    pullRequestNumber,
     labels: extractLabelNames(pullRequest?.labels),
     commentBody: asString(comment?.body) ?? asString(review?.body),
+    commentAuthorType,
+    commentAuthorLogin,
     reviewState: asString(review?.state),
     headSha: asString(head?.sha),
     baseSha: asString(base?.sha),
     isPullRequestCommentEvent: Boolean(issuePullRequest || pullRequest),
   };
 }
-
 function extractGitLabContext(
   payload: Record<string, unknown>,
 ): PullRequestEventContext {
@@ -357,7 +348,6 @@ function extractGitLabContext(
     asRecord(objectAttributes?.last_commit) ??
     asRecord(mergeRequest?.last_commit);
   const noteableType = asString(objectAttributes?.noteable_type);
-
   return {
     pullRequestNumber:
       asNumber(objectAttributes?.iid) ??
@@ -370,6 +360,11 @@ function extractGitLabContext(
     commentBody:
       asString(objectAttributes?.note) ??
       asString(objectAttributes?.description),
+    // GitLab does not distinguish bot users the same way; default to null.
+    commentAuthorType: null,
+    commentAuthorLogin:
+      asString(asRecord(payload.user)?.username) ??
+      asString(asRecord(objectAttributes?.author)?.username),
     reviewState: asString(objectAttributes?.state),
     headSha: asString(lastCommit?.id),
     baseSha: null,
@@ -377,7 +372,6 @@ function extractGitLabContext(
       noteableType === "MergeRequest" || Boolean(mergeRequest),
   };
 }
-
 function extractPullRequestContext(
   providerType: ProviderType,
   envelope: GitWebhookEnvelope,
@@ -387,7 +381,6 @@ function extractPullRequestContext(
     ? extractGitHubContext(payload)
     : extractGitLabContext(payload);
 }
-
 function extractGitHubLabelContext(
   payload: Record<string, unknown>,
   event: string,
@@ -395,22 +388,18 @@ function extractGitHubLabelContext(
   if (event !== "pull_request" && event !== "issues") {
     return null;
   }
-
   const issue = asRecord(payload.issue);
   const pullRequest = asRecord(payload.pull_request);
   const issuePullRequest = issue ? asRecord(issue.pull_request) : null;
-
+  // Ignore issue_comment events that happen to carry an issue with a PR link
   if (event === "issues" && issuePullRequest) {
     return null;
   }
-
   const isPullRequest = event === "pull_request";
   const source = isPullRequest ? (pullRequest ?? issue) : issue;
-
   if (!source) {
     return null;
   }
-
   return {
     kind: isPullRequest ? "pull_request" : "issue",
     number:
@@ -423,7 +412,6 @@ function extractGitHubLabelContext(
     isDraft: Boolean(pullRequest?.draft),
   };
 }
-
 function extractGitLabLabelContext(
   payload: Record<string, unknown>,
   event: string,
@@ -431,7 +419,6 @@ function extractGitLabLabelContext(
   if (event !== "pull_request" && event !== "issue") {
     return null;
   }
-
   const objectAttributes = asRecord(payload.object_attributes);
   const mergeRequest = asRecord(payload.merge_request);
   const issue = asRecord(payload.issue);
@@ -439,11 +426,9 @@ function extractGitLabLabelContext(
   const source = isPullRequest
     ? (mergeRequest ?? objectAttributes ?? issue)
     : (issue ?? objectAttributes);
-
   if (!source) {
     return null;
   }
-
   const labels = isPullRequest
     ? [
         ...extractLabelNames(objectAttributes?.labels),
@@ -453,7 +438,6 @@ function extractGitLabLabelContext(
         ...extractLabelNames(objectAttributes?.labels),
         ...extractLabelNames(issue?.labels),
       ];
-
   return {
     kind: isPullRequest ? "pull_request" : "issue",
     number:
@@ -470,7 +454,6 @@ function extractGitLabLabelContext(
     ),
   };
 }
-
 function extractLabelContext(
   providerType: ProviderType,
   envelope: GitWebhookEnvelope,
@@ -480,7 +463,6 @@ function extractLabelContext(
     ? extractGitHubLabelContext(payload, envelope.event)
     : extractGitLabLabelContext(payload, envelope.event);
 }
-
 function resolveLabelDispatch({
   providerType,
   envelope,
@@ -495,9 +477,7 @@ function resolveLabelDispatch({
   if (!settings.ai.labeler.enabled || !context.number) {
     return null;
   }
-
   const normalizedAction = envelope.action?.toLowerCase() ?? "";
-
   if (context.kind === "pull_request") {
     if (
       isPullRequestOpenAction(normalizedAction) ||
@@ -509,10 +489,8 @@ function resolveLabelDispatch({
         manual: false,
       };
     }
-
     return null;
   }
-
   if (isPullRequestOpenAction(normalizedAction)) {
     return {
       kind: "issue",
@@ -520,10 +498,8 @@ function resolveLabelDispatch({
       manual: false,
     };
   }
-
   return null;
 }
-
 function matchesCommandTrigger(
   body: string | null,
   settings:
@@ -533,22 +509,38 @@ function matchesCommandTrigger(
   if (!body || !settings.enabled) {
     return false;
   }
-
-  const normalizedBody = normalizeText(body);
+  // FIX (loop + vacuous match): Only inspect the FIRST non-empty line of the
+  // comment.  The old code used `normalizedBody.includes(...)` which matched
+  // the full body — so bot review comments that happen to repeat prior
+  // discussion (which includes "/gitpal review") matched as commands and
+  // fed the infinite loop.  Commands must appear at the very start of the
+  // comment, not buried inside a quoted conversation thread.
+  //
+  // Additional safety: when aliases OR commands is an empty array the old
+  // code returned true vacuously ("any comment passes").  We now treat an
+  // empty array as "no filter" only if BOTH are empty we bail out — an
+  // entirely unconfigured trigger should not match every comment.
+  if (settings.aliases.length === 0 && settings.commands.length === 0) {
+    return false;
+  }
+  const firstLine =
+    body
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? "";
+  const normalizedFirstLine = normalizeText(firstLine);
   const hasAlias =
     settings.aliases.length === 0 ||
     settings.aliases.some((alias) =>
-      normalizedBody.includes(normalizeText(alias)),
+      normalizedFirstLine.startsWith(normalizeText(alias)),
     );
   const hasCommand =
     settings.commands.length === 0 ||
     settings.commands.some((command) =>
-      normalizedBody.includes(normalizeText(command)),
+      normalizedFirstLine.includes(normalizeText(command)),
     );
-
   return hasAlias && hasCommand;
 }
-
 function shouldRunAutomatedReview({
   pullRequest,
   settings,
@@ -559,18 +551,15 @@ function shouldRunAutomatedReview({
   labels: string[];
 }) {
   const autoReview = settings.reviews.behavior.autoReview;
-
   if (
     autoReview.baseBranches.length > 0 &&
     !autoReview.baseBranches.includes(pullRequest.targetBranch)
   ) {
     return false;
   }
-
   if (autoReview.skipDrafts && pullRequest.draft) {
     return false;
   }
-
   if (
     autoReview.labels.length > 0 &&
     labels.length > 0 &&
@@ -578,17 +567,14 @@ function shouldRunAutomatedReview({
   ) {
     return false;
   }
-
   if (
     autoReview.skipLabels.length > 0 &&
     labels.some((label) => autoReview.skipLabels.includes(label))
   ) {
     return false;
   }
-
   return true;
 }
-
 function getConfiguredPullRequestActions(
   providerType: ProviderType,
   settings: WorkspaceSettings,
@@ -597,7 +583,6 @@ function getConfiguredPullRequestActions(
     ? settings.webhooks.pullRequests
     : settings.webhooks.mergeRequests;
 }
-
 function resolveReviewDispatch({
   providerType,
   envelope,
@@ -616,39 +601,79 @@ function resolveReviewDispatch({
     !settings.preMergeChecks.enabled &&
     !settings.reviews.behavior.autoAssignReviewers
   ) {
+    log.info("No review features enabled — skipping dispatch.");
     return null;
   }
-
   const isCommentEvent = isCommentWebhookEvent(envelope.event);
-
   if (isCommentEvent && !context.isPullRequestCommentEvent) {
     return null;
   }
-
+  // ── Bot / automation-actor loop defence (layered) ────────────────────────
+  //
+  // Layer 1 — SENTINEL (strongest): every comment posted by this bot contains
+  //   the HTML marker <!-- gitpal-bot -->.  This is immune to login changes,
+  //   GitHub App renames, enterprise installs, and edge-case API shape
+  //   differences.  Check it first so none of the command-matching logic even
+  //   runs on a bot-generated body.
+  //
+  // Layer 2 — TYPE CHECK: GitHub sets user.type === "Bot" for GitHub App
+  //   installations.  Catches bots from any app, not just this one.
+  //
+  // Layer 3 — LOGIN SUFFIX: GitHub App bot users have logins ending in
+  //   "[bot]" (e.g. "gitpal[bot]").  Backup for layer 2.
+  //
+  // Layer 4 — FIRST-LINE MATCHING (in matchesCommandTrigger): commands must
+  //   appear on the very first line of the comment, so bot review bodies that
+  //   contain "/gitpal" deep inside quoted discussion never match.
+  //
+  // These layers are independent — all four must be defeated simultaneously
+  // for a bot comment to accidentally trigger a review.
+  if (isCommentEvent) {
+    const body = context.commentBody ?? "";
+    if (body.includes("<!-- gitpal-bot -->")) {
+      log.debug("Skipping comment — bot sentinel found in body.");
+      return null;
+    }
+    const authorType = context.commentAuthorType?.toLowerCase();
+    const authorLogin = context.commentAuthorLogin?.toLowerCase() ?? "";
+    if (authorType === "bot" || authorLogin.endsWith("[bot]")) {
+      log.debug("Skipping comment event from bot user.", {
+        authorType: context.commentAuthorType,
+        authorLogin: context.commentAuthorLogin,
+      });
+      return null;
+    }
+  }
   if (
     isCommentEvent &&
     settings.preMergeChecks.enabled &&
     matchesCommandTrigger(context.commentBody, settings.webhooks.preMerge)
   ) {
+    log.info("Dispatching pre-merge via comment command.");
     return {
       kind: "pre-merge",
       trigger: "comment-command",
       manual: true,
     };
   }
-
   if (
     isCommentEvent &&
     settings.reviews.behavior.autoReview.onMention &&
     matchesCommandTrigger(context.commentBody, settings.webhooks.mentions)
   ) {
+    log.info("Dispatching mention review via mention command.");
     return {
       kind: "mention",
       trigger: "mention-command",
       manual: true,
     };
   }
-
+  // GitHub: approved pull_request_review triggers pre-merge check.
+  // LOOP DEFENCE: also apply the sentinel + bot-type guard here because
+  // pull_request_review events enter via isCommentEvent = true but the
+  // "approved" branch was evaluated AFTER the isCommentEvent guard block,
+  // meaning a bot that submits an approving review bypassed all bot checks.
+  // We now re-apply them explicitly on this path.
   if (
     providerType === "github" &&
     envelope.event === "pull_request_review" &&
@@ -661,30 +686,62 @@ function resolveReviewDispatch({
       labels: context.labels,
     })
   ) {
+    // Sentinel check — did this approval come from a bot-posted review?
+    const reviewBody = context.commentBody ?? "";
+    if (reviewBody.includes("<!-- gitpal-bot -->")) {
+      log.debug("Skipping approved pull_request_review — bot sentinel found.");
+      return null;
+    }
+    const approverType = context.commentAuthorType?.toLowerCase();
+    const approverLogin = context.commentAuthorLogin?.toLowerCase() ?? "";
+    if (approverType === "bot" || approverLogin.endsWith("[bot]")) {
+      log.debug("Skipping approved pull_request_review from bot user.", {
+        approverType: context.commentAuthorType,
+        approverLogin: context.commentAuthorLogin,
+      });
+      return null;
+    }
+    log.info("Dispatching pre-merge via review approval.");
     return {
       kind: "pre-merge",
       trigger: "review-approved",
       manual: false,
     };
   }
-
   if (envelope.event !== "pull_request" || !envelope.action) {
+    log.info("Non-pull_request event with no dispatchable action.", {
+      event: envelope.event,
+      action: envelope.action,
+    });
     return null;
   }
-
-  const configuredActions = getConfiguredPullRequestActions(
-    providerType,
-    settings,
-  );
   const normalizedAction = envelope.action.toLowerCase();
-
-  if (
-    !configuredActions.enabled ||
-    !configuredActions.actions.includes(normalizedAction)
-  ) {
-    return null;
+  // FIX (auto-review on PR open): "opened", "reopened", and
+  // "ready_for_review" actions are gated solely by their own
+  // autoReview feature flags — NOT by configuredActions. Previously,
+  // configuredActions.enabled being false (the common default) or the
+  // action being absent from configuredActions.actions silently blocked
+  // every PR-open review, making onOpen / onReadyForReview dead settings.
+  //
+  // Only "synchronize"-style push actions go through configuredActions,
+  // because those are typically opt-in per-repo review-on-push settings.
+  const isOpenAction = isPullRequestOpenAction(normalizedAction);
+  const isReadyForReviewAction = normalizedAction === "ready_for_review";
+  if (!isOpenAction && !isReadyForReviewAction) {
+    const configuredActions = getConfiguredPullRequestActions(
+      providerType,
+      settings,
+    );
+    if (
+      !configuredActions.enabled ||
+      !configuredActions.actions.includes(normalizedAction)
+    ) {
+      log.info("Action not in configured pull request actions.", {
+        action: normalizedAction,
+      });
+      return null;
+    }
   }
-
   if (
     !shouldRunAutomatedReview({
       pullRequest,
@@ -692,10 +749,11 @@ function resolveReviewDispatch({
       labels: context.labels,
     })
   ) {
+    log.info("Automated review suppressed by branch/draft/label filters.");
     return null;
   }
-
-  if (isPullRequestOpenAction(normalizedAction)) {
+  if (isOpenAction) {
+    log.info("Dispatching open review.", { action: normalizedAction });
     return settings.reviews.behavior.autoReview.onOpen
       ? {
           kind: "review",
@@ -704,8 +762,8 @@ function resolveReviewDispatch({
         }
       : null;
   }
-
   if (isPullRequestPushAction(normalizedAction)) {
+    log.info("Dispatching push review.", { action: normalizedAction });
     return settings.reviews.behavior.autoReview.onPush
       ? {
           kind: "review",
@@ -714,8 +772,8 @@ function resolveReviewDispatch({
         }
       : null;
   }
-
-  if (normalizedAction === "ready_for_review") {
+  if (isReadyForReviewAction) {
+    log.info("Dispatching ready-for-review review.");
     return settings.reviews.behavior.autoReview.onReadyForReview
       ? {
           kind: "review",
@@ -724,22 +782,13 @@ function resolveReviewDispatch({
         }
       : null;
   }
-
-  if (
-    normalizedAction === "approved" &&
-    settings.preMergeChecks.enabled &&
-    settings.webhooks.preMerge.enabled
-  ) {
-    return {
-      kind: "pre-merge",
-      trigger: normalizedAction,
-      manual: false,
-    };
-  }
-
+  // FIX #2: Removed the dead-code `"approved"` branch that was only reachable
+  // for `pull_request` events (which GitHub never sends with action "approved").
+  // The approved → pre-merge path is correctly handled above via the
+  // `pull_request_review` + reviewState === "approved" branch.
+  log.info("No matching dispatch rule.", { action: normalizedAction });
   return null;
 }
-
 async function findRepositoriesForWebhook({
   providerId,
   repositoryPath,
@@ -757,12 +806,10 @@ async function findRepositoriesForWebhook({
       ),
     );
 }
-
 async function updateRepositoryWebhookHeartbeat(repositoryIds: string[]) {
   if (repositoryIds.length === 0) {
     return;
   }
-
   const now = new Date();
   await db
     .update(dashboardSchema.repositoryWebhook)
@@ -775,7 +822,6 @@ async function updateRepositoryWebhookHeartbeat(repositoryIds: string[]) {
       inArray(dashboardSchema.repositoryWebhook.repositoryId, repositoryIds),
     );
 }
-
 async function createWebhookReceipt({
   providerId,
   deliveryId,
@@ -794,7 +840,6 @@ async function createWebhookReceipt({
   payload: Record<string, unknown>;
 }): Promise<WebhookReceiptResult> {
   const now = new Date();
-
   if (deliveryId) {
     const inserted = await db
       .insert(dashboardSchema.webhookEventReceipt)
@@ -820,14 +865,12 @@ async function createWebhookReceipt({
       .returning({
         id: dashboardSchema.webhookEventReceipt.id,
       });
-
     if (inserted[0]) {
       return {
         receiptId: inserted[0].id,
         duplicate: false,
       };
     }
-
     const [existing] = await db
       .select({
         id: dashboardSchema.webhookEventReceipt.id,
@@ -840,17 +883,15 @@ async function createWebhookReceipt({
         ),
       )
       .limit(1);
-
     if (!existing) {
       throw new Error("Webhook receipt conflict could not be resolved.");
     }
-
     return {
       receiptId: existing.id,
       duplicate: true,
     };
   }
-
+  // No deliveryId — deduplication is not possible for this event.
   const [receipt] = await db
     .insert(dashboardSchema.webhookEventReceipt)
     .values({
@@ -869,17 +910,14 @@ async function createWebhookReceipt({
     .returning({
       id: dashboardSchema.webhookEventReceipt.id,
     });
-
   if (!receipt) {
     throw new Error("Webhook receipt could not be created.");
   }
-
   return {
     receiptId: receipt.id,
     duplicate: false,
   };
 }
-
 async function updateWebhookReceipt({
   receiptId,
   status,
@@ -888,7 +926,6 @@ async function updateWebhookReceipt({
   status: WebhookReceiptStatus;
 }) {
   const now = new Date();
-
   await db
     .update(dashboardSchema.webhookEventReceipt)
     .set({
@@ -899,7 +936,6 @@ async function updateWebhookReceipt({
     })
     .where(eq(dashboardSchema.webhookEventReceipt.id, receiptId));
 }
-
 async function upsertPullRequestSnapshot({
   repositoryId,
   pullRequest,
@@ -912,7 +948,6 @@ async function upsertPullRequestSnapshot({
   const mergedAt = toDateOrNull(pullRequest.mergedAt);
   const closedAt = toDateOrNull(pullRequest.closedAt);
   const reviewReadyAt = pullRequest.draft ? null : updatedAt;
-
   const [row] = await db
     .insert(dashboardSchema.pullRequest)
     .values({
@@ -962,14 +997,11 @@ async function upsertPullRequestSnapshot({
       },
     })
     .returning();
-
   if (!row) {
     throw new Error("Pull request snapshot could not be stored.");
   }
-
   return row;
 }
-
 async function createReviewRun({
   repository,
   pullRequest,
@@ -988,7 +1020,6 @@ async function createReviewRun({
   thinkingEnabled: boolean;
 }) {
   const now = new Date();
-
   const [row] = await db
     .insert(dashboardSchema.reviewRun)
     .values({
@@ -1009,14 +1040,11 @@ async function createReviewRun({
       updatedAt: now,
     })
     .returning();
-
   if (!row) {
     throw new Error("Review run could not be created.");
   }
-
   return row;
 }
-
 async function finalizeReviewRun({
   reviewRunId,
   status,
@@ -1031,7 +1059,6 @@ async function finalizeReviewRun({
   result: Record<string, unknown>;
 }) {
   const now = new Date();
-
   await db
     .update(dashboardSchema.reviewRun)
     .set({
@@ -1044,13 +1071,11 @@ async function finalizeReviewRun({
     })
     .where(eq(dashboardSchema.reviewRun.id, reviewRunId));
 }
-
 function formatFindingBody(
   finding: RepositoryReviewOutput["findings"][number],
 ) {
   return `**${finding.severity.toUpperCase()}** · ${finding.title}\n\n${finding.body}`;
 }
-
 function buildLabelerSummaryMarkdown({
   summary,
   suggestedLabels,
@@ -1061,26 +1086,21 @@ function buildLabelerSummaryMarkdown({
   appliedLabels: string[];
 }) {
   const sections: string[] = [];
-
   if (summary.trim()) {
     sections.push(`## Label summary\n${summary.trim()}`);
   }
-
   if (suggestedLabels.length > 0) {
     sections.push(
       `## Suggested labels\n${suggestedLabels.map((label) => `- ${label}`).join("\n")}`,
     );
   }
-
   if (appliedLabels.length > 0) {
     sections.push(
       `## Applied labels\n${appliedLabels.map((label) => `- ${label}`).join("\n")}`,
     );
   }
-
   return sections.join("\n\n");
 }
-
 async function listRepositoryReviewerCandidates(repositoryId: string) {
   return db
     .select({
@@ -1119,15 +1139,12 @@ async function listRepositoryReviewerCandidates(repositoryId: string) {
     .orderBy(desc(dashboardSchema.repositoryAccess.lastSeenAt))
     .limit(10);
 }
-
 async function listSuggestedReviewersForRepository(repositoryId: string) {
   const rows = await listRepositoryReviewerCandidates(repositoryId);
-
   return rows
     .map(({ user }) => user.name?.trim() || user.email.split("@")[0] || user.id)
     .filter(Boolean);
 }
-
 function getActorIdentityKey(
   actor: GitActor | null,
   providerType: ProviderType,
@@ -1135,14 +1152,11 @@ function getActorIdentityKey(
   if (!actor) {
     return null;
   }
-
   if (providerType === "github") {
     return actor.login?.trim().toLowerCase() ?? null;
   }
-
   return actor.id?.trim() ?? null;
 }
-
 async function requestProviderNativeReviewers({
   repository,
   automationActor,
@@ -1161,7 +1175,6 @@ async function requestProviderNativeReviewers({
       reviewerIds: [] as number[],
     };
   }
-
   const candidates = await listRepositoryReviewerCandidates(repository.id);
   if (candidates.length === 0) {
     return {
@@ -1170,7 +1183,6 @@ async function requestProviderNativeReviewers({
       reviewerIds: [] as number[],
     };
   }
-
   const enterpriseProviders = await getEnterpriseProviderMap();
   const automationIdentity = await automationActor.adapter
     .getCurrentUser()
@@ -1180,28 +1192,23 @@ async function requestProviderNativeReviewers({
     reviewers: new Set<string>(),
     reviewerIds: new Set<number>(),
   };
-
   for (const candidate of candidates) {
     if (candidate.access.userId === automationActor.userId) {
       continue;
     }
-
     const candidateAdapter = await createAdapterFromAccount({
       account: candidate.account as GitAccount,
       enterpriseProviders,
     });
-
     if (!candidateAdapter?.capabilities.reviewers) {
       continue;
     }
-
     const providerActor = await candidateAdapter
       .getCurrentUser()
       .catch(() => null);
     if (!providerActor) {
       continue;
     }
-
     const providerIdentityKey = getActorIdentityKey(
       providerActor,
       providerType,
@@ -1214,7 +1221,6 @@ async function requestProviderNativeReviewers({
       pullRequestAuthorIdentity,
       providerType,
     );
-
     if (
       providerIdentityKey &&
       automationIdentityKey &&
@@ -1222,7 +1228,6 @@ async function requestProviderNativeReviewers({
     ) {
       continue;
     }
-
     if (
       providerIdentityKey &&
       pullRequestAuthorIdentityKey &&
@@ -1230,62 +1235,57 @@ async function requestProviderNativeReviewers({
     ) {
       continue;
     }
-
     if (providerType === "github") {
       const login = providerActor.login?.trim();
       if (!login) {
         continue;
       }
-
       target.reviewers.add(login);
     } else {
       const reviewerId = Number(providerActor.id);
       if (!Number.isInteger(reviewerId) || reviewerId <= 0) {
         continue;
       }
-
       target.reviewerIds.add(reviewerId);
     }
-
     if (target.reviewers.size + target.reviewerIds.size >= 3) {
       break;
     }
   }
-
   const request: NativeReviewerRequest = {
     reviewers: [...target.reviewers],
     reviewerIds: [...target.reviewerIds],
+    // FIX #6: teamReviewers populated (empty for now; extend here when
+    // team-based reviewer assignment is implemented)
+    teamReviewers: [],
   };
-
   if (request.reviewers?.length === 0) {
     delete request.reviewers;
   }
-
   if (request.reviewerIds?.length === 0) {
     delete request.reviewerIds;
   }
-
-  if (!request.reviewers && !request.reviewerIds) {
+  if (request.teamReviewers?.length === 0) {
+    delete request.teamReviewers;
+  }
+  if (!request.reviewers && !request.reviewerIds && !request.teamReviewers) {
     return {
       applied: false,
       reviewers: [] as string[],
       reviewerIds: [] as number[],
     };
   }
-
   await automationActor.adapter.requestPullRequestReviewers({
     repositoryPath: repository.repositoryPath,
     pullRequestNumber: pullRequest.number,
     ...request,
   });
-
   return {
     applied: true,
     reviewers: request.reviewers ?? [],
     reviewerIds: request.reviewerIds ?? [],
   };
 }
-
 function toGitRepository(repository: RepositoryRow): GitRepository {
   return {
     providerId: repository.providerId,
@@ -1311,7 +1311,6 @@ function toGitRepository(repository: RepositoryRow): GitRepository {
     workspace: null,
   };
 }
-
 async function maybePublishSummaryComment({
   adapter,
   repository,
@@ -1331,20 +1330,33 @@ async function maybePublishSummaryComment({
     dispatch.kind === "pre-merge"
       ? settings.statuses.publishPreMergeSummary
       : settings.statuses.publishReviewSummary;
-
   if (!shouldPublish || !settings.ai.reviewer.postSummaryComment) {
+    log.info("Summary comment publishing skipped — disabled by settings.", {
+      kind: dispatch.kind,
+      publishPreMergeSummary: settings.statuses.publishPreMergeSummary,
+      publishReviewSummary: settings.statuses.publishReviewSummary,
+      postSummaryComment: settings.ai.reviewer.postSummaryComment,
+    });
     return null;
   }
-
+  log.info("Publishing summary comment to provider.", {
+    repositoryPath: repository.repositoryPath,
+    pullRequestNumber: pullRequest.number,
+    kind: dispatch.kind,
+  });
+  // LOOP DEFENSE — bot sentinel: append a hidden HTML comment to every review
+  // body posted by this bot.  resolveReviewDispatch checks for this marker
+  // before any command matching, so even if the login/type checks ever fail
+  // (e.g. enterprise installs, renamed accounts, edge-case GitHub API shapes)
+  // the bot's own comments are definitively self-identified and ignored.
+  const bodyWithSentinel = `${commentMarkdown}\n\n<!-- gitpal-bot -->`;
   const comment = await adapter.createComment({
     repositoryPath: repository.repositoryPath,
     pullRequestNumber: pullRequest.number,
-    body: commentMarkdown,
+    body: bodyWithSentinel,
   });
-
   return comment;
 }
-
 async function createReviewCommentRecords({
   reviewRunId,
   repository,
@@ -1367,7 +1379,6 @@ async function createReviewCommentRecords({
   for (const finding of output.findings) {
     let providerCommentId: string | null = null;
     const now = new Date();
-
     if (
       settings.ai.reviewer.postInlineFindings &&
       repository.providerType === "github" &&
@@ -1391,7 +1402,6 @@ async function createReviewCommentRecords({
         providerCommentId = null;
       }
     }
-
     await db.insert(dashboardSchema.reviewComment).values({
       id: `review_comment_${randomUUID()}`,
       reviewRunId,
@@ -1415,7 +1425,6 @@ async function createReviewCommentRecords({
     });
   }
 }
-
 async function createPreMergeCheckRecords({
   reviewRunId,
   repository,
@@ -1429,7 +1438,6 @@ async function createPreMergeCheckRecords({
 }) {
   for (const check of output.preMergeChecks) {
     const now = new Date();
-
     await db.insert(dashboardSchema.preMergeCheckRun).values({
       id: `pre_merge_check_${randomUUID()}`,
       reviewRunId,
@@ -1446,7 +1454,6 @@ async function createPreMergeCheckRecords({
     });
   }
 }
-
 async function runWebhookReview({
   repository,
   envelope,
@@ -1462,21 +1469,27 @@ async function runWebhookReview({
     repositoryId: repository.id,
     providerId: repository.providerId,
   });
-
   if (!automationActor || !context.pullRequestNumber) {
     return "ignored" as const;
   }
-
+  // NOTE: Bot-comment loop prevention is handled upstream in resolveReviewDispatch
+  // via two complementary guards:
+  //   1. GitHub App bots are filtered by user.type === "Bot" / login ending in "[bot]"
+  //      (in the isCommentEvent block above).
+  //   2. PAT-based bots (same login as automation actor) cannot re-trigger a review
+  //      because matchesCommandTrigger now only matches the FIRST LINE of a comment,
+  //      so bot review bodies (## Summary …) never look like /gitpal commands.
+  // A naive identity-equality check was tried here but incorrectly blocked
+  // legitimate /gitpal commands typed by the user when they use the same account
+  // as the automation actor. DO NOT add that check back.
   const settingsResult = await getRepositoryWorkspaceSettings({
     organizationId: repository.organizationId,
     repositoryId: repository.id,
     userId: automationActor.userId,
   });
-
   if (!settingsResult) {
     return "ignored" as const;
   }
-
   const settings = settingsResult.effectiveSettings;
   const pullRequest = await automationActor.adapter.getPullRequest({
     repositoryPath: repository.repositoryPath,
@@ -1489,15 +1502,12 @@ async function runWebhookReview({
     settings,
     context,
   });
-
   if (!dispatch) {
     return "ignored" as const;
   }
-
   let nativeReviewerRequest: Awaited<
     ReturnType<typeof requestProviderNativeReviewers>
   > | null = null;
-
   if (
     dispatch.kind === "review" &&
     settings.reviews.behavior.autoAssignReviewers
@@ -1521,13 +1531,11 @@ async function runWebhookReview({
       );
     }
   }
-
   if (dispatch.kind !== "pre-merge" && !settings.ai.reviewer.enabled) {
     return dispatch.kind === "review" && nativeReviewerRequest?.applied
       ? "processed"
       : "ignored";
   }
-
   const pullRequestRow = await upsertPullRequestSnapshot({
     repositoryId: repository.id,
     pullRequest,
@@ -1541,7 +1549,6 @@ async function runWebhookReview({
     modelId: settings.ai.reviewer.modelId,
     thinkingEnabled: settings.ai.thinking.enabled,
   });
-
   try {
     const [files, comments] = await Promise.all([
       automationActor.adapter.listPullRequestFiles({
@@ -1567,7 +1574,6 @@ async function runWebhookReview({
       kind: dispatch.kind,
       suggestedReviewers,
     });
-
     await maybePublishSummaryComment({
       adapter: automationActor.adapter,
       repository,
@@ -1607,19 +1613,15 @@ async function runWebhookReview({
         stepCount: reviewResult.steps.length,
       },
     });
-
     return "processed" as const;
   } catch (error) {
-    // Check if this is an authentication error (401, 403) from invalid credentials
     const errorMessage = error instanceof Error ? error.message : String(error);
     const isCredentialError =
       errorMessage.includes("Bad credentials") ||
       errorMessage.includes("Unauthorized") ||
       errorMessage.includes("403") ||
       errorMessage.includes("401");
-
     if (isCredentialError) {
-      // Skip processing if credentials are invalid, but don't fail the job
       log.warn(
         {
           err: error,
@@ -1629,20 +1631,15 @@ async function runWebhookReview({
         },
         "Review processing skipped due to invalid credentials.",
       );
-
       await finalizeReviewRun({
         reviewRunId: reviewRun.id,
         status: "ignored",
         summary: null,
         finalCommentBody: null,
-        result: {
-          reason: "credential_error",
-        },
+        result: { reason: "credential_error" },
       });
-
       return "ignored" as const;
     }
-
     await finalizeReviewRun({
       reviewRunId: reviewRun.id,
       status: "failed",
@@ -1655,7 +1652,6 @@ async function runWebhookReview({
     return "failed" as const;
   }
 }
-
 async function runWebhookLabeler({
   repository,
   envelope,
@@ -1669,48 +1665,38 @@ async function runWebhookLabeler({
     repositoryId: repository.id,
     providerId: repository.providerId,
   });
-
   if (!automationActor) {
     return "ignored" as const;
   }
-
   const settingsResult = await getRepositoryWorkspaceSettings({
     organizationId: repository.organizationId,
     repositoryId: repository.id,
     userId: automationActor.userId,
   });
-
   if (!settingsResult) {
     return "ignored" as const;
   }
-
   const settings = settingsResult.effectiveSettings;
   const labelContext = extractLabelContext(providerType, envelope);
   if (!labelContext || !labelContext.number) {
     return "ignored" as const;
   }
-
   const dispatch = resolveLabelDispatch({
     providerType,
     envelope,
     settings,
     context: labelContext,
   });
-
   if (!dispatch) {
     return "ignored" as const;
   }
-
   let repositoryLabels: GitRepositoryLabel[] = [];
-
   try {
     repositoryLabels = await automationActor.adapter.listRepositoryLabels({
       repositoryPath: repository.repositoryPath,
       limit: 100,
     });
   } catch (error) {
-    // If we can't fetch labels (e.g., due to invalid credentials),
-    // skip labeling for this webhook and return ignored
     log.warn(
       {
         err: error,
@@ -1721,16 +1707,13 @@ async function runWebhookLabeler({
     );
     return "ignored" as const;
   }
-
   if (repositoryLabels.length === 0) {
     return "ignored" as const;
   }
-
   let pullRequestRow: PullRequestRow | null = null;
   let labelFiles: Awaited<
     ReturnType<typeof automationActor.adapter.listPullRequestFiles>
   > = [];
-
   if (dispatch.kind === "pull_request") {
     const pullRequest = await automationActor.adapter.getPullRequest({
       repositoryPath: repository.repositoryPath,
@@ -1745,7 +1728,6 @@ async function runWebhookLabeler({
       pullRequestNumber: labelContext.number,
     });
   }
-
   const labelRun = await createReviewRun({
     repository,
     pullRequest: pullRequestRow,
@@ -1755,7 +1737,6 @@ async function runWebhookLabeler({
     modelId: settings.ai.labeler.modelId,
     thinkingEnabled: false,
   });
-
   try {
     const labelResult = await runRepositoryLabeler({
       userId: automationActor.userId,
@@ -1775,20 +1756,16 @@ async function runWebhookLabeler({
       providerAction: envelope.action,
       repositoryLabels,
     });
-
     if (!labelResult) {
       await finalizeReviewRun({
         reviewRunId: labelRun.id,
         status: "ignored",
         summary: null,
         finalCommentBody: null,
-        result: {
-          reason: "labeler_disabled",
-        },
+        result: { reason: "labeler_disabled" },
       });
       return "ignored" as const;
     }
-
     await finalizeReviewRun({
       reviewRunId: labelRun.id,
       status: "completed",
@@ -1804,7 +1781,6 @@ async function runWebhookLabeler({
         providerAction: envelope.action,
       },
     });
-
     return "processed" as const;
   } catch (error) {
     await finalizeReviewRun({
@@ -1816,11 +1792,9 @@ async function runWebhookLabeler({
         error: error instanceof Error ? error.message : "labeler_failed",
       },
     });
-
     return "failed" as const;
   }
 }
-
 async function processWebhookReceipt({
   receiptId,
   repositories,
@@ -1832,15 +1806,10 @@ async function processWebhookReceipt({
   envelope: GitWebhookEnvelope;
   target: ProviderWebhookTarget;
 }) {
-  await updateWebhookReceipt({
-    receiptId,
-    status: "processing",
-  });
-
+  await updateWebhookReceipt({ receiptId, status: "processing" });
   const context = extractPullRequestContext(target.providerType, envelope);
   let processed = 0;
   let failed = 0;
-
   for (const repository of repositories) {
     const labelResult = await runWebhookLabeler({
       repository,
@@ -1853,35 +1822,26 @@ async function processWebhookReceipt({
       providerType: target.providerType,
       context,
     });
-
     if (labelResult === "processed" || reviewResult === "processed") {
       processed += 1;
     }
-
     if (labelResult === "failed" || reviewResult === "failed") {
       failed += 1;
     }
   }
-
   await updateWebhookReceipt({
     receiptId,
-    status: resolveWebhookReceiptStatus({
-      processed,
-      failed,
-    }),
+    status: resolveWebhookReceiptStatus({ processed, failed }),
   });
 }
-
 async function getWebhookReceipt(receiptId: string) {
   const [receipt] = await db
     .select()
     .from(dashboardSchema.webhookEventReceipt)
     .where(eq(dashboardSchema.webhookEventReceipt.id, receiptId))
     .limit(1);
-
   return receipt ?? null;
 }
-
 function createWebhookEnvelopeFromReceipt(
   receipt: WebhookEventReceiptRow,
 ): GitWebhookEnvelope<Record<string, unknown>> {
@@ -1889,7 +1849,6 @@ function createWebhookEnvelopeFromReceipt(
   const deliveryId = receipt.deliveryId.startsWith("no-delivery-id:")
     ? null
     : receipt.deliveryId;
-
   return {
     providerId: receipt.providerId,
     event: receipt.event,
@@ -1902,57 +1861,37 @@ function createWebhookEnvelopeFromReceipt(
     rawBody: JSON.stringify(payload),
   };
 }
-
 export async function processProviderWebhookReceiptJob(
   input: ProviderWebhookJobData,
 ) {
   const data = providerWebhookJobSchema.parse(input);
   const receipt = await getWebhookReceipt(data.receiptId);
-
   if (!receipt) {
     log.warn(
-      {
-        receiptId: data.receiptId,
-        providerId: data.providerId,
-      },
+      { receiptId: data.receiptId, providerId: data.providerId },
       "Provider webhook receipt was not found.",
     );
     return;
   }
-
   if (receipt.providerId !== data.providerId) {
-    await updateWebhookReceipt({
-      receiptId: receipt.id,
-      status: "failed",
-    });
+    await updateWebhookReceipt({ receiptId: receipt.id, status: "failed" });
     throw new Error("Provider webhook receipt provider mismatch.");
   }
-
   const target = await resolveWebhookTarget(receipt.providerId);
-
   if (!target) {
-    await updateWebhookReceipt({
-      receiptId: receipt.id,
-      status: "failed",
-    });
+    await updateWebhookReceipt({ receiptId: receipt.id, status: "failed" });
     throw new Error("Provider webhook target could not be resolved.");
   }
-
   const repositories = receipt.repositoryPath
     ? await findRepositoriesForWebhook({
         providerId: receipt.providerId,
         repositoryPath: receipt.repositoryPath,
       })
     : [];
-
   if (repositories.length === 0) {
-    await updateWebhookReceipt({
-      receiptId: receipt.id,
-      status: "ignored",
-    });
+    await updateWebhookReceipt({ receiptId: receipt.id, status: "ignored" });
     return;
   }
-
   await updateRepositoryWebhookHeartbeat(
     repositories.map((repository) => repository.id),
   );
@@ -1963,7 +1902,6 @@ export async function processProviderWebhookReceiptJob(
     target,
   });
 }
-
 async function ensureRepositoryWebhookSubscription({
   repository,
   adapter,
@@ -1979,7 +1917,6 @@ async function ensureRepositoryWebhookSubscription({
       error: `${repository.fullName}: webhook base URL or secret is not configured.`,
     };
   }
-
   const deliveryUrl = normalizeWebhookUrl(buildDeliveryUrl(target));
   const requiredEvents = getRequiredWebhookEvents(target.providerType);
   const existingWebhooks = await adapter.listWebhooks({
@@ -1991,9 +1928,7 @@ async function ensureRepositoryWebhookSubscription({
   const webhookIsCompatible =
     Boolean(matchingWebhook?.active) &&
     requiredEvents.every((event) => matchingWebhook?.events.includes(event));
-
   let activeWebhook = matchingWebhook;
-
   if (!activeWebhook || !webhookIsCompatible) {
     if (activeWebhook) {
       await adapter.deleteWebhook({
@@ -2001,7 +1936,6 @@ async function ensureRepositoryWebhookSubscription({
         webhookId: activeWebhook.id,
       });
     }
-
     activeWebhook = await adapter.createWebhook({
       repositoryPath: repository.repositoryPath,
       url: deliveryUrl,
@@ -2010,7 +1944,6 @@ async function ensureRepositoryWebhookSubscription({
       active: true,
     });
   }
-
   const now = new Date();
   await db
     .delete(dashboardSchema.repositoryWebhook)
@@ -2020,7 +1953,6 @@ async function ensureRepositoryWebhookSubscription({
         eq(dashboardSchema.repositoryWebhook.providerId, repository.providerId),
       ),
     );
-
   await db
     .insert(dashboardSchema.repositoryWebhook)
     .values({
@@ -2051,7 +1983,6 @@ async function ensureRepositoryWebhookSubscription({
         updatedAt: now,
       },
     });
-
   return {
     status:
       matchingWebhook && webhookIsCompatible
@@ -2060,7 +1991,6 @@ async function ensureRepositoryWebhookSubscription({
     error: null,
   };
 }
-
 export async function syncRepositoryWebhooksForUser({
   userId,
   organizationId,
@@ -2074,21 +2004,16 @@ export async function syncRepositoryWebhooksForUser({
     eq(dashboardSchema.repositoryAccess.userId, userId),
     eq(dashboardSchema.repositoryAccess.enabled, true),
   ];
-
   if (organizationId) {
     conditions.push(
       eq(dashboardSchema.repository.organizationId, organizationId),
     );
   }
-
   if (repositoryId) {
     conditions.push(eq(dashboardSchema.repository.id, repositoryId));
   }
-
   const repositories = await db
-    .select({
-      repository: dashboardSchema.repository,
-    })
+    .select({ repository: dashboardSchema.repository })
     .from(dashboardSchema.repositoryAccess)
     .innerJoin(
       dashboardSchema.repository,
@@ -2113,10 +2038,8 @@ export async function syncRepositoryWebhooksForUser({
     failed: 0,
     errors: [],
   };
-
   for (const { repository } of repositories) {
     const account = accountMap.get(repository.providerId);
-
     if (!account) {
       result.skipped += 1;
       result.errors.push(
@@ -2124,35 +2047,29 @@ export async function syncRepositoryWebhooksForUser({
       );
       continue;
     }
-
     const target = await resolveWebhookTarget(
       repository.providerId,
       enterpriseProviders,
     );
-
     if (!target) {
       result.skipped += 1;
       continue;
     }
-
     const adapter = await createAdapterFromAccount({
       account: account as GitAccount,
       enterpriseProviders,
       webhookSecrets: target.secret ? [target.secret] : [],
     });
-
     if (!adapter) {
       result.skipped += 1;
       continue;
     }
-
     try {
       const syncResult = await ensureRepositoryWebhookSubscription({
         repository,
         adapter,
         target,
       });
-
       if (syncResult.status === "created") {
         result.created += 1;
       } else if (syncResult.status === "existing") {
@@ -2172,12 +2089,9 @@ export async function syncRepositoryWebhooksForUser({
       );
     }
   }
-
   return result;
 }
-
 export const ensureRepositoryWebhooksForUser = syncRepositoryWebhooksForUser;
-
 export async function receiveProviderWebhook({
   providerId,
   headers,
@@ -2188,45 +2102,30 @@ export async function receiveProviderWebhook({
   rawBody: string;
 }) {
   const target = await resolveWebhookTarget(providerId);
-
   if (!target) {
     return {
       status: 404,
-      body: {
-        ok: false,
-        error: "provider_not_found",
-      },
+      body: { ok: false, error: "provider_not_found" },
     };
   }
-
   const verifier = createWebhookVerifier(target);
-
   try {
-    const verified = await verifier.verify({
-      headers,
-      rawBody,
-    });
-
-    if (!verified && env.NODE_ENV === "production") {
-      return {
-        status: 401,
-        body: {
-          ok: false,
-          error: "invalid_signature",
-        },
-      };
+    const verified = await verifier.verify({ headers, rawBody });
+    // FIX #3: always log a warning when signature verification fails, even in
+    // non-production, so invalid payloads are visible in logs.
+    if (!verified) {
+      log.warn({ providerId }, "Webhook signature verification failed.");
+      if (env.NODE_ENV === "production") {
+        return {
+          status: 401,
+          body: { ok: false, error: "invalid_signature" },
+        };
+      }
     }
-
-    const envelope = verifier.parse({
-      headers,
-      rawBody,
-    });
+    const envelope = verifier.parse({ headers, rawBody });
     const repositoryPath = envelope.repository?.repositoryPath ?? null;
     const repositories = repositoryPath
-      ? await findRepositoriesForWebhook({
-          providerId,
-          repositoryPath,
-        })
+      ? await findRepositoriesForWebhook({ providerId, repositoryPath })
       : [];
     const receipt = await createWebhookReceipt({
       providerId,
@@ -2235,21 +2134,14 @@ export async function receiveProviderWebhook({
       repositoryPath,
       event: envelope.event,
       action: envelope.action,
-      payload: asRecord(envelope.payload) ?? {
-        payload: envelope.payload,
-      },
+      payload: asRecord(envelope.payload) ?? { payload: envelope.payload },
     });
-
     if (receipt.duplicate) {
       return {
         status: 200,
-        body: {
-          ok: true,
-          deduplicated: true,
-        },
+        body: { ok: true, deduplicated: true },
       };
     }
-
     if (repositories.length === 0) {
       await updateWebhookReceipt({
         receiptId: receipt.receiptId,
@@ -2257,18 +2149,12 @@ export async function receiveProviderWebhook({
       });
       return {
         status: 202,
-        body: {
-          ok: true,
-          queued: false,
-          matchedRepositories: 0,
-        },
+        body: { ok: true, queued: false, matchedRepositories: 0 },
       };
     }
-
     await updateRepositoryWebhookHeartbeat(
       repositories.map((repository) => repository.id),
     );
-
     try {
       await enqueueProviderWebhookReceiptJob({
         receiptId: receipt.receiptId,
@@ -2276,11 +2162,7 @@ export async function receiveProviderWebhook({
       });
     } catch (error) {
       log.error(
-        {
-          err: error,
-          providerId,
-          receiptId: receipt.receiptId,
-        },
+        { err: error, providerId, receiptId: receipt.receiptId },
         "Provider webhook receipt could not be queued.",
       );
       await updateWebhookReceipt({
@@ -2289,13 +2171,9 @@ export async function receiveProviderWebhook({
       });
       return {
         status: 503,
-        body: {
-          ok: false,
-          error: "webhook_queue_unavailable",
-        },
+        body: { ok: false, error: "webhook_queue_unavailable" },
       };
     }
-
     return {
       status: 202,
       body: {

@@ -104,6 +104,7 @@ export function createAuth() {
         sameSite: env.NODE_ENV === "production" ? "none" : "lax",
         secure: env.NODE_ENV === "production",
         httpOnly: true,
+		domain: env.NODE_ENV === "production" ? ".circulo-ai.com" : undefined, // ← add this
       },
     },
   });

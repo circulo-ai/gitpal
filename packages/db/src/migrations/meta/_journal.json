@@ -57,6 +57,13 @@
       "when": 1781719586142,
       "tag": "0007_foamy_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781720049742,
+      "tag": "0008_abandoned_purifiers",
+      "breakpoints": true
     }
   ]
 }

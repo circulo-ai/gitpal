@@ -128,6 +128,14 @@ export type GitRepositorySearchResult = {
 	updatedAt: string;
 };
 
+export type GitRepositoryLabel = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	name: string;
+	description: string | null;
+	color: string | null;
+};
+
 export type GitWebhookSubscription = {
 	providerId: GitProviderId;
 	repositoryPath: string;
@@ -236,8 +244,18 @@ export interface GitProviderAdapter {
 			limit?: number;
 		},
 	): Promise<GitRepositorySearchResult[]>;
+	listRepositoryLabels(input: GitRepositoryRef & {
+		query?: string;
+		limit?: number;
+	}): Promise<GitRepositoryLabel[]>;
 	createPullRequest(input: GitPullRequestCreateInput): Promise<GitPullRequest>;
 	createComment(input: GitCommentInput): Promise<GitComment>;
+	addIssueLabels(
+		input: GitRepositoryRef & { issueNumber: number; labels: string[] },
+	): Promise<void>;
+	addPullRequestLabels(
+		input: GitRepositoryRef & { pullRequestNumber: number; labels: string[] },
+	): Promise<void>;
 	mergePullRequest(
 		input: GitRepositoryRef & {
 			pullRequestNumber: number;

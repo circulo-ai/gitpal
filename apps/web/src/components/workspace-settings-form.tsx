@@ -29,12 +29,18 @@ import type {
 	WorkspacePathInstruction,
 	WorkspaceSettings,
 } from "@gitpal/utils";
+import { WorkspaceReviewPreviewDialog } from "./workspace-review-preview-dialog";
 
 type WorkspaceSettingsFormProps = {
 	value: WorkspaceSettings;
 	onChange: (settings: WorkspaceSettings) => void;
 	disabled?: boolean;
 	className?: string;
+	previewSettings?: WorkspaceSettings;
+	previewRepositoryFullName?: string;
+	previewRepositoryDescription?: string | null;
+	previewWorkspaceName?: string;
+	toolSettingsLocked?: boolean;
 };
 
 type SectionToggleRowProps = {
@@ -331,6 +337,35 @@ function InstructionListEditor<
 	);
 }
 
+function isMcpToolType(type: WorkspaceManagedTool["type"]) {
+	return type === "github-mcp" || type === "gitlab-mcp";
+}
+
+const LANGUAGE_OPTIONS = [
+	{ value: "en-US", label: "English (United States)" },
+	{ value: "en-GB", label: "English (United Kingdom)" },
+	{ value: "es-ES", label: "Spanish (Spain)" },
+	{ value: "fr-FR", label: "French" },
+	{ value: "de-DE", label: "German" },
+	{ value: "it-IT", label: "Italian" },
+	{ value: "pt-BR", label: "Portuguese (Brazil)" },
+	{ value: "pt-PT", label: "Portuguese (Portugal)" },
+	{ value: "tr-TR", label: "Turkish" },
+	{ value: "ar", label: "Arabic" },
+	{ value: "fa-IR", label: "Persian" },
+	{ value: "ru-RU", label: "Russian" },
+	{ value: "ja-JP", label: "Japanese" },
+	{ value: "ko-KR", label: "Korean" },
+	{ value: "zh-CN", label: "Chinese (Simplified)" },
+	{ value: "zh-TW", label: "Chinese (Traditional)" },
+] as const;
+
+const CUSTOM_LANGUAGE_VALUE = "__custom__";
+
+function isPresetLanguage(value: string) {
+	return LANGUAGE_OPTIONS.some((language) => language.value === value);
+}
+
 function ToolSettingsEditor({
 	tools,
 	disabled,
@@ -342,6 +377,11 @@ function ToolSettingsEditor({
 }) {
 	return (
 		<div className="space-y-3">
+			<div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 px-4 py-3 text-muted-foreground text-sm">
+				Built-in tools run locally through GitPal&apos;s provider adapters.
+				Dedicated MCP tools are bound automatically so the execution path stays
+				clear without asking users to manage a separate server-name field.
+			</div>
 			{tools.map((toolSetting, index) => (
 				<div
 					key={toolSetting.id}
@@ -379,31 +419,37 @@ function ToolSettingsEditor({
 								}}
 							/>
 							<div className="space-y-2">
-								<div className="font-medium text-sm">Mode</div>
-								<Select
-									value={toolSetting.mode}
-									disabled={disabled}
-									onValueChange={(mode) => {
-										onChange(
-											tools.map((tool, toolIndex) =>
-												toolIndex === index
-													? {
-															...tool,
-															mode: mode as "builtin" | "mcp",
-														}
-													: tool,
-											),
-										);
-									}}
-								>
-									<SelectTrigger className="w-full">
-										<SelectValue placeholder="Select mode" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="builtin">Built-in</SelectItem>
-										<SelectItem value="mcp">MCP</SelectItem>
-									</SelectContent>
-								</Select>
+								<div className="font-medium text-sm">Execution</div>
+								{isMcpToolType(toolSetting.type) ? (
+									<Select
+										value={toolSetting.mode}
+										disabled={disabled}
+										onValueChange={(mode) => {
+											onChange(
+												tools.map((tool, toolIndex) =>
+													toolIndex === index
+														? {
+																...tool,
+																mode: mode as "builtin" | "mcp",
+															}
+														: tool,
+												),
+											);
+										}}
+									>
+										<SelectTrigger className="w-full">
+											<SelectValue placeholder="Select execution" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="builtin">Built-in</SelectItem>
+											<SelectItem value="mcp">MCP</SelectItem>
+										</SelectContent>
+									</Select>
+								) : (
+									<div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-muted-foreground">
+										Built-in execution
+									</div>
+								)}
 							</div>
 							<div className="space-y-2">
 								<div className="font-medium text-sm">Max results</div>
@@ -435,26 +481,17 @@ function ToolSettingsEditor({
 								/>
 							</div>
 						</div>
-						{toolSetting.mode === "mcp" ? (
+						{isMcpToolType(toolSetting.type) && toolSetting.mode === "mcp" ? (
 							<div className="space-y-2">
-								<div className="font-medium text-sm">MCP server name</div>
-								<Input
-									value={toolSetting.mcpServerName ?? ""}
-									disabled={disabled}
-									onChange={(event) => {
-										onChange(
-											tools.map((tool, toolIndex) =>
-												toolIndex === index
-													? {
-															...tool,
-															mcpServerName: event.target.value.trim() || null,
-														}
-													: tool,
-											),
-										);
-									}}
-									placeholder="github"
-								/>
+								<div className="font-medium text-sm">MCP server binding</div>
+								<div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm">
+									{toolSetting.mcpServerName ??
+										(toolSetting.type === "github-mcp" ? "github" : "gitlab")}
+								</div>
+								<p className="text-muted-foreground text-xs">
+									GitPal binds GitHub and GitLab MCP tools automatically so the
+									server name stays consistent across the UI and runtime.
+								</p>
 							</div>
 						) : null}
 					</div>
@@ -469,9 +506,59 @@ export function WorkspaceSettingsForm({
 	onChange,
 	disabled,
 	className,
+	previewSettings,
+	previewRepositoryFullName,
+	previewRepositoryDescription,
+	previewWorkspaceName,
+	toolSettingsLocked,
 }: WorkspaceSettingsFormProps) {
+	const previewSource = previewSettings ?? value;
+	const [languageMode, setLanguageMode] = React.useState(() =>
+		isPresetLanguage(value.general.language)
+			? value.general.language
+			: CUSTOM_LANGUAGE_VALUE,
+	);
+	const [customLanguage, setCustomLanguage] = React.useState(
+		() => value.general.language,
+	);
+	const lastCustomLanguageRef = React.useRef(value.general.language);
+	const previousLanguageRef = React.useRef(value.general.language);
+
+	React.useEffect(() => {
+		if (previousLanguageRef.current === value.general.language) {
+			return;
+		}
+
+		previousLanguageRef.current = value.general.language;
+
+		if (isPresetLanguage(value.general.language)) {
+			setLanguageMode(value.general.language);
+			return;
+		}
+
+		setLanguageMode(CUSTOM_LANGUAGE_VALUE);
+		setCustomLanguage(value.general.language);
+		lastCustomLanguageRef.current = value.general.language;
+	}, [value.general.language]);
+
 	return (
 		<div className={cn("space-y-4", className)}>
+			<div className="flex flex-col gap-3 rounded-3xl border border-border/60 bg-card/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+				<div className="space-y-1">
+					<div className="font-medium text-sm">Live preview</div>
+					<p className="max-w-2xl text-muted-foreground text-sm">
+						Open a CodeRabbit-style preview that updates from the current
+						settings before you save them.
+					</p>
+				</div>
+				<WorkspaceReviewPreviewDialog
+					settings={previewSource}
+					repositoryFullName={previewRepositoryFullName}
+					repositoryDescription={previewRepositoryDescription}
+					workspaceName={previewWorkspaceName}
+				/>
+			</div>
+
 			<Card>
 				<CardHeader>
 					<CardTitle>General</CardTitle>
@@ -484,18 +571,59 @@ export function WorkspaceSettingsForm({
 						<div className="space-y-2">
 							<div className="font-medium text-sm">Language</div>
 							<p className="text-muted-foreground text-sm">
-								Set the primary review locale. Use a valid BCP 47 language tag.
+								Choose a common locale or switch to custom for any BCP 47 tag.
 							</p>
-							<Input
-								value={value.general.language}
+							<Select
+								value={languageMode}
 								disabled={disabled}
-								onChange={(event) => {
+								onValueChange={(nextValue) => {
+									if (nextValue === CUSTOM_LANGUAGE_VALUE) {
+										setLanguageMode(CUSTOM_LANGUAGE_VALUE);
+										setCustomLanguage(lastCustomLanguageRef.current);
+										return;
+									}
+
+									lastCustomLanguageRef.current = customLanguage;
+									setLanguageMode(nextValue);
 									updateSettings(value, onChange, (draft) => {
-										draft.general.language = event.target.value;
+										draft.general.language = nextValue;
 									});
 								}}
-								placeholder="en-US"
-							/>
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue placeholder="Select a language" />
+								</SelectTrigger>
+								<SelectContent>
+									{LANGUAGE_OPTIONS.map((language) => (
+										<SelectItem key={language.value} value={language.value}>
+											{language.label}
+										</SelectItem>
+									))}
+									<SelectItem value={CUSTOM_LANGUAGE_VALUE}>
+										Custom language tag
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							{languageMode === CUSTOM_LANGUAGE_VALUE ? (
+								<div className="space-y-2">
+									<Input
+										value={customLanguage}
+										disabled={disabled}
+										onChange={(event) => {
+											const nextValue = event.target.value;
+											setCustomLanguage(nextValue);
+											lastCustomLanguageRef.current = nextValue;
+											updateSettings(value, onChange, (draft) => {
+												draft.general.language = nextValue;
+											});
+										}}
+										placeholder="e.g. en-US, fa-IR, or any BCP 47 tag"
+									/>
+									<p className="text-muted-foreground text-xs">
+										Use this only if your locale is not in the preset list.
+									</p>
+								</div>
+							) : null}
 						</div>
 						<div className="space-y-2">
 							<div className="font-medium text-sm">Review profile</div>
@@ -677,6 +805,19 @@ export function WorkspaceSettingsForm({
 								});
 							}}
 						/>
+						<div className="space-y-2">
+							<div className="font-medium text-sm">Walkthrough model ID</div>
+							<Input
+								value={value.reviews.walkthrough.modelId}
+								disabled={disabled}
+								onChange={(event) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.reviews.walkthrough.modelId = event.target.value;
+									});
+								}}
+								placeholder="anthropic/claude-sonnet-4-5"
+							/>
+						</div>
 					</div>
 
 					<Separator />
@@ -1097,6 +1238,119 @@ export function WorkspaceSettingsForm({
 					<Separator />
 
 					<div className="space-y-4">
+						<div className="font-medium text-sm">Labeler</div>
+						<SectionToggleRow
+							title="AI labeler"
+							description="Generate and optionally apply issue and pull request labels from the repository label set."
+							checked={value.ai.labeler.enabled}
+							disabled={disabled}
+							onCheckedChange={(checked) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.ai.labeler.enabled = checked;
+								});
+							}}
+						/>
+						<div className="grid gap-4 md:grid-cols-3">
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Model ID</div>
+								<Input
+									value={value.ai.labeler.modelId}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.labeler.modelId = event.target.value;
+										});
+									}}
+									placeholder="anthropic/claude-sonnet-4-5"
+								/>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Max labels</div>
+								<Input
+									type="number"
+									min="1"
+									max="10"
+									value={String(value.ai.labeler.maxLabels)}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.labeler.maxLabels = updateNumber(
+												draft.ai.labeler.maxLabels,
+												event.target.value,
+												{
+													min: 1,
+													max: 10,
+												},
+											);
+										});
+									}}
+								/>
+							</div>
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Max output tokens</div>
+								<Input
+									type="number"
+									min="256"
+									max="8192"
+									value={String(value.ai.labeler.maxOutputTokens)}
+									disabled={disabled}
+									onChange={(event) => {
+										updateSettings(value, onChange, (draft) => {
+											draft.ai.labeler.maxOutputTokens = updateNumber(
+												draft.ai.labeler.maxOutputTokens,
+												event.target.value,
+												{
+													min: 256,
+													max: 8192,
+												},
+											);
+										});
+									}}
+								/>
+							</div>
+						</div>
+						<div className="grid gap-3 md:grid-cols-2">
+							<SectionToggleRow
+								title="Label issues"
+								description="Run the labeler when a new issue is opened or reopened."
+								checked={value.ai.labeler.applyOnIssues}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.labeler.applyOnIssues = checked;
+									});
+								}}
+							/>
+							<SectionToggleRow
+								title="Label pull requests"
+								description="Run the labeler when a new pull request is opened or made ready."
+								checked={value.ai.labeler.applyOnPullRequests}
+								disabled={disabled}
+								onCheckedChange={(checked) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.labeler.applyOnPullRequests = checked;
+									});
+								}}
+							/>
+						</div>
+						<div className="space-y-2">
+							<div className="font-medium text-sm">Extra instructions</div>
+							<Textarea
+								value={value.ai.labeler.extraInstructions}
+								disabled={disabled}
+								onChange={(event) => {
+									updateSettings(value, onChange, (draft) => {
+										draft.ai.labeler.extraInstructions = event.target.value;
+									});
+								}}
+								placeholder="Only choose labels that already exist in the repository."
+							/>
+						</div>
+					</div>
+
+					<Separator />
+
+					<div className="space-y-4">
 						<div className="font-medium text-sm">Thinking</div>
 						<SectionToggleRow
 							title="Extended reasoning"
@@ -1188,11 +1442,17 @@ export function WorkspaceSettingsForm({
 
 					<div className="space-y-4">
 						<div className="font-medium text-sm">Tools</div>
+						{toolSettingsLocked ? (
+							<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 text-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50">
+								Workspace policy locks repository tool overrides. This repository
+								will keep using the workspace-level tool configuration.
+							</div>
+						) : null}
 						<SectionToggleRow
 							title="Allow repository overrides"
 							description="Let repositories override the workspace-level tool access policy."
 							checked={value.ai.tools.allowRepositoryOverrides}
-							disabled={disabled}
+							disabled={disabled || toolSettingsLocked}
 							onCheckedChange={(checked) => {
 								updateSettings(value, onChange, (draft) => {
 									draft.ai.tools.allowRepositoryOverrides = checked;
@@ -1201,7 +1461,7 @@ export function WorkspaceSettingsForm({
 						/>
 						<ToolSettingsEditor
 							tools={value.ai.tools.available}
-							disabled={disabled}
+							disabled={disabled || toolSettingsLocked}
 							onChange={(tools) => {
 								updateSettings(value, onChange, (draft) => {
 									draft.ai.tools.available = tools;
@@ -1575,6 +1835,19 @@ export function WorkspaceSettingsForm({
 								});
 							}}
 							placeholder="Keep the tone sharp but kind."
+						/>
+					</div>
+					<div className="space-y-2">
+						<div className="font-medium text-sm">Fun model ID</div>
+						<Input
+							value={value.fun.modelId}
+							disabled={disabled}
+							onChange={(event) => {
+								updateSettings(value, onChange, (draft) => {
+									draft.fun.modelId = event.target.value;
+								});
+							}}
+							placeholder="anthropic/claude-sonnet-4-5"
 						/>
 					</div>
 					<div className="grid gap-3 md:grid-cols-3">

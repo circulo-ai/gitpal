@@ -129,7 +129,12 @@ export function OrganizationSettingsPanel() {
 					</div>
 				</CardHeader>
 				<CardContent>
-					<WorkspaceSettingsForm value={settings} onChange={setSettings} />
+					<WorkspaceSettingsForm
+						value={settings}
+						onChange={setSettings}
+						previewSettings={settings}
+						previewWorkspaceName={activeWorkspace.name}
+					/>
 				</CardContent>
 			</Card>
 			<SettingsChangeDock

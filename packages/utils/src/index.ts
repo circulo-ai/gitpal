@@ -13,3 +13,4 @@ export * from "./string/key";
 export * from "./time/timestamp";
 export * from "./time/valid-until";
 export * from "./repository-settings";
+export * from "./review-comment";

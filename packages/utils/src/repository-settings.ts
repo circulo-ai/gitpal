@@ -70,6 +70,16 @@ export type WorkspaceReviewerSettings = {
 	postInlineFindings: boolean;
 };
 
+export type WorkspaceLabelerSettings = {
+	enabled: boolean;
+	modelId: string;
+	maxLabels: number;
+	maxOutputTokens: number;
+	applyOnIssues: boolean;
+	applyOnPullRequests: boolean;
+	extraInstructions: string;
+};
+
 export type WorkspaceThinkingSettings = {
 	enabled: boolean;
 	effort: ThinkingEffort;
@@ -108,6 +118,7 @@ export type WorkspaceSettings = {
 			relatedIssues: boolean;
 			relatedPRs: boolean;
 			suggestedLabels: boolean;
+			modelId: string;
 		};
 		behavior: {
 			profile: ReviewProfile;
@@ -122,6 +133,7 @@ export type WorkspaceSettings = {
 	};
 	ai: {
 		reviewer: WorkspaceReviewerSettings;
+		labeler: WorkspaceLabelerSettings;
 		thinking: WorkspaceThinkingSettings;
 		tools: {
 			allowRepositoryOverrides: boolean;
@@ -160,6 +172,7 @@ export type WorkspaceSettings = {
 	};
 	fun: {
 		toneInstructions: string;
+		modelId: string;
 		poem: boolean;
 		inProgressFortune: boolean;
 		art: boolean;
@@ -236,6 +249,16 @@ export const workspaceReviewerSettingsSchema = z.object({
 	postInlineFindings: z.boolean(),
 });
 
+export const workspaceLabelerSettingsSchema = z.object({
+	enabled: z.boolean(),
+	modelId: z.string(),
+	maxLabels: z.number().int().min(1).max(10),
+	maxOutputTokens: z.number().int().min(256).max(8192),
+	applyOnIssues: z.boolean(),
+	applyOnPullRequests: z.boolean(),
+	extraInstructions: z.string(),
+});
+
 export const workspaceThinkingSettingsSchema = z.object({
 	enabled: z.boolean(),
 	effort: z.enum(["low", "medium", "high"]),
@@ -274,6 +297,7 @@ export const workspaceSettingsSchema = z.object({
 			relatedIssues: z.boolean(),
 			relatedPRs: z.boolean(),
 			suggestedLabels: z.boolean(),
+			modelId: z.string(),
 		}),
 		behavior: z.object({
 			profile: z.enum(["chill", "assertive"]),
@@ -288,6 +312,7 @@ export const workspaceSettingsSchema = z.object({
 	}),
 	ai: z.object({
 		reviewer: workspaceReviewerSettingsSchema,
+		labeler: workspaceLabelerSettingsSchema,
 		thinking: workspaceThinkingSettingsSchema,
 		tools: z.object({
 			allowRepositoryOverrides: z.boolean(),
@@ -326,6 +351,7 @@ export const workspaceSettingsSchema = z.object({
 	}),
 	fun: z.object({
 		toneInstructions: z.string(),
+		modelId: z.string(),
 		poem: z.boolean(),
 		inProgressFortune: z.boolean(),
 		art: z.boolean(),
@@ -361,6 +387,7 @@ export const defaultWorkspaceSettings = {
 			relatedIssues: true,
 			relatedPRs: true,
 			suggestedLabels: true,
+			modelId: "anthropic/claude-sonnet-4-5",
 		},
 		behavior: {
 			profile: "chill",
@@ -401,6 +428,16 @@ export const defaultWorkspaceSettings = {
 				"Review the whole change in repository context. Do not behave like a diff-only reviewer.",
 			postSummaryComment: true,
 			postInlineFindings: true,
+		},
+		labeler: {
+			enabled: true,
+			modelId: "anthropic/claude-sonnet-4-5",
+			maxLabels: 4,
+			maxOutputTokens: 1024,
+			applyOnIssues: true,
+			applyOnPullRequests: true,
+			extraInstructions:
+				"Only choose labels that already exist in the repository label set.",
 		},
 		thinking: {
 			enabled: true,
@@ -528,6 +565,7 @@ export const defaultWorkspaceSettings = {
 	fun: {
 		toneInstructions:
 			"Keep the review warm, direct, and lightly playful without becoming flippant.",
+		modelId: "anthropic/claude-sonnet-4-5",
 		poem: false,
 		inProgressFortune: false,
 		art: false,
@@ -578,6 +616,39 @@ function mergeValue<T>(base: T, override: DeepPartial<T> | undefined): T {
 	return override as T;
 }
 
+function getDefaultManagedToolServerName(type: WorkspaceManagedToolType) {
+	if (type === "github-mcp") {
+		return "github";
+	}
+
+	if (type === "gitlab-mcp") {
+		return "gitlab";
+	}
+
+	return null;
+}
+
+function normalizeManagedTool(tool: WorkspaceManagedTool): WorkspaceManagedTool {
+	const supportsMcp =
+		tool.type === "github-mcp" || tool.type === "gitlab-mcp";
+	const mode = supportsMcp && tool.mode === "mcp" ? "mcp" : "builtin";
+	const trimmedServerName = tool.mcpServerName?.trim() || null;
+
+	return {
+		...tool,
+		mode,
+		mcpServerName:
+			mode === "builtin"
+				? null
+			: trimmedServerName ?? getDefaultManagedToolServerName(tool.type),
+	};
+}
+
+function normalizeModelId(value: string | null | undefined, fallback: string) {
+	const trimmed = value?.trim() || "";
+	return trimmed || fallback;
+}
+
 export function mergeWorkspaceSettings(
 	base: WorkspaceSettings,
 	override?: DeepPartial<WorkspaceSettings> | null,
@@ -590,12 +661,32 @@ export function normalizeWorkspaceSettings(value: unknown): WorkspaceSettings {
 		return createDefaultWorkspaceSettings();
 	}
 
-	return workspaceSettingsSchema.parse(
-		mergeWorkspaceSettings(
-			createDefaultWorkspaceSettings(),
-			value as DeepPartial<WorkspaceSettings>,
-		),
+	const normalizedSettings = mergeWorkspaceSettings(
+		createDefaultWorkspaceSettings(),
+		value as DeepPartial<WorkspaceSettings>,
 	);
+
+	normalizedSettings.ai.tools.available = normalizedSettings.ai.tools.available.map(
+		normalizeManagedTool,
+	);
+	normalizedSettings.ai.reviewer.modelId = normalizeModelId(
+		normalizedSettings.ai.reviewer.modelId,
+		defaultWorkspaceSettings.ai.reviewer.modelId,
+	);
+	normalizedSettings.ai.labeler.modelId = normalizeModelId(
+		normalizedSettings.ai.labeler.modelId,
+		normalizedSettings.ai.reviewer.modelId,
+	);
+	normalizedSettings.reviews.walkthrough.modelId = normalizeModelId(
+		normalizedSettings.reviews.walkthrough.modelId,
+		normalizedSettings.ai.reviewer.modelId,
+	);
+	normalizedSettings.fun.modelId = normalizeModelId(
+		normalizedSettings.fun.modelId,
+		normalizedSettings.ai.reviewer.modelId,
+	);
+
+	return workspaceSettingsSchema.parse(normalizedSettings);
 }
 
 export function resolveEffectiveWorkspaceSettings({
@@ -611,12 +702,21 @@ export function resolveEffectiveWorkspaceSettings({
 		createDefaultWorkspaceSettings(),
 		organizationSettings,
 	);
+	const repositoryLayer = mergeWorkspaceSettings(
+		createDefaultWorkspaceSettings(),
+		repositorySettings,
+	);
 
 	if (!useOrganizationSettings) {
-		return mergeWorkspaceSettings(
-			createDefaultWorkspaceSettings(),
-			repositorySettings,
-		);
+		if (organizationLayer.ai.tools.allowRepositoryOverrides) {
+			return repositoryLayer;
+		}
+
+		return mergeWorkspaceSettings(repositoryLayer, {
+			ai: {
+				tools: organizationLayer.ai.tools,
+			},
+		});
 	}
 
 	return organizationLayer;

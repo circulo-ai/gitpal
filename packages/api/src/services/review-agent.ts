@@ -1,4 +1,4 @@
-import { Output, ToolLoopAgent, stepCountIs, tool } from "ai";
+import { Output, ToolLoopAgent, generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 
 import type {
@@ -12,7 +12,9 @@ import type {
 } from "@gitpal/git";
 import {
 	inferProviderIdFromModel,
+	buildRepositoryReviewCommentMarkdown,
 	type WorkspaceManagedTool,
+	type WorkspaceManagedToolMode,
 	type WorkspaceSettings,
 } from "@gitpal/utils";
 
@@ -52,7 +54,6 @@ const preMergeCheckSchema = z.object({
 export const repositoryReviewOutputSchema = z.object({
 	summary: z.string(),
 	walkthrough: z.string(),
-	finalComment: z.string(),
 	suggestedLabels: z.array(z.string()).default([]),
 	relatedWork: z.array(relatedWorkSchema).default([]),
 	findings: z.array(reviewFindingSchema).default([]),
@@ -74,6 +75,7 @@ type ReviewContext = {
 	comments: GitComment[];
 	settings: WorkspaceSettings;
 	kind: ReviewRunKind;
+	suggestedReviewers?: string[];
 };
 
 type WebSearchResult = {
@@ -94,8 +96,55 @@ function trimPatch(patch: string | null, maxLines = 25) {
 function getEnabledTool(
 	tools: WorkspaceManagedTool[],
 	type: WorkspaceManagedTool["type"],
+	mode?: WorkspaceManagedToolMode,
 ) {
-	return tools.find((toolSetting) => toolSetting.type === type && toolSetting.enabled);
+	return tools.find(
+		(toolSetting) =>
+			toolSetting.type === type &&
+			toolSetting.enabled &&
+			(mode ? toolSetting.mode === mode : true),
+	);
+}
+
+function getToolSource(tool: WorkspaceManagedTool | undefined) {
+	if (!tool) {
+		return "disabled";
+	}
+
+	if (tool.mode === "mcp") {
+		return tool.mcpServerName ? `mcp:${tool.mcpServerName}` : "mcp:unconfigured";
+	}
+
+	return "builtin";
+}
+
+function summarizeChangedFile(file: GitPullRequestFile) {
+	switch (file.status) {
+		case "added":
+			return "New file added.";
+		case "removed":
+			return "File removed.";
+		case "renamed":
+			return file.previousPath
+				? `Renamed from ${file.previousPath}.`
+				: "File renamed.";
+		case "copied":
+			return file.previousPath
+				? `Copied from ${file.previousPath}.`
+				: "File copied from another location.";
+		default:
+			return "Summary of changes to this file.";
+	}
+}
+
+function buildChangedFileSummaries(files: GitPullRequestFile[]) {
+	return files.map((file) => ({
+		path: file.path,
+		status: file.status,
+		additions: file.additions,
+		deletions: file.deletions,
+		summary: summarizeChangedFile(file),
+	}));
 }
 
 function mapThinkingProviderOptions(
@@ -388,8 +437,170 @@ Required output expectations:
 - Produce findings only for real issues; do not invent them.
 - Include pre-merge checks when relevant.
 - Include related issues and pull requests when you have evidence.
-- Build the final comment in Markdown and make it publish-ready.
+- Return only the structured review content; the app assembles the publish-ready Markdown comment.
 `.trim();
+}
+
+function buildReviewCommentMarkdown(
+	context: Omit<ReviewContext, "adapter" | "userId">,
+	output: RepositoryReviewOutput,
+	files: GitPullRequestFile[],
+	poem?: string | null,
+) {
+	return buildRepositoryReviewCommentMarkdown({
+		settings: context.settings,
+		repository: {
+			fullName: context.repository.fullName,
+			description: context.repository.description,
+		},
+		pullRequest: {
+			number: context.pullRequest.number,
+			title: context.pullRequest.title,
+			authorLogin: context.pullRequest.author?.login ?? null,
+			sourceBranch: context.pullRequest.sourceBranch,
+			targetBranch: context.pullRequest.targetBranch,
+		},
+		kind: context.kind,
+		summary: output.summary,
+		walkthrough: output.walkthrough,
+		findings: output.findings,
+		relatedWork: output.relatedWork,
+		preMergeChecks: output.preMergeChecks,
+		suggestedLabels: output.suggestedLabels,
+		suggestedReviewers: context.suggestedReviewers ?? [],
+		changedFiles: buildChangedFileSummaries(files),
+		poem: poem ?? null,
+	});
+}
+
+function buildPromptFilesSummary(files: GitPullRequestFile[]) {
+	return files
+		.map(
+			(file) =>
+				`${file.path} [${file.status}] +${file.additions}/-${file.deletions}\n${trimPatch(
+					file.patch,
+					12,
+				)}`,
+		)
+		.join("\n\n");
+}
+
+async function generateWalkthroughText({
+	context,
+	output,
+	files,
+}: {
+	context: ReviewContext;
+	output: RepositoryReviewOutput;
+	files: GitPullRequestFile[];
+}) {
+	try {
+		const walkthroughModelId = context.settings.reviews.walkthrough.modelId.trim();
+
+		if (
+			!walkthroughModelId ||
+			walkthroughModelId === context.settings.ai.reviewer.modelId
+		) {
+			return output.walkthrough;
+		}
+
+		const { model } = await resolveLanguageModelForUser({
+			userId: context.userId,
+			modelId: walkthroughModelId,
+		});
+		const result = await generateText({
+			model,
+			maxOutputTokens: Math.min(
+				context.settings.ai.reviewer.maxOutputTokens,
+				2048,
+			),
+			prompt: `
+You are rewriting the walkthrough section of a code review comment.
+
+Repository: ${context.repository.fullName}
+Pull request: #${context.pullRequest.number} ${context.pullRequest.title}
+Current walkthrough draft:
+${output.walkthrough}
+
+Summary:
+${output.summary}
+
+Findings:
+${output.findings.length > 0
+		? output.findings
+				.map(
+					(finding) =>
+						`- ${finding.severity.toUpperCase()} ${finding.title}: ${finding.body}`,
+				)
+				.join("\n")
+		: "No findings."}
+
+Related work:
+${output.relatedWork.length > 0
+		? output.relatedWork
+				.map(
+					(item) =>
+						`- ${item.kind.toUpperCase()} #${item.number}: ${item.title} (${item.reason})`,
+				)
+				.join("\n")
+		: "No related work."}
+
+Changed files:
+${buildPromptFilesSummary(files)}
+
+Rewrite the walkthrough as concise Markdown prose. Keep it grounded in the diff and repository context. Do not invent facts.
+`.trim(),
+		});
+
+		return result.text.trim() || output.walkthrough;
+	} catch {
+		return output.walkthrough;
+	}
+}
+
+async function generateFunPoem({
+	context,
+	output,
+	walkthrough,
+}: {
+	context: ReviewContext;
+	output: RepositoryReviewOutput;
+	walkthrough: string;
+}) {
+	if (!context.settings.fun.poem) {
+		return null;
+	}
+
+	try {
+		const { model } = await resolveLanguageModelForUser({
+			userId: context.userId,
+			modelId: context.settings.fun.modelId.trim(),
+		});
+		const result = await generateText({
+			model,
+			maxOutputTokens: 256,
+			prompt: `
+Write a short playful poem for a pull request review comment.
+
+Repository: ${context.repository.fullName}
+Pull request: #${context.pullRequest.number} ${context.pullRequest.title}
+Summary:
+${output.summary}
+
+Walkthrough:
+${walkthrough}
+
+Tone guidance:
+${context.settings.fun.toneInstructions}
+
+Keep it concise, warm, and suitable for a professional review comment. Output only the poem.
+`.trim(),
+		});
+
+		return result.text.trim() || null;
+	} catch {
+		return null;
+	}
 }
 
 function createReviewTools(context: ReviewContext) {
@@ -411,8 +622,8 @@ function createReviewTools(context: ReviewContext) {
 		"web-search",
 	);
 	const mcpProxyTool =
-		getEnabledTool(context.settings.ai.tools.available, "github-mcp") ??
-		getEnabledTool(context.settings.ai.tools.available, "gitlab-mcp");
+		getEnabledTool(context.settings.ai.tools.available, "github-mcp", "mcp") ??
+		getEnabledTool(context.settings.ai.tools.available, "gitlab-mcp", "mcp");
 
 	return {
 		read_pull_request_file: tool({
@@ -479,7 +690,7 @@ function createReviewTools(context: ReviewContext) {
 				});
 
 				return {
-					source: mcpProxyTool ? "mcp-proxy" : "builtin",
+					source: getToolSource(repositorySearchTool ?? mcpProxyTool),
 					items,
 					formatted: formatSearchResults(items),
 				};
@@ -614,9 +825,34 @@ export async function runRepositoryReview(context: ReviewContext) {
 			seededContext,
 		}),
 	});
+	const output = repositoryReviewOutputSchema.parse(result.output);
+	const walkthrough = await generateWalkthroughText({
+		context,
+		output,
+		files: context.files,
+	});
+	const finalOutput: RepositoryReviewOutput =
+		walkthrough === output.walkthrough
+			? output
+			: {
+					...output,
+					walkthrough,
+				};
+	const poem = await generateFunPoem({
+		context,
+		output: finalOutput,
+		walkthrough,
+	});
 
 	return {
-		output: repositoryReviewOutputSchema.parse(result.output),
+		output: finalOutput,
+		commentMarkdown: buildReviewCommentMarkdown(
+			context,
+			finalOutput,
+			context.files,
+			poem,
+		),
+		poem,
 		text: result.text,
 		steps: result.steps,
 	};

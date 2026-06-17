@@ -14,6 +14,7 @@ import {
 	type GitPullRequestCreateInput,
 	type GitPullRequestState,
 	type GitRepository,
+	type GitRepositoryLabel,
 	type GitRepositoryFile,
 	type GitRepositoryRef,
 	type GitRepositorySearchKind,
@@ -317,6 +318,21 @@ function mapSearchResult(
 		),
 		createdAt: String(item.created_at ?? new Date().toISOString()),
 		updatedAt: String(item.updated_at ?? new Date().toISOString()),
+	};
+}
+
+function mapRepositoryLabel(
+	label: Record<string, unknown>,
+	providerId: string,
+	repositoryPath: string,
+): GitRepositoryLabel {
+	return {
+		providerId,
+		repositoryPath,
+		name: String(label.name ?? ""),
+		description:
+			typeof label.description === "string" ? label.description : null,
+		color: typeof label.color === "string" ? label.color : null,
 	};
 }
 
@@ -628,6 +644,39 @@ export function createGitHubAdapter({
 			.slice(0, limit);
 	}
 
+	async function listRepositoryLabels(
+		input: GitRepositoryRef & { query?: string; limit?: number },
+	) {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const limit = Math.min(Math.max(input.limit ?? 100, 1), 100);
+		const query = input.query?.trim().toLowerCase() ?? "";
+		const response = await octokit.paginate(octokit.rest.issues.listLabelsForRepo, {
+			owner,
+			repo,
+			per_page: 100,
+		});
+
+		return response
+			.map((label) =>
+				mapRepositoryLabel(
+					label as Record<string, unknown>,
+					providerId,
+					input.repositoryPath,
+				),
+			)
+			.filter((label) => {
+				if (!query) {
+					return true;
+				}
+
+				return (
+					label.name.toLowerCase().includes(query) ||
+					(label.description ?? "").toLowerCase().includes(query)
+				);
+			})
+			.slice(0, limit);
+	}
+
 	async function createPullRequest(input: GitPullRequestCreateInput) {
 		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
 		const response = await octokit.rest.pulls.create({
@@ -701,6 +750,36 @@ export function createGitHubAdapter({
 			input.repositoryPath,
 			input.pullRequestNumber,
 		);
+	}
+
+	async function addIssueLabels(
+		input: GitRepositoryRef & { issueNumber: number; labels: string[] },
+	) {
+		if (input.labels.length === 0) {
+			return;
+		}
+
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		await octokit.rest.issues.addLabels({
+			owner,
+			repo,
+			issue_number: input.issueNumber,
+			labels: input.labels,
+		});
+	}
+
+	async function addPullRequestLabels(
+		input: GitRepositoryRef & { pullRequestNumber: number; labels: string[] },
+	) {
+		if (input.labels.length === 0) {
+			return;
+		}
+
+		await addIssueLabels({
+			repositoryPath: input.repositoryPath,
+			issueNumber: input.pullRequestNumber,
+			labels: input.labels,
+		});
 	}
 
 	async function mergePullRequest(
@@ -819,8 +898,11 @@ export function createGitHubAdapter({
 		listPullRequestComments,
 		getFileContent,
 		searchRepository,
+		listRepositoryLabels,
 		createPullRequest,
 		createComment,
+		addIssueLabels,
+		addPullRequestLabels,
 		mergePullRequest,
 		listWebhooks,
 		createWebhook,

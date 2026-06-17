@@ -12,6 +12,7 @@ import {
 	type GitPullRequestCreateInput,
 	type GitPullRequestState,
 	type GitRepository,
+	type GitRepositoryLabel,
 	type GitRepositoryFile,
 	type GitRepositoryRef,
 	type GitRepositorySearchKind,
@@ -323,6 +324,12 @@ const gitlabHookSchema = z.object({
 	confidential_note_events: z.boolean().optional(),
 });
 
+const gitlabLabelSchema = z.object({
+	name: z.string(),
+	description: z.string().nullable().optional(),
+	color: z.string().nullable().optional(),
+});
+
 function mapActor(
 	actor:
 		| {
@@ -535,6 +542,20 @@ function mapSearchResult(
 	};
 }
 
+function mapRepositoryLabel(
+	label: z.infer<typeof gitlabLabelSchema>,
+	providerId: string,
+	repositoryPath: string,
+): GitRepositoryLabel {
+	return {
+		providerId,
+		repositoryPath,
+		name: label.name,
+		description: label.description ?? null,
+		color: label.color ?? null,
+	};
+}
+
 function createGitLabRequestHeaders(
 	token: string | undefined,
 	tokenType: "bearer" | "private-token" = "bearer",
@@ -556,6 +577,22 @@ function createGitLabRequestHeaders(
 
 function createRepositoryUrl(apiBaseUrl: string, repositoryPath: string) {
 	return `${normalizeBaseUrl(apiBaseUrl)}/projects/${encodeURIComponent(repositoryPath)}`;
+}
+
+function createIssueUrl(
+	apiBaseUrl: string,
+	repositoryPath: string,
+	issueNumber: number,
+) {
+	return `${createRepositoryUrl(apiBaseUrl, repositoryPath)}/issues/${issueNumber}`;
+}
+
+function createMergeRequestUrl(
+	apiBaseUrl: string,
+	repositoryPath: string,
+	pullRequestNumber: number,
+) {
+	return `${createRepositoryUrl(apiBaseUrl, repositoryPath)}/merge_requests/${pullRequestNumber}`;
 }
 
 function createGitLabWebhookVerifier(
@@ -967,6 +1004,34 @@ export function createGitLabAdapter({
 		return results.slice(0, limit);
 	}
 
+	async function listRepositoryLabels(
+		input: GitRepositoryRef & { query?: string; limit?: number },
+	) {
+		const limit = Math.min(Math.max(input.limit ?? 100, 1), 100);
+		const query = input.query?.trim();
+		const searchParams = query ? `&search=${encodeURIComponent(query)}` : "";
+		const response = await requestJson<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/labels?with_counts=false&per_page=100${searchParams}`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+			},
+			providerId,
+		);
+
+		return z
+			.array(gitlabLabelSchema)
+			.parse(response)
+			.map((label) =>
+				mapRepositoryLabel(label, providerId, input.repositoryPath),
+			)
+			.slice(0, limit);
+	}
+
 	async function createPullRequest(input: GitPullRequestCreateInput) {
 		const response = await requestJson<unknown>(
 			`${createRepositoryUrl(
@@ -1021,6 +1086,60 @@ export function createGitLabAdapter({
 			providerId,
 			input.repositoryPath,
 			input.pullRequestNumber,
+		);
+	}
+
+	async function addIssueLabels(
+		input: GitRepositoryRef & { issueNumber: number; labels: string[] },
+	) {
+		if (input.labels.length === 0) {
+			return;
+		}
+
+		await requestJson<unknown>(
+			`${createIssueUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+				input.issueNumber,
+			)}`,
+			{
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+				body: JSON.stringify({
+					add_labels: input.labels.join(","),
+				}),
+			},
+			providerId,
+		);
+	}
+
+	async function addPullRequestLabels(
+		input: GitRepositoryRef & { pullRequestNumber: number; labels: string[] },
+	) {
+		if (input.labels.length === 0) {
+			return;
+		}
+
+		await requestJson<unknown>(
+			`${createMergeRequestUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+				input.pullRequestNumber,
+			)}`,
+			{
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					...createGitLabRequestHeaders(token, tokenType),
+				},
+				body: JSON.stringify({
+					add_labels: input.labels.join(","),
+				}),
+			},
+			providerId,
 		);
 	}
 
@@ -1135,8 +1254,11 @@ export function createGitLabAdapter({
 		listPullRequestComments,
 		getFileContent,
 		searchRepository,
+		listRepositoryLabels,
 		createPullRequest,
 		createComment,
+		addIssueLabels,
+		addPullRequestLabels,
 		mergePullRequest,
 		listWebhooks,
 		createWebhook,

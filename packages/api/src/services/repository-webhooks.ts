@@ -18,7 +18,7 @@ import {
 } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
 import type { WorkspaceSettings } from "@gitpal/utils";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import {
 	createAdapterFromAccount,
@@ -27,6 +27,7 @@ import {
 	getAutomationActorForRepository,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
+import { runRepositoryLabeler } from "./labeler";
 import {
 	type RepositoryReviewOutput,
 	runRepositoryReview,
@@ -37,12 +38,13 @@ const db = createDb();
 const log = createLogger("repository-webhooks");
 const ENTERPRISE_GIT_PROVIDER_PREFIX = "enterprise-git:";
 const GITHUB_WEBHOOK_EVENTS = [
+	"issues",
 	"pull_request",
 	"pull_request_review",
 	"pull_request_review_comment",
 	"issue_comment",
 ] as const;
-const GITLAB_WEBHOOK_EVENTS = ["pull_request", "note"] as const;
+const GITLAB_WEBHOOK_EVENTS = ["pull_request", "issue", "note"] as const;
 const COMMENT_WEBHOOK_EVENTS = new Set([
 	"issue_comment",
 	"pull_request_review_comment",
@@ -65,7 +67,8 @@ type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 type PullRequestRow = typeof dashboardSchema.pullRequest.$inferSelect;
 type WebhookEventReceiptRow =
 	typeof dashboardSchema.webhookEventReceipt.$inferSelect;
-type ReviewRunKind = "review" | "mention" | "pre-merge";
+type ReviewDispatchKind = "review" | "mention" | "pre-merge";
+type WebhookReviewKind = ReviewDispatchKind | "labeler";
 type ProviderType = "github" | "gitlab";
 type WebhookReceiptStatus =
 	| "received"
@@ -109,8 +112,23 @@ type PullRequestEventContext = {
 	isPullRequestCommentEvent: boolean;
 };
 
+type LabelEventContext = {
+	kind: "issue" | "pull_request";
+	number: number | null;
+	title: string;
+	body: string | null;
+	labels: string[];
+	isDraft: boolean;
+};
+
 type ReviewDispatch = {
-	kind: ReviewRunKind;
+	kind: ReviewDispatchKind;
+	trigger: string;
+	manual: boolean;
+};
+
+type LabelDispatch = {
+	kind: "issue" | "pull_request";
 	trigger: string;
 	manual: boolean;
 };
@@ -360,6 +378,133 @@ function extractPullRequestContext(
 	return providerType === "github"
 		? extractGitHubContext(payload)
 		: extractGitLabContext(payload);
+}
+
+function extractGitHubLabelContext(
+	payload: Record<string, unknown>,
+	event: string,
+): LabelEventContext | null {
+	if (event !== "pull_request" && event !== "issues") {
+		return null;
+	}
+
+	const issue = asRecord(payload.issue);
+	const pullRequest = asRecord(payload.pull_request);
+	const issuePullRequest = issue ? asRecord(issue.pull_request) : null;
+
+	if (event === "issues" && issuePullRequest) {
+		return null;
+	}
+
+	const isPullRequest = event === "pull_request";
+	const source = isPullRequest ? pullRequest ?? issue : issue;
+
+	if (!source) {
+		return null;
+	}
+
+	return {
+		kind: isPullRequest ? "pull_request" : "issue",
+		number:
+			asNumber(source.number) ?? asNumber(issue?.number) ?? asNumber(pullRequest?.number),
+		title: asString(source.title) ?? "",
+		body: asString(source.body),
+		labels: extractLabelNames(source.labels),
+		isDraft: Boolean(pullRequest?.draft),
+	};
+}
+
+function extractGitLabLabelContext(
+	payload: Record<string, unknown>,
+	event: string,
+): LabelEventContext | null {
+	if (event !== "pull_request" && event !== "issue") {
+		return null;
+	}
+
+	const objectAttributes = asRecord(payload.object_attributes);
+	const mergeRequest = asRecord(payload.merge_request);
+	const issue = asRecord(payload.issue);
+	const isPullRequest = event === "pull_request";
+	const source = isPullRequest
+		? mergeRequest ?? objectAttributes ?? issue
+		: issue ?? objectAttributes;
+
+	if (!source) {
+		return null;
+	}
+
+	const labels = isPullRequest
+		? [...extractLabelNames(objectAttributes?.labels), ...extractLabelNames(mergeRequest?.labels)]
+		: [...extractLabelNames(objectAttributes?.labels), ...extractLabelNames(issue?.labels)];
+
+	return {
+		kind: isPullRequest ? "pull_request" : "issue",
+		number:
+			asNumber(objectAttributes?.iid) ??
+			asNumber(mergeRequest?.iid) ??
+			asNumber(issue?.iid) ??
+			asNumber(objectAttributes?.noteable_iid),
+		title: asString(source.title) ?? "",
+		body: asString(source.description) ?? asString(objectAttributes?.description),
+		labels,
+		isDraft: Boolean(
+			mergeRequest?.draft ?? objectAttributes?.work_in_progress ?? false,
+		),
+	};
+}
+
+function extractLabelContext(
+	providerType: ProviderType,
+	envelope: GitWebhookEnvelope,
+): LabelEventContext | null {
+	const payload = asRecord(envelope.payload) ?? {};
+	return providerType === "github"
+		? extractGitHubLabelContext(payload, envelope.event)
+		: extractGitLabLabelContext(payload, envelope.event);
+}
+
+function resolveLabelDispatch({
+	providerType,
+	envelope,
+	settings,
+	context,
+}: {
+	providerType: ProviderType;
+	envelope: GitWebhookEnvelope;
+	settings: WorkspaceSettings;
+	context: LabelEventContext;
+}): LabelDispatch | null {
+	if (!settings.ai.labeler.enabled || !context.number) {
+		return null;
+	}
+
+	const normalizedAction = envelope.action?.toLowerCase() ?? "";
+
+	if (context.kind === "pull_request") {
+		if (
+			isPullRequestOpenAction(normalizedAction) ||
+			(providerType === "github" && normalizedAction === "ready_for_review")
+		) {
+			return {
+				kind: "pull_request",
+				trigger: normalizedAction || "pull_request",
+				manual: false,
+			};
+		}
+
+		return null;
+	}
+
+	if (isPullRequestOpenAction(normalizedAction)) {
+		return {
+			kind: "issue",
+			trigger: normalizedAction || "issue",
+			manual: false,
+		};
+	}
+
+	return null;
 }
 
 function matchesCommandTrigger(
@@ -807,15 +952,19 @@ async function upsertPullRequestSnapshot({
 async function createReviewRun({
 	repository,
 	pullRequest,
-	settings,
 	envelope,
-	dispatch,
+	reviewKind,
+	trigger,
+	modelId,
+	thinkingEnabled,
 }: {
 	repository: RepositoryRow;
-	pullRequest: PullRequestRow;
-	settings: WorkspaceSettings;
+	pullRequest: PullRequestRow | null;
 	envelope: GitWebhookEnvelope;
-	dispatch: ReviewDispatch;
+	reviewKind: WebhookReviewKind;
+	trigger: string;
+	modelId: string;
+	thinkingEnabled: boolean;
 }) {
 	const now = new Date();
 
@@ -824,16 +973,16 @@ async function createReviewRun({
 		.values({
 			id: `review_run_${randomUUID()}`,
 			repositoryId: repository.id,
-			pullRequestId: pullRequest.id,
-			reviewKind: dispatch.kind,
-			trigger: dispatch.trigger,
+			pullRequestId: pullRequest?.id ?? null,
+			reviewKind,
+			trigger,
 			providerId: repository.providerId,
 			providerDeliveryId: envelope.deliveryId,
 			providerEvent: envelope.event,
 			providerAction: envelope.action,
 			status: "running",
-			modelId: settings.ai.reviewer.modelId,
-			thinkingEnabled: settings.ai.thinking.enabled,
+			modelId,
+			thinkingEnabled,
 			startedAt: now,
 			createdAt: now,
 			updatedAt: now,
@@ -881,6 +1030,68 @@ function formatFindingBody(
 	return `**${finding.severity.toUpperCase()}** · ${finding.title}\n\n${finding.body}`;
 }
 
+function buildLabelerSummaryMarkdown({
+	summary,
+	suggestedLabels,
+	appliedLabels,
+}: {
+	summary: string;
+	suggestedLabels: string[];
+	appliedLabels: string[];
+}) {
+	const sections: string[] = [];
+
+	if (summary.trim()) {
+		sections.push(`## Label summary\n${summary.trim()}`);
+	}
+
+	if (suggestedLabels.length > 0) {
+		sections.push(
+			`## Suggested labels\n${suggestedLabels.map((label) => `- ${label}`).join("\n")}`,
+		);
+	}
+
+	if (appliedLabels.length > 0) {
+		sections.push(
+			`## Applied labels\n${appliedLabels.map((label) => `- ${label}`).join("\n")}`,
+		);
+	}
+
+	return sections.join("\n\n");
+}
+
+async function listSuggestedReviewersForRepository(repositoryId: string) {
+	const rows = await db
+		.select({
+			access: dashboardSchema.repositoryAccess,
+			user: authSchema.user,
+		})
+		.from(dashboardSchema.repositoryAccess)
+		.innerJoin(
+			dashboardSchema.repository,
+			eq(
+				dashboardSchema.repositoryAccess.repositoryId,
+				dashboardSchema.repository.id,
+			),
+		)
+		.innerJoin(
+			authSchema.user,
+			eq(authSchema.user.id, dashboardSchema.repositoryAccess.userId),
+		)
+		.where(
+			and(
+				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
+				eq(dashboardSchema.repositoryAccess.enabled, true),
+			),
+		)
+		.orderBy(desc(dashboardSchema.repositoryAccess.lastSeenAt))
+		.limit(3);
+
+	return rows
+		.map(({ user }) => user.name?.trim() || user.email.split("@")[0] || user.id)
+		.filter(Boolean);
+}
+
 function toGitRepository(repository: RepositoryRow): GitRepository {
 	return {
 		providerId: repository.providerId,
@@ -913,14 +1124,14 @@ async function maybePublishSummaryComment({
 	pullRequest,
 	settings,
 	dispatch,
-	output,
+	commentMarkdown,
 }: {
 	adapter: GitProviderAdapter;
 	repository: RepositoryRow;
 	pullRequest: GitPullRequest;
 	settings: WorkspaceSettings;
 	dispatch: ReviewDispatch;
-	output: RepositoryReviewOutput;
+	commentMarkdown: string;
 }) {
 	const shouldPublish =
 		dispatch.kind === "pre-merge"
@@ -934,7 +1145,7 @@ async function maybePublishSummaryComment({
 	const comment = await adapter.createComment({
 		repositoryPath: repository.repositoryPath,
 		pullRequestNumber: pullRequest.number,
-		body: output.finalComment,
+		body: commentMarkdown,
 	});
 
 	return comment;
@@ -1099,10 +1310,12 @@ async function runWebhookReview({
 	});
 	const reviewRun = await createReviewRun({
 		repository,
-		pullRequest: pullRequestRow,
-		settings,
 		envelope,
-		dispatch,
+		pullRequest: pullRequestRow,
+		reviewKind: dispatch.kind,
+		trigger: dispatch.trigger,
+		modelId: settings.ai.reviewer.modelId,
+		thinkingEnabled: settings.ai.thinking.enabled,
 	});
 
 	try {
@@ -1116,6 +1329,9 @@ async function runWebhookReview({
 				pullRequestNumber: pullRequest.number,
 			}),
 		]);
+		const suggestedReviewers = await listSuggestedReviewersForRepository(
+			repository.id,
+		);
 		const reviewResult = await runRepositoryReview({
 			userId: automationActor.userId,
 			adapter: automationActor.adapter,
@@ -1125,6 +1341,7 @@ async function runWebhookReview({
 			comments,
 			settings,
 			kind: dispatch.kind,
+			suggestedReviewers,
 		});
 
 		await maybePublishSummaryComment({
@@ -1133,7 +1350,7 @@ async function runWebhookReview({
 			pullRequest,
 			settings,
 			dispatch,
-			output: reviewResult.output,
+			commentMarkdown: reviewResult.commentMarkdown,
 		});
 		await createReviewCommentRecords({
 			reviewRunId: reviewRun.id,
@@ -1155,9 +1372,12 @@ async function runWebhookReview({
 			reviewRunId: reviewRun.id,
 			status: "completed",
 			summary: reviewResult.output.summary,
-			finalCommentBody: reviewResult.output.finalComment,
+			finalCommentBody: reviewResult.commentMarkdown,
 			result: {
 				output: reviewResult.output,
+				commentMarkdown: reviewResult.commentMarkdown,
+				poem: reviewResult.poem,
+				suggestedReviewers,
 				text: reviewResult.text,
 				stepCount: reviewResult.steps.length,
 			},
@@ -1174,6 +1394,153 @@ async function runWebhookReview({
 				error: error instanceof Error ? error.message : "review_failed",
 			},
 		});
+		return "failed" as const;
+	}
+}
+
+async function runWebhookLabeler({
+	repository,
+	envelope,
+	providerType,
+}: {
+	repository: RepositoryRow;
+	envelope: GitWebhookEnvelope;
+	providerType: ProviderType;
+}): Promise<WebhookProcessingResult> {
+	const automationActor = await getAutomationActorForRepository({
+		repositoryId: repository.id,
+		providerId: repository.providerId,
+	});
+
+	if (!automationActor) {
+		return "ignored" as const;
+	}
+
+	const settingsResult = await getRepositoryWorkspaceSettings({
+		organizationId: repository.organizationId,
+		repositoryId: repository.id,
+		userId: automationActor.userId,
+	});
+
+	if (!settingsResult) {
+		return "ignored" as const;
+	}
+
+	const settings = settingsResult.effectiveSettings;
+	const labelContext = extractLabelContext(providerType, envelope);
+	if (!labelContext || !labelContext.number) {
+		return "ignored" as const;
+	}
+
+	const dispatch = resolveLabelDispatch({
+		providerType,
+		envelope,
+		settings,
+		context: labelContext,
+	});
+
+	if (!dispatch) {
+		return "ignored" as const;
+	}
+
+	const repositoryLabels = await automationActor.adapter.listRepositoryLabels({
+		repositoryPath: repository.repositoryPath,
+		limit: 100,
+	});
+
+	if (repositoryLabels.length === 0) {
+		return "ignored" as const;
+	}
+
+	let pullRequestRow: PullRequestRow | null = null;
+	let labelFiles: Awaited<ReturnType<typeof automationActor.adapter.listPullRequestFiles>> = [];
+
+	if (dispatch.kind === "pull_request") {
+		const pullRequest = await automationActor.adapter.getPullRequest({
+			repositoryPath: repository.repositoryPath,
+			pullRequestNumber: labelContext.number,
+		});
+		pullRequestRow = await upsertPullRequestSnapshot({
+			repositoryId: repository.id,
+			pullRequest,
+		});
+		labelFiles = await automationActor.adapter.listPullRequestFiles({
+			repositoryPath: repository.repositoryPath,
+			pullRequestNumber: labelContext.number,
+		});
+	}
+
+	const labelRun = await createReviewRun({
+		repository,
+		pullRequest: pullRequestRow,
+		envelope,
+		reviewKind: "labeler",
+		trigger: dispatch.trigger,
+		modelId: settings.ai.labeler.modelId,
+		thinkingEnabled: false,
+	});
+
+	try {
+		const labelResult = await runRepositoryLabeler({
+			userId: automationActor.userId,
+			adapter: automationActor.adapter,
+			repository: toGitRepository(repository),
+			settings,
+			target: {
+				kind: dispatch.kind,
+				number: labelContext.number,
+				title: labelContext.title,
+				body: labelContext.body,
+				currentLabels: labelContext.labels,
+				files: labelFiles,
+			},
+			trigger: dispatch.trigger,
+			providerEvent: envelope.event,
+			providerAction: envelope.action,
+			repositoryLabels,
+		});
+
+		if (!labelResult) {
+			await finalizeReviewRun({
+				reviewRunId: labelRun.id,
+				status: "ignored",
+				summary: null,
+				finalCommentBody: null,
+				result: {
+					reason: "labeler_disabled",
+				},
+			});
+			return "ignored" as const;
+		}
+
+		await finalizeReviewRun({
+			reviewRunId: labelRun.id,
+			status: "completed",
+			summary: labelResult.summary,
+			finalCommentBody: buildLabelerSummaryMarkdown(labelResult),
+			result: {
+				summary: labelResult.summary,
+				suggestedLabels: labelResult.suggestedLabels,
+				appliedLabels: labelResult.appliedLabels,
+				availableLabels: labelResult.availableLabels.map((label) => label.name),
+				trigger: dispatch.trigger,
+				providerEvent: envelope.event,
+				providerAction: envelope.action,
+			},
+		});
+
+		return "processed" as const;
+	} catch (error) {
+		await finalizeReviewRun({
+			reviewRunId: labelRun.id,
+			status: "failed",
+			summary: null,
+			finalCommentBody: null,
+			result: {
+				error: error instanceof Error ? error.message : "labeler_failed",
+			},
+		});
+
 		return "failed" as const;
 	}
 }
@@ -1199,19 +1566,23 @@ async function processWebhookReceipt({
 	let failed = 0;
 
 	for (const repository of repositories) {
-		const result = await runWebhookReview({
+		const labelResult = await runWebhookLabeler({
+			repository,
+			envelope,
+			providerType: target.providerType,
+		});
+		const reviewResult = await runWebhookReview({
 			repository,
 			envelope,
 			providerType: target.providerType,
 			context,
 		});
 
-		if (result === "processed") {
+		if (labelResult === "processed" || reviewResult === "processed") {
 			processed += 1;
-			continue;
 		}
 
-		if (result === "failed") {
+		if (labelResult === "failed" || reviewResult === "failed") {
 			failed += 1;
 		}
 	}

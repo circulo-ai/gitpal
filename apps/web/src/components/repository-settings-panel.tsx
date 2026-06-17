@@ -22,6 +22,7 @@ import {
 	EmptyTitle,
 } from "@gitpal/ui/components/empty";
 import type { WorkspaceSettings } from "@gitpal/utils";
+import { resolveEffectiveWorkspaceSettings } from "@gitpal/utils";
 import { Alert01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -142,6 +143,20 @@ export function RepositorySettingsPanel({
 		Boolean(settings && savedSettings) &&
 		(JSON.stringify(settings) !== JSON.stringify(savedSettings) ||
 			useOrganizationSettings !== savedUseOrganizationSettings);
+	const toolSettingsLocked =
+		!useOrganizationSettings &&
+		!repositorySettingsQuery.data.organizationSettings.ai.tools.allowRepositoryOverrides;
+	const previewSettings = React.useMemo(() => {
+		if (!repositorySettingsQuery.data || !settings) {
+			return null;
+		}
+
+		return resolveEffectiveWorkspaceSettings({
+			organizationSettings: repositorySettingsQuery.data.organizationSettings,
+			repositorySettings: settings,
+			useOrganizationSettings,
+		});
+	}, [repositorySettingsQuery.data, settings, useOrganizationSettings]);
 
 	return (
 		<div className="space-y-4 pb-24">
@@ -209,6 +224,15 @@ export function RepositorySettingsPanel({
 						value={settings}
 						onChange={setSettings}
 						disabled={useOrganizationSettings}
+						previewSettings={previewSettings ?? repositorySettingsQuery.data.effectiveSettings}
+						previewRepositoryFullName={
+							repositorySettingsQuery.data.repository.fullName
+						}
+						previewRepositoryDescription={
+							repositorySettingsQuery.data.repository.description
+						}
+						previewWorkspaceName={activeWorkspace.name}
+						toolSettingsLocked={toolSettingsLocked}
 					/>
 				</CardContent>
 			</Card>

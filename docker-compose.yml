@@ -61,7 +61,6 @@ services:
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       # Linked directly to the internal Inngest service
       INNGEST_BASE_URL: http://inngest:8288
-      INNGEST_DEV: 1
     networks:
       - gitpal-network
     healthcheck:
@@ -105,7 +104,6 @@ services:
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       INNGEST_BASE_URL: http://inngest:8288
-      INNGEST_DEV: 1
     networks:
       - gitpal-network
     depends_on:
@@ -170,6 +168,7 @@ services:
       - INNGEST_LOG_LEVEL=${INNGEST_LOG_LEVEL:-info}
       - INNGEST_JSON=${INNGEST_JSON:-false}
       - INNGEST_VERBOSE=${INNGEST_VERBOSE:-false}
+      - INNGEST_DEV=0
     ports:
       - "8288" # APIs and Dashboard
       - "8289" # Websocket gateway

@@ -8,5 +8,6 @@ export const inngest = new Inngest({
   eventKey: env.INNGEST_EVENT_KEY,
   signingKey: env.INNGEST_SIGNING_KEY,
   isDev: env.NODE_ENV === "development",
+  env: env.NODE_ENV,
   logger: createLogger("inngest"),
 });

@@ -150,7 +150,7 @@ services:
   inngest:
     image: inngest/inngest
     restart: unless-stopped
-    command: "inngest start --sdk-url ${BETTER_AUTH_URL}/api/inngest" 
+    command: "inngest start --sdk-url http://server:3000/api/inngest" 
     environment:
       - INNGEST_PORT=8288
       - INNGEST_HOST=0.0.0.0

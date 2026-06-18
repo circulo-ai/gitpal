@@ -36,7 +36,6 @@ services:
         condition: service_healthy
     networks:
       - gitpal-internal
-      - gitpal-inngest-mfq9tv
     restart: unless-stopped
 
   server:
@@ -148,6 +147,3 @@ volumes:
 networks:
   gitpal-internal:
     driver: bridge
-  gitpal-inngest-mfq9tv:
-    name: gitpal-inngest-mfq9tv
-    external: true

@@ -616,10 +616,6 @@ export default function AuthPage({ availability }: AuthPageProps) {
 		}
 	}
 
-	async function launchSingleSignOn() {
-		openWorkEmailDialog();
-	}
-
 	return (
 		<div className="dark relative min-h-svh overflow-hidden bg-[#0b0910] text-white">
 			<div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.09),transparent_18%),radial-gradient(circle_at_80%_22%,rgba(255,126,74,0.12),transparent_14%),radial-gradient(circle_at_50%_50%,rgba(123,92,255,0.06),transparent_34%)]" />

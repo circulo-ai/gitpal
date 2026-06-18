@@ -112,6 +112,8 @@ export const pullRequest = pgTable(
 		lastHumanReviewAt: timestamp("last_human_review_at"),
 		lastCommitAt: timestamp("last_commit_at"),
 		reviewReadyAt: timestamp("review_ready_at"),
+		approvedAt: timestamp("approved_at"),
+		approvalState: text("approval_state"),
 		mergeCommitSha: text("merge_commit_sha"),
 	},
 	(table) => [

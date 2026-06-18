@@ -1,9 +1,12 @@
+import { processPullRequestSyncJob } from "@gitpal/api/services/pr-reconcile";
 import { processRepositoryWebhookSyncJob } from "@gitpal/api/services/repository-webhook-sync";
 import { processProviderWebhookReceiptJob } from "@gitpal/api/services/repository-webhooks";
 import {
 	createProviderWebhookWorker,
+	createPullRequestSyncWorker,
 	createRepositoryWebhookSyncWorker,
 	type ProviderWebhookWorkerHandle,
+	type PullRequestSyncWorkerHandle,
 	type RepositoryWebhookSyncWorkerHandle,
 } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
@@ -12,7 +15,8 @@ const log = createLogger("worker");
 
 type WorkerInstance =
 	| ProviderWebhookWorkerHandle["worker"]
-	| RepositoryWebhookSyncWorkerHandle["worker"];
+	| RepositoryWebhookSyncWorkerHandle["worker"]
+	| PullRequestSyncWorkerHandle["worker"];
 
 function registerWorkerListeners(worker: WorkerInstance, label: string) {
 	worker.on("completed", (job) => {
@@ -69,6 +73,12 @@ const workerHandles = [
 			await processRepositoryWebhookSyncJob(data);
 		}),
 	},
+	{
+		label: "pull request sync",
+		handle: createPullRequestSyncWorker(async (data) => {
+			await processPullRequestSyncJob(data);
+		})
+	}
 ];
 
 for (const { handle, label } of workerHandles) {

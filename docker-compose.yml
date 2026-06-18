@@ -10,6 +10,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - gitpal-internal
     restart: on-failure
 
   web:
@@ -32,6 +34,9 @@ services:
     depends_on:
       server:
         condition: service_healthy
+    networks:
+      - gitpal-internal
+      - gitpal-inngest-mfq9tv
     restart: unless-stopped
 
   server:
@@ -55,6 +60,8 @@ services:
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       INNGEST_BASE_URL: ${INNGEST_BASE_URL}
+    networks:
+      - gitpal-internal
     healthcheck:
       test:
         [
@@ -91,6 +98,8 @@ services:
       GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY: ${GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY}
       GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX: ${GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX}
       GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS: ${GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS}
+    networks:
+      - gitpal-internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,6 +118,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - gitpal_postgres_data:/var/lib/postgresql/data
+    networks:
+      - gitpal-internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -121,6 +132,8 @@ services:
     container_name: gitpal-redis
     volumes:
       - gitpal_redis_data:/data
+    networks:
+      - gitpal-internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -131,3 +144,10 @@ services:
 volumes:
   gitpal_postgres_data:
   gitpal_redis_data:
+
+networks:
+  gitpal-internal:
+    driver: bridge
+  gitpal-inngest-mfq9tv:
+    name: gitpal-inngest-mfq9tv
+    external: true

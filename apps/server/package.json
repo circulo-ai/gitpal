@@ -11,15 +11,16 @@
 	},
 	"dependencies": {
 		"@gitpal/api": "workspace:*",
+		"@gitpal/jobs": "workspace:*",
 		"@gitpal/auth": "workspace:*",
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
 		"@gitpal/logger": "workspace:*",
 		"@hono/trpc-server": "^0.4.0",
 		"@trpc/server": "catalog:",
+		"ai": "catalog:",
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",
-		"ai": "catalog:",
 		"hono": "catalog:",
 		"zod": "catalog:"
 	},

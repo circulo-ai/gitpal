@@ -34,7 +34,11 @@ import {
   runRepositoryReview,
 } from "./review-agent";
 import { getRepositoryWorkspaceSettings } from "./workspace-settings";
-import { enqueueProviderWebhookReceiptJob, providerWebhookJobSchema, type ProviderWebhookJobData } from "@gitpal/jobs/inngest/functions/provider-webhooks";
+import {
+  enqueueProviderWebhookReceiptJob,
+  providerWebhookJobSchema,
+  type ProviderWebhookJobData,
+} from "@gitpal/jobs/inngest/functions/provider-webhooks";
 
 const db = createDb();
 const log = createLogger("repository-webhooks");
@@ -2147,6 +2151,13 @@ export async function receiveProviderWebhook({
       body: { ok: false, error: "provider_not_found" },
     };
   }
+  log.info(
+    {
+      label: target.label,
+      id: target.providerId,
+    },
+    "Webhook Target",
+  );
   const verifier = createWebhookVerifier(target);
   const hasSecret = Boolean(target.secret);
   try {
@@ -2177,6 +2188,7 @@ export async function receiveProviderWebhook({
       );
     }
     const envelope = verifier.parse({ headers, rawBody });
+    log.info(envelope.action, "Envelope parsed");
     const repositoryPath = envelope.repository?.repositoryPath ?? null;
     const repositories = repositoryPath
       ? await findRepositoriesForWebhook({ providerId, repositoryPath })

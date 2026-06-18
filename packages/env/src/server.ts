@@ -75,7 +75,7 @@ export const env = createEnv({
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
-    INNGEST_API_BASE_URL: z.url().optional(),
+    INNGEST_BASE_URL: z.url().optional(),
     INNGEST_EVENT_KEY: z.string().min(32).optional(),
     INNGEST_SIGNING_KEY: z.string().min(32).optional(),
   },

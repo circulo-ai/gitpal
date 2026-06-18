@@ -54,7 +54,7 @@ services:
       REDIS_URL: redis://redis:6379
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
-      INNGEST_API_BASE_URL: ${INNGEST_API_BASE_URL}
+      INNGEST_BASE_URL: ${INNGEST_BASE_URL}
     healthcheck:
       test:
         [

@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Badge } from "@gitpal/ui/components/badge";
 import { Button } from "@gitpal/ui/components/button";
 import { Checkbox } from "@gitpal/ui/components/checkbox";
@@ -19,6 +18,7 @@ import {
 } from "@gitpal/ui/components/popover";
 import { cn } from "@gitpal/ui/lib/utils";
 import { ChevronDownIcon, XIcon } from "lucide-react";
+import * as React from "react";
 
 type MultiSelectOption = {
 	value: string;
@@ -43,11 +43,7 @@ function matchesQuery(option: MultiSelectOption, query: string) {
 		return true;
 	}
 
-	const haystack = [
-		option.label,
-		option.value,
-		...(option.keywords ?? []),
-	]
+	const haystack = [option.label, option.value, ...(option.keywords ?? [])]
 		.join(" ")
 		.toLowerCase();
 

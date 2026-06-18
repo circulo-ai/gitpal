@@ -29,7 +29,9 @@ export const userLlmRoutingSettings = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
-	(table) => [uniqueIndex("user_llm_routing_settings_user_id_idx").on(table.userId)],
+	(table) => [
+		uniqueIndex("user_llm_routing_settings_user_id_idx").on(table.userId),
+	],
 );
 
 export const userLlmApiKey = pgTable(
@@ -46,7 +48,10 @@ export const userLlmApiKey = pgTable(
 		enabled: boolean("enabled").default(true).notNull(),
 		priority: integer("priority").default(1).notNull(),
 		forceDirect: boolean("force_direct").default(false).notNull(),
-		allowedModels: jsonb("allowed_models").$type<string[]>().default([]).notNull(),
+		allowedModels: jsonb("allowed_models")
+			.$type<string[]>()
+			.default([])
+			.notNull(),
 		baseUrl: text("base_url"),
 		lastValidatedAt: timestamp("last_validated_at"),
 		lastValidationStatus: text("last_validation_status"),

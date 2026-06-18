@@ -1,6 +1,6 @@
+import { auth } from "@gitpal/auth";
 import { createDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
-import { auth } from "@gitpal/auth";
 import { and, desc, eq } from "drizzle-orm";
 
 const db = createDb();
@@ -80,7 +80,10 @@ function parsePermissions(value: string | Record<string, string[]> | null) {
 
 	const permissions = Object.entries(parsed).reduce<Record<string, string[]>>(
 		(result, [key, candidate]) => {
-			if (Array.isArray(candidate) && candidate.every((item) => typeof item === "string")) {
+			if (
+				Array.isArray(candidate) &&
+				candidate.every((item) => typeof item === "string")
+			) {
 				result[key] = candidate;
 			}
 

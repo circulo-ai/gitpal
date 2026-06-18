@@ -52,7 +52,9 @@ export async function requestJson<T>(
 					attempt < maxAttempts - 1 &&
 					RETRYABLE_STATUSES.has(response.status)
 				) {
-					const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
+					const retryAfter = parseRetryAfter(
+						response.headers.get("retry-after"),
+					);
 					const backoffMs = retryAfter ?? Math.min(250 * 2 ** attempt, 2_000);
 					await sleep(backoffMs);
 					continue;
@@ -75,7 +77,11 @@ export async function requestJson<T>(
 
 			return JSON.parse(body) as T;
 		} catch (error) {
-			if (attempt < maxAttempts - 1 && shouldRetry && !(error instanceof GitProviderRequestError)) {
+			if (
+				attempt < maxAttempts - 1 &&
+				shouldRetry &&
+				!(error instanceof GitProviderRequestError)
+			) {
 				await sleep(Math.min(250 * 2 ** attempt, 2_000));
 				continue;
 			}

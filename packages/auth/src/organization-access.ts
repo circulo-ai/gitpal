@@ -1,10 +1,7 @@
-import {
-	createAccessControl,
-	type Role,
-} from "better-auth/plugins/access";
-import { defaultStatements } from "better-auth/plugins/organization/access";
 import { clientSideHasPermission } from "better-auth/client/plugins";
+import { createAccessControl, type Role } from "better-auth/plugins/access";
 import type { OrganizationOptions } from "better-auth/plugins/organization";
+import { defaultStatements } from "better-auth/plugins/organization/access";
 
 export const workspaceStatements = {
 	...defaultStatements,

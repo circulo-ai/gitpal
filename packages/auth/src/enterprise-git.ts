@@ -249,7 +249,12 @@ export async function registerEnterpriseGitProvider({
 			encryptedClientSecret: encryptSecret(clientSecret),
 			githubAppName: githubAppName?.trim() || null,
 			githubAppClientId: githubAppClientId?.trim() || null,
-			webhookSecret: webhookSecret?.trim() || null,
+			// Encrypt the webhook secret at rest, mirroring encryptedClientSecret.
+			// Stored plaintext previously; decryptSecret() transparently handles
+			// legacy unencrypted values on read.
+			webhookSecret: webhookSecret?.trim()
+				? encryptSecret(webhookSecret.trim())
+				: null,
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -551,10 +556,11 @@ function createEnterpriseGitOAuthConfig(provider: EnterpriseGitProviderRecord) {
 }
 
 function createRedirectUrl(baseURL: string, target: string, error?: string) {
-	const sanitizedTarget =
-		/^(?:[a-zA-Z][a-zA-Z\d+\-.]*:|\/\/)/.test(target.trim())
-			? "/"
-			: target.trim() || "/";
+	const sanitizedTarget = /^(?:[a-zA-Z][a-zA-Z\d+\-.]*:|\/\/)/.test(
+		target.trim(),
+	)
+		? "/"
+		: target.trim() || "/";
 	const url = new URL(sanitizedTarget, baseURL);
 
 	if (error) {

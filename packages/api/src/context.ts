@@ -5,129 +5,129 @@ import { eq } from "drizzle-orm";
 import type { Context as HonoContext } from "hono";
 
 export type CreateContextOptions = {
-  context: HonoContext;
+	context: HonoContext;
 };
 
 type AuthUser = {
-  id: string;
-  name: string;
-  email: string;
-  emailVerified: boolean;
-  image?: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+	id: string;
+	name: string;
+	email: string;
+	emailVerified: boolean;
+	image?: string | null;
+	createdAt: Date;
+	updatedAt: Date;
 };
 
 type AuthSessionRecord = {
-  id: string;
-  token: string;
-  userId: string;
-  expiresAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-  activeOrganizationId?: string | null;
-  activeTeamId?: string | null;
+	id: string;
+	token: string;
+	userId: string;
+	expiresAt: Date;
+	createdAt: Date;
+	updatedAt: Date;
+	ipAddress?: string | null;
+	userAgent?: string | null;
+	activeOrganizationId?: string | null;
+	activeTeamId?: string | null;
 };
 
 type AuthSession = {
-  user: AuthUser;
-  session: AuthSessionRecord;
+	user: AuthUser;
+	session: AuthSessionRecord;
 } | null;
 
 export type RequestMetadata = {
-  ip: string | null;
-  userAgent: string | null;
-  method: string;
-  path: string;
+	ip: string | null;
+	userAgent: string | null;
+	method: string;
+	path: string;
 };
 
 type AuthApi = {
-  api: {
-    getSession(input: { headers: Headers }): Promise<AuthSession>;
-  };
+	api: {
+		getSession(input: { headers: Headers }): Promise<AuthSession>;
+	};
 };
 
 type AuthModule = {
-  auth: AuthApi;
+	auth: AuthApi;
 };
 
 const authPackageName = "@gitpal/auth";
 const db = createDb();
 
 function resolveClientIp(headers: Headers) {
-  if (!env.TRUST_PROXY_HEADERS) {
-    return null;
-  }
+	if (!env.TRUST_PROXY_HEADERS) {
+		return null;
+	}
 
-  const forwardedFor = headers.get("x-forwarded-for");
-  const forwardedIp = forwardedFor?.split(",")[0]?.trim();
+	const forwardedFor = headers.get("x-forwarded-for");
+	const forwardedIp = forwardedFor?.split(",")[0]?.trim();
 
-  return (
-    headers.get("cf-connecting-ip") ??
-    headers.get("x-real-ip") ??
-    headers.get("x-client-ip") ??
-    forwardedIp ??
-    null
-  );
+	return (
+		headers.get("cf-connecting-ip") ??
+		headers.get("x-real-ip") ??
+		headers.get("x-client-ip") ??
+		forwardedIp ??
+		null
+	);
 }
 
 async function getAuth() {
-  return (await import(authPackageName)) as AuthModule;
+	return (await import(authPackageName)) as AuthModule;
 }
 
 async function ensureSessionUserRecord(session: Exclude<AuthSession, null>) {
-  const [existing] = await db
-    .select({
-      id: authSchema.user.id,
-    })
-    .from(authSchema.user)
-    .where(eq(authSchema.user.id, session.user.id))
-    .limit(1);
+	const [existing] = await db
+		.select({
+			id: authSchema.user.id,
+		})
+		.from(authSchema.user)
+		.where(eq(authSchema.user.id, session.user.id))
+		.limit(1);
 
-  if (existing) {
-    return;
-  }
+	if (existing) {
+		return;
+	}
 
-  await db.insert(authSchema.user).values({
-    id: session.user.id,
-    name: session.user.name,
-    email: session.user.email,
-    emailVerified: session.user.emailVerified,
-    image: session.user.image ?? null,
-    createdAt: new Date(session.user.createdAt),
-    updatedAt: new Date(session.user.updatedAt),
-  });
+	await db.insert(authSchema.user).values({
+		id: session.user.id,
+		name: session.user.name,
+		email: session.user.email,
+		emailVerified: session.user.emailVerified,
+		image: session.user.image ?? null,
+		createdAt: new Date(session.user.createdAt),
+		updatedAt: new Date(session.user.updatedAt),
+	});
 }
 
 export async function createContext({ context }: CreateContextOptions) {
-  const auth = await getAuth();
-  const session = await auth.auth.api.getSession({
-    headers: context.req.raw.headers,
-  });
-  const resolvedSession = session;
-  const headers = context.req.raw.headers;
-  const url = new URL(context.req.raw.url);
+	const auth = await getAuth();
+	const session = await auth.auth.api.getSession({
+		headers: context.req.raw.headers,
+	});
+	const resolvedSession = session;
+	const headers = context.req.raw.headers;
+	const url = new URL(context.req.raw.url);
 
-  if (resolvedSession) {
-    await ensureSessionUserRecord(resolvedSession);
-  }
+	if (resolvedSession) {
+		await ensureSessionUserRecord(resolvedSession);
+	}
 
-  return {
-    auth: null,
-    session: resolvedSession,
-    request: {
-      ip: resolveClientIp(headers),
-      userAgent: headers.get("user-agent"),
-      method: context.req.method,
-      path: url.pathname,
-    },
-  } satisfies Context;
+	return {
+		auth: null,
+		session: resolvedSession,
+		request: {
+			ip: resolveClientIp(headers),
+			userAgent: headers.get("user-agent"),
+			method: context.req.method,
+			path: url.pathname,
+		},
+	} satisfies Context;
 }
 
 export type Context = {
-  auth: null;
-  session: AuthSession;
-  request: RequestMetadata;
+	auth: null;
+	session: AuthSession;
+	request: RequestMetadata;
 };

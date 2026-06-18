@@ -693,7 +693,7 @@ export default function AuthPage({ availability }: AuthPageProps) {
 							})}
 						</div>
 
-						<Separator className="bg-white/10" />
+						{/* <Separator className="bg-white/10" />
 
 						<Button
 							type="button"
@@ -713,7 +713,7 @@ export default function AuthPage({ availability }: AuthPageProps) {
 								className={cn("mr-2", pendingAction && "animate-spin")}
 							/>
 							Single Sign-On
-						</Button>
+						</Button> */}
 
 						<PromptDialog
 							open={ssoDialogOpen}
@@ -768,12 +768,6 @@ export default function AuthPage({ availability }: AuthPageProps) {
 								void submitEnterpriseHost();
 							}}
 						/>
-
-						<p className="px-2 text-center text-white/45 text-xs leading-5">
-							Cloud sign-in uses GitHub.com and GitLab.com. GitPal SSO uses your
-							work email. Self-hosted GitHub and GitLab deployments use the host
-							URL dialog.
-						</p>
 					</div>
 				</section>
 			</main>

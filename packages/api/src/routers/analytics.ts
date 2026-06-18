@@ -464,7 +464,9 @@ async function loadAnalyticsContext(
 	filters: DashboardFilters,
 ): Promise<AnalyticsContext> {
 	const range = normalizeFilters(filters);
-	const repositories = (await listRepositoriesForUser({ userId, organizationId }))
+	const repositories = (
+		await listRepositoriesForUser({ userId, organizationId })
+	)
 		.filter((repository) => repository.enabled)
 		.filter(
 			(repository) =>

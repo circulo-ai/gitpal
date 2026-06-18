@@ -250,6 +250,15 @@ export type GitWebhookVerificationInput = {
 
 export interface GitWebhookAdapter {
 	readonly providerId: string;
+	/**
+	 * Describes the cryptographic strength of `verify()` so trust-sensitive
+	 * callers can reason about what a `true` result actually guarantees:
+	 * - "hmac": signature is an HMAC over the raw body (proves secret knowledge
+	 *   AND body integrity). Used by GitHub.
+	 * - "shared-token": a static shared token is compared (proves secret
+	 *   knowledge only, NOT body integrity). Used by GitLab.
+	 */
+	readonly verificationStrength: "hmac" | "shared-token";
 	verify(input: GitWebhookVerificationInput): Promise<boolean> | boolean;
 	parse(input: GitWebhookVerificationInput): GitWebhookEnvelope;
 }
@@ -261,7 +270,7 @@ export interface GitProviderAdapter {
 	readonly apiBaseUrl: string;
 	readonly capabilities: GitProviderCapabilities;
 	readonly webhooks: GitWebhookAdapter;
-	
+
 	getCurrentUser(): Promise<GitActor>;
 	listRepositories(): Promise<GitRepository[]>;
 	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
@@ -287,11 +296,13 @@ export interface GitProviderAdapter {
 			limit?: number;
 		},
 	): Promise<GitRepositorySearchResult[]>;
-	listRepositoryLabels(input: GitRepositoryRef & {
-		query?: string;
-		limit?: number;
-	}): Promise<GitRepositoryLabel[]>;
-	
+	listRepositoryLabels(
+		input: GitRepositoryRef & {
+			query?: string;
+			limit?: number;
+		},
+	): Promise<GitRepositoryLabel[]>;
+
 	createPullRequest(input: GitPullRequestCreateInput): Promise<GitPullRequest>;
 	createComment(input: GitCommentInput): Promise<GitComment>;
 	addIssueLabels(
@@ -314,11 +325,16 @@ export interface GitProviderAdapter {
 			mergeMethod?: GitMergeMethod;
 			title?: string;
 			message?: string;
+			// When true, the source branch is deleted after a successful merge.
+			// Defaults to false on every provider so the unified API behaves
+			// identically (GitHub historically never deleted; GitLab used to always
+			// delete). Opt in explicitly for branch cleanup.
+			removeSourceBranch?: boolean;
 		},
 	): Promise<GitPullRequest>;
-	
+
 	createCommitStatus(input: GitCommitStatusInput): Promise<void>;
-	
+
 	listWebhooks(input: GitRepositoryRef): Promise<GitWebhookSubscription[]>;
 	createWebhook(input: GitWebhookCreateInput): Promise<GitWebhookSubscription>;
 	deleteWebhook(input: GitWebhookDeleteInput): Promise<void>;

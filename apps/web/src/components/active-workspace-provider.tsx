@@ -1,9 +1,9 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
-import { useQuery } from "@tanstack/react-query";
 
 const ACTIVE_WORKSPACE_COOKIE = "gitpal_active_workspace";
 const ACTIVE_WORKSPACE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -76,7 +76,9 @@ function getPreferredWorkspaceId({
 	selectedWorkspaceId: string | null;
 	authActiveWorkspaceId: string | null;
 }) {
-	const availableWorkspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+	const availableWorkspaceIds = new Set(
+		workspaces.map((workspace) => workspace.id),
+	);
 	const candidates = [
 		selectedWorkspaceId,
 		authActiveWorkspaceId,
@@ -125,7 +127,8 @@ export function ActiveWorkspaceProvider({
 	}, [authActiveWorkspaceId, selectedWorkspaceId, workspaces]);
 
 	const activeWorkspace =
-		workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+		workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ??
+		null;
 
 	const switchWorkspace = React.useCallback(
 		async (organizationId: string) => {
@@ -152,7 +155,8 @@ export function ActiveWorkspaceProvider({
 				});
 
 				if (result.error && sessionQuery.data) {
-					error = result.error.message ?? "Unable to switch workspaces right now.";
+					error =
+						result.error.message ?? "Unable to switch workspaces right now.";
 					setSelectedWorkspaceId(previousWorkspaceId ?? null);
 					writeActiveWorkspaceId(previousWorkspaceId ?? null);
 				}
@@ -176,12 +180,7 @@ export function ActiveWorkspaceProvider({
 
 			return { error };
 		},
-		[
-			activeOrganizationQuery,
-			selectedWorkspaceId,
-			sessionQuery,
-			workspaces,
-		],
+		[activeOrganizationQuery, selectedWorkspaceId, sessionQuery, workspaces],
 	);
 
 	const value = React.useMemo<ActiveWorkspaceContextValue>(

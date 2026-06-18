@@ -238,12 +238,7 @@ export const workspaceReviewerSettingsSchema = z.object({
 	modelId: z.string(),
 	maxSteps: z.number().int().min(1).max(50),
 	maxOutputTokens: z.number().int().min(256).max(32768),
-	focus: z.enum([
-		"balanced",
-		"security",
-		"performance",
-		"maintainability",
-	]),
+	focus: z.enum(["balanced", "security", "performance", "maintainability"]),
 	extraInstructions: z.string(),
 	postSummaryComment: z.boolean(),
 	postInlineFindings: z.boolean(),
@@ -358,13 +353,14 @@ export const workspaceSettingsSchema = z.object({
 	}),
 });
 
-export type DeepPartial<T> = T extends Array<infer U>
-	? Array<DeepPartial<U>>
-	: T extends Record<string, unknown>
-		? {
-				[K in keyof T]?: DeepPartial<T[K]>;
-			}
-		: T;
+export type DeepPartial<T> =
+	T extends Array<infer U>
+		? Array<DeepPartial<U>>
+		: T extends Record<string, unknown>
+			? {
+					[K in keyof T]?: DeepPartial<T[K]>;
+				}
+			: T;
 
 export const defaultWorkspaceSettings = {
 	general: {
@@ -604,10 +600,7 @@ function mergeValue<T>(base: T, override: DeepPartial<T> | undefined): T {
 				continue;
 			}
 
-			result[key] = mergeValue(
-				(result[key] ?? {}) as never,
-				value as never,
-			);
+			result[key] = mergeValue((result[key] ?? {}) as never, value as never);
 		}
 
 		return result as T;
@@ -628,9 +621,10 @@ function getDefaultManagedToolServerName(type: WorkspaceManagedToolType) {
 	return null;
 }
 
-function normalizeManagedTool(tool: WorkspaceManagedTool): WorkspaceManagedTool {
-	const supportsMcp =
-		tool.type === "github-mcp" || tool.type === "gitlab-mcp";
+function normalizeManagedTool(
+	tool: WorkspaceManagedTool,
+): WorkspaceManagedTool {
+	const supportsMcp = tool.type === "github-mcp" || tool.type === "gitlab-mcp";
 	const mode = supportsMcp && tool.mode === "mcp" ? "mcp" : "builtin";
 	const trimmedServerName = tool.mcpServerName?.trim() || null;
 
@@ -640,7 +634,7 @@ function normalizeManagedTool(tool: WorkspaceManagedTool): WorkspaceManagedTool 
 		mcpServerName:
 			mode === "builtin"
 				? null
-			: trimmedServerName ?? getDefaultManagedToolServerName(tool.type),
+				: (trimmedServerName ?? getDefaultManagedToolServerName(tool.type)),
 	};
 }
 
@@ -669,9 +663,8 @@ export function normalizeWorkspaceSettings(value: unknown): WorkspaceSettings {
 		value as DeepPartial<WorkspaceSettings>,
 	);
 
-	normalizedSettings.ai.tools.available = normalizedSettings.ai.tools.available.map(
-		normalizeManagedTool,
-	);
+	normalizedSettings.ai.tools.available =
+		normalizedSettings.ai.tools.available.map(normalizeManagedTool);
 	normalizedSettings.ai.reviewer.modelId = normalizeModelId(
 		normalizedSettings.ai.reviewer.modelId,
 		defaultWorkspaceSettings.ai.reviewer.modelId,

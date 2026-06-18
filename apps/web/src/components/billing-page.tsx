@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import { Badge } from "@gitpal/ui/components/badge";
 import { Button } from "@gitpal/ui/components/button";
 import {
@@ -28,6 +27,7 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ArrowUpRightIcon, InfoIcon, WalletIcon } from "lucide-react";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
@@ -78,7 +78,7 @@ export function BillingPage() {
 			<main className="flex flex-col gap-6">
 				<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
 					<div className="space-y-1">
-						<h1 className="font-heading text-2xl font-medium tracking-tight md:text-3xl">
+						<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
 							Billing
 						</h1>
 						<p className="max-w-3xl text-muted-foreground text-sm">
@@ -130,8 +130,9 @@ export function BillingPage() {
 						<CardHeader>
 							<CardTitle>Top up wallet</CardTitle>
 							<CardDescription>
-								Create a NOWPayments checkout link, complete the payment, and the
-								credited USD balance will appear after the webhook confirms it.
+								Create a NOWPayments checkout link, complete the payment, and
+								the credited USD balance will appear after the webhook confirms
+								it.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-5">
@@ -140,7 +141,9 @@ export function BillingPage() {
 									<Button
 										key={preset}
 										type="button"
-										variant={amountUsd === String(preset) ? "default" : "outline"}
+										variant={
+											amountUsd === String(preset) ? "default" : "outline"
+										}
 										onClick={() => setAmountUsd(String(preset))}
 									>
 										{formatUsd(preset * 100)}
@@ -209,7 +212,7 @@ export function BillingPage() {
 									{checkoutDisabledReason}
 								</div>
 							) : null}
-							<div className="rounded-2xl border border-dashed border-border/60 p-4 text-muted-foreground text-sm">
+							<div className="rounded-2xl border border-border/60 border-dashed p-4 text-muted-foreground text-sm">
 								Crypto checkout happens on NOWPayments. GitPal records the
 								deposit, deducts the configured platform share, and credits the
 								rest to your USD wallet after the payment is finalized.
@@ -255,8 +258,12 @@ export function BillingPage() {
 																) : null}
 															</div>
 														</TableCell>
-														<TableCell>{formatUsd(topup.priceAmountUsdCents)}</TableCell>
-														<TableCell>{formatUsd(topup.creditedAmountCents)}</TableCell>
+														<TableCell>
+															{formatUsd(topup.priceAmountUsdCents)}
+														</TableCell>
+														<TableCell>
+															{formatUsd(topup.creditedAmountCents)}
+														</TableCell>
 														<TableCell>
 															{formatDistanceToNow(new Date(topup.createdAt), {
 																addSuffix: true,
@@ -268,7 +275,7 @@ export function BillingPage() {
 										</Table>
 									</div>
 								) : (
-									<div className="rounded-2xl border border-dashed border-border/60 p-6 text-muted-foreground text-sm">
+									<div className="rounded-2xl border border-border/60 border-dashed p-6 text-muted-foreground text-sm">
 										No top-ups yet.
 									</div>
 								)}
@@ -322,7 +329,7 @@ export function BillingPage() {
 										))}
 									</div>
 								) : (
-									<div className="rounded-2xl border border-dashed border-border/60 p-6 text-muted-foreground text-sm">
+									<div className="rounded-2xl border border-border/60 border-dashed p-6 text-muted-foreground text-sm">
 										No wallet activity yet.
 									</div>
 								)}

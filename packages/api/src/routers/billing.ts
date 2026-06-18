@@ -1,10 +1,13 @@
 import { z } from "zod";
-
+import {
+	protectedMutationProcedure,
+	protectedProcedure,
+	router,
+} from "../index";
 import {
 	createWalletTopupForUser,
 	getWalletSummaryForUser,
 } from "../services/wallet";
-import { protectedMutationProcedure, protectedProcedure, router } from "../index";
 
 const createTopupSchema = z.object({
 	amountUsd: z.coerce.number().min(5).max(10_000),

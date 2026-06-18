@@ -81,7 +81,10 @@ export const organization = pgTable(
 		name: text("name").notNull(),
 		slug: text("slug").notNull(),
 		logo: text("logo"),
-		metadata: jsonb("metadata").$type<Record<string, unknown> | null>().default({}).notNull(),
+		metadata: jsonb("metadata")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
 	},
 	(table) => [uniqueIndex("organization_slug_idx").on(table.slug)],
@@ -244,14 +247,14 @@ export const apiKey = pgTable(
 );
 
 export const rateLimit = pgTable(
-    "rate_limit",
-    {
-        id: text("id").primaryKey(),
-        key: text("key").notNull().unique(),
-        count: integer("count").default(0).notNull(),
-        lastRequest: bigint("last_request", { mode: "number" }).notNull(),
-    },
-    (table) => [uniqueIndex("rate_limit_key_idx").on(table.key)],
+	"rate_limit",
+	{
+		id: text("id").primaryKey(),
+		key: text("key").notNull().unique(),
+		count: integer("count").default(0).notNull(),
+		lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+	},
+	(table) => [uniqueIndex("rate_limit_key_idx").on(table.key)],
 );
 
 export const verification = pgTable(

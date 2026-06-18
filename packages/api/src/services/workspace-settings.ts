@@ -5,8 +5,8 @@ import {
 	createDefaultRepositorySettings,
 	createDefaultWorkspaceSettings,
 	normalizeWorkspaceSettings,
-	resolveEffectiveWorkspaceSettings,
 	type RepositorySettingsRecord,
+	resolveEffectiveWorkspaceSettings,
 	type WorkspaceSettings,
 	workspaceSettingsSchema,
 } from "@gitpal/utils";
@@ -34,9 +34,7 @@ function getRepositorySettingsId(organizationId: string, repositoryId: string) {
 function toWorkspaceSettings(
 	value: WorkspaceSettings | Record<string, unknown> | null | undefined,
 ) {
-	return normalizeWorkspaceSettings(
-		value ?? createDefaultWorkspaceSettings(),
-	);
+	return normalizeWorkspaceSettings(value ?? createDefaultWorkspaceSettings());
 }
 
 function toRepositorySettings(
@@ -52,13 +50,13 @@ function toRepositorySettings(
 	};
 }
 
-export async function getOrganizationWorkspaceSettings(
-	organizationId: string,
-) {
+export async function getOrganizationWorkspaceSettings(organizationId: string) {
 	const [row] = await db
 		.select()
 		.from(dashboardSchema.organizationSettings)
-		.where(eq(dashboardSchema.organizationSettings.organizationId, organizationId))
+		.where(
+			eq(dashboardSchema.organizationSettings.organizationId, organizationId),
+		)
 		.limit(1);
 
 	return toWorkspaceSettings(row?.settings as WorkspaceSettings);
@@ -160,10 +158,7 @@ export async function getRepositoryWorkspaceSettings({
 			.select()
 			.from(dashboardSchema.organizationSettings)
 			.where(
-				eq(
-					dashboardSchema.organizationSettings.organizationId,
-					organizationId,
-				),
+				eq(dashboardSchema.organizationSettings.organizationId, organizationId),
 			)
 			.limit(1),
 		getRepositorySettingsRow({ organizationId, repositoryId }),

@@ -10,6 +10,7 @@
 		}
 	},
 	"dependencies": {
+		"@gitpal/logger": "workspace:*",
 		"@octokit/auth-app": "^8.2.0",
 		"@octokit/webhooks-methods": "catalog:",
 		"octokit": "catalog:",

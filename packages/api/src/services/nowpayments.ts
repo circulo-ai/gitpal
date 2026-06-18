@@ -1,14 +1,14 @@
+import { env } from "@gitpal/env/server";
 import {
 	APIError,
+	type CheckoutSession,
 	ConfigurationError,
 	NetworkError,
 	NowPaymentsSDK,
-	ValidationError,
-	type CheckoutSession,
 	type Payment,
 	type PaymentStatus,
+	ValidationError,
 } from "@nowpaymentsio/nowpayments-sdk-nodejs";
-import { env } from "@gitpal/env/server";
 
 export { ValidationError as NowPaymentsValidationError } from "@nowpaymentsio/nowpayments-sdk-nodejs";
 
@@ -29,13 +29,7 @@ type CreateCheckoutInput = {
 };
 
 const NOWPAYMENTS_RETRYABLE_HTTP_STATUSES = new Set([
-	408,
-	425,
-	429,
-	500,
-	502,
-	503,
-	504,
+	408, 425, 429, 500, 502, 503, 504,
 ]);
 
 let checkoutSdk: NowPaymentsSDK | null = null;

@@ -1,7 +1,6 @@
 import { createDb } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitProviderAdapter, GitPullRequest } from "@gitpal/git";
-import { enqueuePullRequestSyncJob } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
 import { and, eq } from "drizzle-orm";
 import { getAutomationActorForRepository } from "./git-provider-access";
@@ -9,6 +8,7 @@ import {
 	projectPullRequestSnapshot,
 	recordHumanReviewSignal,
 } from "./pr-projection";
+import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 
 const db = createDb();
 const log = createLogger("pull-request-reconcile");

@@ -1,3 +1,9 @@
-import { syncRepositories } from "./sync-repositories";
+import { pullRequestSyncFunction } from "./pr-sync";
+import { processProviderWebhook } from "./provider-webhooks";
+import { repositoryWebhookSyncFunction } from "./repository-webhook-sync";
 
-export const functions = [syncRepositories];
+export const functions = [
+  processProviderWebhook,
+  repositoryWebhookSyncFunction,
+  pullRequestSyncFunction,
+];

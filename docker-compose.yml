@@ -148,7 +148,7 @@ services:
   # INNGEST SERVICES
   # ==========================================
   inngest:
-    image: inngest/inngest
+    image: inngest/inngest:v1.19.0
     restart: unless-stopped
     command: "inngest start --sdk-url http://server:3000/api/inngest" 
     environment:

@@ -61,6 +61,7 @@ services:
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       # Linked directly to the internal Inngest service
       INNGEST_BASE_URL: http://inngest:8288
+      INNGEST_DEV: 1
     networks:
       - gitpal-network
     healthcheck:
@@ -104,6 +105,7 @@ services:
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       INNGEST_BASE_URL: http://inngest:8288
+      INNGEST_DEV: 1
     networks:
       - gitpal-network
     depends_on:

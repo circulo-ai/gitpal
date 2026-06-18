@@ -381,7 +381,7 @@ function ToolSettingsEditor({
 }) {
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl border border-dashed border-border/60 bg-muted/20 px-4 py-3 text-muted-foreground text-sm">
+      <div className="rounded-2xl border border-border/60 border-dashed bg-muted/20 px-4 py-3 text-muted-foreground text-sm">
         Built-in tools run locally through GitPal&apos;s provider adapters.
         Dedicated MCP tools are bound automatically so the execution path stays
         clear without asking users to manage a separate server-name field.
@@ -398,9 +398,6 @@ function ToolSettingsEditor({
                 <p className="text-muted-foreground text-sm">
                   {toolSetting.description}
                 </p>
-              </div>
-              <div className="rounded-full border px-2 py-0.5 text-xs">
-                {toolSetting.type}
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-3">

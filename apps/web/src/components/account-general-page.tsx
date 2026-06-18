@@ -42,7 +42,7 @@ export function AccountGeneralPage() {
       <div className="grid gap-3 md:grid-cols-3">
         <Card size="sm">
           <CardHeader>
-            <CardDescription>Synced workspaces</CardDescription>
+            <CardDescription>Workspaces</CardDescription>
             <CardTitle className="text-3xl tabular-nums">
               {workspaces.length}
             </CardTitle>

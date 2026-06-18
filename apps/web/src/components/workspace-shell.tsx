@@ -8,7 +8,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@gitpal/ui/components/breadcrumb";
-import { Separator } from "@gitpal/ui/components/separator";
 import {
   SidebarInset,
   SidebarProvider,

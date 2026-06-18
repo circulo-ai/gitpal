@@ -13,6 +13,7 @@ import {
 	type GitPullRequestCreateInput,
 	type GitPullRequestFile,
 	type GitPullRequestFileStatus,
+	type GitPullRequestReview,
 	type GitPullRequestState,
 	type GitRepository,
 	type GitRepositoryFile,
@@ -352,6 +353,68 @@ const gitlabCurrentUserSchema = z.object({
 	avatar_url: z.string().nullable().optional(),
 	web_url: z.string().nullable().optional(),
 });
+
+const gitlabReviewNoteSchema = z.object({
+	id: z.number(),
+	body: z.string(),
+	system: z.boolean().optional(),
+	web_url: z.string().nullable().optional(),
+	author: z
+		.object({
+			id: z.number().optional(),
+			username: z.string().optional(),
+			name: z.string().optional(),
+			public_email: z.string().nullable().optional(),
+			avatar_url: z.string().nullable().optional(),
+			web_url: z.string().nullable().optional(),
+		})
+		.nullable()
+		.optional(),
+	created_at: z.string().optional(),
+});
+
+const gitlabApprovalUserSchema = z.object({
+	id: z.number().optional(),
+	username: z.string().optional(),
+	name: z.string().optional(),
+	public_email: z.string().nullable().optional(),
+	avatar_url: z.string().nullable().optional(),
+	web_url: z.string().nullable().optional(),
+});
+
+const gitlabApprovalsSchema = z.object({
+	approved_by: z
+		.array(z.object({ user: gitlabApprovalUserSchema.nullable().optional() }))
+		.nullable()
+		.optional()
+		.default([]),
+});
+
+const gitlabMergeRequestReviewersSchema = z.object({
+	reviewers: z
+		.array(z.object({ id: z.number() }))
+		.nullable()
+		.optional()
+		.default([]),
+});
+
+/**
+ * Classify a GitLab MR system note into a review state. GitLab emits system
+ * notes such as "approved this merge request" / "unapproved this merge request"
+ * — the only approval signal that carries a timestamp.
+ */
+function classifyGitLabApprovalNote(
+	body: string,
+): GitPullRequestReview["state"] | null {
+	const normalized = body.trim().toLowerCase();
+	if (normalized.startsWith("unapproved")) {
+		return "dismissed";
+	}
+	if (normalized.startsWith("approved")) {
+		return "approved";
+	}
+	return null;
+}
 
 function mapActor(
 	actor:
@@ -954,6 +1017,106 @@ export function createGitLabAdapter({
 		);
 	}
 
+	async function listPullRequestReviews(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	): Promise<GitPullRequestReview[]> {
+		const mergeRequestUrl = createMergeRequestUrl(
+			normalizedApiBaseUrl,
+			input.repositoryPath,
+			input.pullRequestNumber,
+		);
+		const reviews: GitPullRequestReview[] = [];
+		const seenApprovers = new Set<string>();
+
+		// GitLab has no GitHub-style "reviews" resource. The closest signal that
+		// carries a timestamp is the system note emitted when a user approves or
+		// unapproves an MR, so we derive reviews from those. (Ordinary review
+		// comments are returned by listPullRequestComments, not here.)
+		const notesResponse = await requestJson<unknown>(
+			`${mergeRequestUrl}/notes?per_page=100`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(auth),
+				},
+			},
+			providerId,
+		);
+		const notes = z
+			.array(gitlabReviewNoteSchema)
+			.catch([])
+			.parse(notesResponse);
+		for (const note of notes) {
+			if (!note.system) {
+				continue;
+			}
+			const state = classifyGitLabApprovalNote(note.body);
+			if (!state) {
+				continue;
+			}
+			const author = mapActor(note.author ?? undefined);
+			if (author?.id) {
+				seenApprovers.add(author.id);
+			}
+			reviews.push({
+				providerId,
+				repositoryPath: input.repositoryPath,
+				pullRequestNumber: input.pullRequestNumber,
+				id: `note-${note.id}`,
+				state,
+				body: null,
+				author,
+				submittedAt: note.created_at ?? null,
+				htmlUrl: note.web_url ?? null,
+			});
+		}
+
+		// Fold in the current approval state so approvals that predate the notes
+		// history (or were recorded without a system note) are still represented.
+		// The approvals endpoint exposes no per-user timestamp, so submittedAt is
+		// null for these. Best-effort: the endpoint may be unavailable on some
+		// plans / permission levels.
+		try {
+			const approvalsResponse = await requestJson<unknown>(
+				`${mergeRequestUrl}/approvals`,
+				{
+					headers: {
+						...createGitLabRequestHeaders(auth),
+					},
+				},
+				providerId,
+			);
+			const approvals = gitlabApprovalsSchema
+				.catch({ approved_by: [] })
+				.parse(approvalsResponse);
+			for (const entry of approvals.approved_by ?? []) {
+				const author = mapActor(entry.user ?? undefined);
+				if (author?.id && seenApprovers.has(author.id)) {
+					continue;
+				}
+				if (author?.id) {
+					seenApprovers.add(author.id);
+				}
+				reviews.push({
+					providerId,
+					repositoryPath: input.repositoryPath,
+					pullRequestNumber: input.pullRequestNumber,
+					id: `approval-${author?.id ?? "unknown"}`,
+					state: "approved",
+					body: null,
+					author,
+					submittedAt: null,
+					htmlUrl: null,
+				});
+			}
+		} catch {
+			// Notes-derived reviews already cover the timestamped signal; ignore.
+		}
+
+		return reviews.sort((left, right) =>
+			(left.submittedAt ?? "").localeCompare(right.submittedAt ?? ""),
+		);
+	}
+
 	async function getFileContent(
 		input: GitRepositoryRef & { filePath: string; ref?: string },
 	) {
@@ -1335,12 +1498,39 @@ export function createGitLabAdapter({
 			return;
 		}
 
+		const mergeRequestUrl = createMergeRequestUrl(
+			normalizedApiBaseUrl,
+			input.repositoryPath,
+			input.pullRequestNumber,
+		);
+
+		// GitLab's MR update REPLACES reviewer_ids wholesale, whereas GitHub's
+		// requestReviewers is additive. Read the current reviewers first and union
+		// them so previously-assigned reviewers are never silently dropped (parity
+		// with GitHub). Best-effort: if the read fails we fall back to setting just
+		// the resolved set rather than failing the assignment outright.
+		try {
+			const current = await requestJson<unknown>(
+				mergeRequestUrl,
+				{
+					headers: {
+						...createGitLabRequestHeaders(auth),
+					},
+				},
+				providerId,
+			);
+			const existing = gitlabMergeRequestReviewersSchema
+				.catch({ reviewers: [] })
+				.parse(current);
+			for (const reviewer of existing.reviewers ?? []) {
+				reviewerIds.add(reviewer.id);
+			}
+		} catch {
+			// Could not read existing reviewers; proceed with the resolved set only.
+		}
+
 		await requestJson<unknown>(
-			`${createMergeRequestUrl(
-				normalizedApiBaseUrl,
-				input.repositoryPath,
-				input.pullRequestNumber,
-			)}`,
+			mergeRequestUrl,
 			{
 				method: "PUT",
 				headers: {
@@ -1511,6 +1701,7 @@ export function createGitLabAdapter({
 		getPullRequest,
 		listPullRequestFiles,
 		listPullRequestComments,
+		listPullRequestReviews,
 		getFileContent,
 		searchRepository,
 		listRepositoryLabels,

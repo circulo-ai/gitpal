@@ -1,6 +1,5 @@
 import type {
 	WorkspaceManagedTool,
-	WorkspaceManagedToolMode,
 	WorkspaceManagedToolType,
 	WorkspaceSettings,
 } from "./repository-settings";
@@ -60,8 +59,6 @@ export type WorkspaceToolPreviewRow = {
 	label: string;
 	type: WorkspaceManagedToolType;
 	enabled: boolean;
-	mode: WorkspaceManagedToolMode;
-	serverName: string | null;
 	maxResults: number;
 	statusLabel: string;
 	note: string;
@@ -376,33 +373,13 @@ export function estimateReviewEffort(
 }
 
 function buildToolStatusLabel(tool: WorkspaceManagedTool) {
-	if (!tool.enabled) {
-		return "Disabled";
-	}
-
-	if (tool.mode === "builtin") {
-		return "Built-in";
-	}
-
-	return tool.mcpServerName
-		? `MCP · ${tool.mcpServerName}`
-		: "MCP · missing server";
+	return tool.enabled ? "Built-in" : "Disabled";
 }
 
 function buildToolNote(tool: WorkspaceManagedTool) {
-	if (!tool.enabled) {
-		return "This tool is turned off for the current workspace.";
-	}
-
-	if (tool.mode === "builtin") {
-		return "Runs through GitPal's built-in provider adapters.";
-	}
-
-	if (!tool.mcpServerName) {
-		return "MCP mode is selected, but no server name is configured yet.";
-	}
-
-	return `Configured to use the ${tool.mcpServerName} MCP server.`;
+	return tool.enabled
+		? "Runs through GitPal's built-in provider adapters."
+		: "This tool is turned off for the current workspace.";
 }
 
 export function describeWorkspaceManagedTools(
@@ -413,8 +390,6 @@ export function describeWorkspaceManagedTools(
 		label: tool.label,
 		type: tool.type,
 		enabled: tool.enabled,
-		mode: tool.mode,
-		serverName: tool.mcpServerName,
 		maxResults: tool.maxResults,
 		statusLabel: buildToolStatusLabel(tool),
 		note: buildToolNote(tool),
@@ -426,9 +401,6 @@ function buildPreviewNotes(
 	toolRows: WorkspaceToolPreviewRow[],
 ) {
 	const activeTools = toolRows.filter((row) => row.enabled).length;
-	const mcpTools = toolRows.filter(
-		(row) => row.enabled && row.mode === "mcp",
-	).length;
 
 	return [
 		settings.ai.reviewer.enabled
@@ -447,9 +419,6 @@ function buildPreviewNotes(
 			? "Repositories can override the workspace tool policy."
 			: "Workspace tool policy is locked for repositories.",
 		`${activeTools} of ${toolRows.length} tools are enabled.`,
-		mcpTools > 0
-			? `${mcpTools} enabled tool${mcpTools === 1 ? "" : "s"} are configured for MCP mode.`
-			: "No enabled tools are currently configured for MCP mode.",
 	];
 }
 

@@ -12,10 +12,14 @@ export type WorkspaceManagedToolType =
 	| "repository-search"
 	| "related-issues"
 	| "related-pull-requests"
-	| "github-mcp"
-	| "gitlab-mcp"
 	| "web-search";
-export type WorkspaceManagedToolMode = "builtin" | "mcp";
+
+export const workspaceManagedToolTypes = [
+	"repository-search",
+	"related-issues",
+	"related-pull-requests",
+	"web-search",
+] as const satisfies readonly WorkspaceManagedToolType[];
 
 export type WorkspacePathInstruction = {
 	path: string;
@@ -33,8 +37,6 @@ export type WorkspaceManagedTool = {
 	label: string;
 	description: string;
 	enabled: boolean;
-	mode: WorkspaceManagedToolMode;
-	mcpServerName: string | null;
 	maxResults: number;
 };
 
@@ -196,19 +198,10 @@ export const workspaceLabelInstructionSchema = z.object({
 
 export const workspaceManagedToolSchema = z.object({
 	id: z.string().min(1),
-	type: z.enum([
-		"repository-search",
-		"related-issues",
-		"related-pull-requests",
-		"github-mcp",
-		"gitlab-mcp",
-		"web-search",
-	]),
+	type: z.enum(workspaceManagedToolTypes),
 	label: z.string(),
 	description: z.string(),
 	enabled: z.boolean(),
-	mode: z.enum(["builtin", "mcp"]),
-	mcpServerName: z.string().nullable(),
 	maxResults: z.number().int().min(1).max(50),
 });
 
@@ -451,8 +444,6 @@ export const defaultWorkspaceSettings = {
 					description:
 						"Search repository context across provider metadata, files, issues, and pull requests.",
 					enabled: true,
-					mode: "builtin",
-					mcpServerName: null,
 					maxResults: 8,
 				},
 				{
@@ -462,8 +453,6 @@ export const defaultWorkspaceSettings = {
 					description:
 						"Find related issues that should be referenced in the review.",
 					enabled: true,
-					mode: "builtin",
-					mcpServerName: null,
 					maxResults: 6,
 				},
 				{
@@ -473,31 +462,7 @@ export const defaultWorkspaceSettings = {
 					description:
 						"Search recent pull requests and merge requests for overlapping work.",
 					enabled: true,
-					mode: "builtin",
-					mcpServerName: null,
 					maxResults: 6,
-				},
-				{
-					id: "github-mcp",
-					type: "github-mcp",
-					label: "GitHub MCP",
-					description:
-						"Use a GitHub MCP server for indexed repository search when available.",
-					enabled: false,
-					mode: "mcp",
-					mcpServerName: "github",
-					maxResults: 8,
-				},
-				{
-					id: "gitlab-mcp",
-					type: "gitlab-mcp",
-					label: "GitLab MCP",
-					description:
-						"Use a GitLab MCP server for indexed repository search when available.",
-					enabled: false,
-					mode: "mcp",
-					mcpServerName: "gitlab",
-					maxResults: 8,
 				},
 				{
 					id: "web-search",
@@ -506,8 +471,6 @@ export const defaultWorkspaceSettings = {
 					description:
 						"Allow external web search for standards, docs, and third-party context.",
 					enabled: false,
-					mode: "builtin",
-					mcpServerName: null,
 					maxResults: 5,
 				},
 			],
@@ -609,33 +572,10 @@ function mergeValue<T>(base: T, override: DeepPartial<T> | undefined): T {
 	return override as T;
 }
 
-function getDefaultManagedToolServerName(type: WorkspaceManagedToolType) {
-	if (type === "github-mcp") {
-		return "github";
-	}
+const managedToolTypeSet = new Set<string>(workspaceManagedToolTypes);
 
-	if (type === "gitlab-mcp") {
-		return "gitlab";
-	}
-
-	return null;
-}
-
-function normalizeManagedTool(
-	tool: WorkspaceManagedTool,
-): WorkspaceManagedTool {
-	const supportsMcp = tool.type === "github-mcp" || tool.type === "gitlab-mcp";
-	const mode = supportsMcp && tool.mode === "mcp" ? "mcp" : "builtin";
-	const trimmedServerName = tool.mcpServerName?.trim() || null;
-
-	return {
-		...tool,
-		mode,
-		mcpServerName:
-			mode === "builtin"
-				? null
-				: (trimmedServerName ?? getDefaultManagedToolServerName(tool.type)),
-	};
+function isKnownManagedTool(tool: WorkspaceManagedTool): boolean {
+	return managedToolTypeSet.has(tool.type);
 }
 
 function normalizeModelId(value: string | null | undefined, fallback: string) {
@@ -663,8 +603,10 @@ export function normalizeWorkspaceSettings(value: unknown): WorkspaceSettings {
 		value as DeepPartial<WorkspaceSettings>,
 	);
 
+	// Drop any tools whose type is no longer supported (e.g. legacy MCP entries
+	// persisted before they were removed) so schema parsing does not reject them.
 	normalizedSettings.ai.tools.available =
-		normalizedSettings.ai.tools.available.map(normalizeManagedTool);
+		normalizedSettings.ai.tools.available.filter(isKnownManagedTool);
 	normalizedSettings.ai.reviewer.modelId = normalizeModelId(
 		normalizedSettings.ai.reviewer.modelId,
 		defaultWorkspaceSettings.ai.reviewer.modelId,

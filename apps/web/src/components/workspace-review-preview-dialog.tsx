@@ -424,28 +424,6 @@ export function WorkspaceReviewPreviewDialog({
 													</p>
 												)}
 											</div>
-											<div className="flex shrink-0 flex-col items-end gap-1">
-												<Badge
-													variant={
-														tool.mode === "mcp" ? "secondary" : "outline"
-													}
-													className="text-[10px]"
-												>
-													{tool.mode === "mcp" ? "MCP" : "Built-in"}
-												</Badge>
-												<Badge
-													variant={
-														tool.enabled
-															? tool.mode === "mcp" && !tool.serverName
-																? "destructive"
-																: "outline"
-															: "secondary"
-													}
-													className="text-[10px]"
-												>
-													{tool.statusLabel}
-												</Badge>
-											</div>
 										</li>
 									))}
 								</ul>

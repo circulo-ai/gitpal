@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+/**
+ * Router identifiers describe *how* a model request is dispatched. A router can
+ * front several upstream providers (for example, the AI gateway or OpenRouter)
+ * or target a single provider API directly.
+ */
 export const llmRouterIdSchema = z.enum([
 	"ai-gateway",
 	"openrouter",
@@ -20,11 +25,24 @@ export type LlmProviderDefinition = {
 	label: string;
 	description: string;
 	family: LlmProviderFamily;
-	modelPrefixes: string[];
-	suggestedModels: string[];
+	/** Lower-cased identifiers used to map a model id back to this provider. */
+	modelPrefixes: readonly string[];
+	suggestedModels: readonly string[];
 	baseUrl: string | null;
 	keyPlaceholder: string;
+	/**
+	 * True when the provider runs locally and therefore does not require an API
+	 * key (for example, a self-hosted Ollama server).
+	 */
+	local?: boolean;
 };
+
+/**
+ * Aggregator router prefixes. A model routed through one of these keeps the
+ * *upstream* provider prefix (e.g. `openrouter/anthropic/claude-...`), so we
+ * strip them before trying to detect the underlying provider.
+ */
+const AGGREGATOR_MODEL_PREFIXES = ["openrouter/", "ollama/"] as const;
 
 export const llmProviderCatalog = [
 	{
@@ -92,12 +110,14 @@ export const llmProviderCatalog = [
 	{
 		id: "ollama",
 		label: "Ollama",
-		description: "Route compatible models through Ollama with your own key.",
+		description:
+			"Route models through a local Ollama server. No API key required.",
 		family: "openai-compatible",
 		modelPrefixes: ["ollama"],
-		suggestedModels: ["gemma4", "llama3.2"],
+		suggestedModels: ["ollama/llama3.2", "ollama/qwen2.5", "ollama/gemma3"],
 		baseUrl: "http://localhost:11434/api",
-		keyPlaceholder: "sk-or-...",
+		keyPlaceholder: "",
+		local: true,
 	},
 	{
 		id: "xai",
@@ -212,74 +232,95 @@ export const llmProviderIdSchema = z.enum(
 	],
 );
 
-export const byokRoutingSettingsSchema = z.object({
-	defaultRouter: llmRouterIdSchema.default("ai-gateway"),
-	fallbackRouter: llmRouterIdSchema.nullable().default("openrouter"),
-	preferUserKeys: z.boolean().default(true),
-});
-
-export type ByokRoutingSettings = z.infer<typeof byokRoutingSettingsSchema>;
-
-export const byokProviderKeySchema = z.object({
-	id: z.string().min(1).optional(),
-	providerId: llmProviderIdSchema,
-	name: z.string().trim().min(1).max(80),
-	apiKey: z.string().trim().min(1).max(4096).optional(),
-	enabled: z.boolean().default(true),
-	priority: z.coerce.number().int().min(1).max(100).default(1),
-	forceDirect: z.boolean().default(false),
-	allowedModels: z.array(z.string().trim().min(1).max(200)).default([]),
-});
-
-export type ByokProviderKeyInput = z.infer<typeof byokProviderKeySchema>;
+const providerById: ReadonlyMap<string, LlmProviderDefinition> = new Map(
+	llmProviderCatalog.map((provider) => [provider.id, provider]),
+);
 
 export function getLlmProviderDefinition(
 	providerId: LlmProviderId | string,
 ): LlmProviderDefinition | null {
-	return (
-		llmProviderCatalog.find((provider) => provider.id === providerId) ?? null
-	);
+	return providerById.get(providerId) ?? null;
 }
 
-export function maskSecret(secret: string) {
+/**
+ * Whether a provider needs an API key. Unknown providers are treated as
+ * key-requiring so we fail closed rather than silently accepting empty keys.
+ */
+export function providerRequiresApiKey(
+	providerId: LlmProviderId | string,
+): boolean {
+	const definition = getLlmProviderDefinition(providerId);
+	return definition ? definition.local !== true : true;
+}
+
+const MASK_CHARACTER = "\u2022";
+
+/**
+ * Produce a display-safe representation of a secret. Short secrets are masked
+ * entirely (they lack the entropy to expose a prefix/suffix safely); longer
+ * secrets reveal only the first and last four characters.
+ */
+export function maskSecret(secret: string): string {
 	const trimmed = secret.trim();
 
-	if (trimmed.length <= 8) {
-		return trimmed;
+	if (trimmed.length === 0) {
+		return "";
 	}
 
-	return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+	if (trimmed.length <= 8) {
+		return MASK_CHARACTER.repeat(8);
+	}
+
+	return `${trimmed.slice(0, 4)}${MASK_CHARACTER.repeat(4)}${trimmed.slice(-4)}`;
 }
 
+/** Strip any leading aggregator router prefixes (handles nested prefixes). */
+function stripAggregatorPrefixes(modelId: string): string {
+	let result = modelId;
+	let changed = true;
+
+	while (changed) {
+		changed = false;
+		for (const prefix of AGGREGATOR_MODEL_PREFIXES) {
+			if (result.startsWith(prefix)) {
+				result = result.slice(prefix.length);
+				changed = true;
+			}
+		}
+	}
+
+	return result;
+}
+
+/**
+ * Best-effort detection of the provider that owns a model id. Returns null when
+ * no provider prefix matches.
+ */
 export function inferProviderIdFromModel(
 	modelId: string,
 ): LlmProviderId | null {
-	const normalized = modelId.trim().toLowerCase();
+	const normalized = stripAggregatorPrefixes(modelId.trim().toLowerCase());
 
 	if (!normalized) {
 		return null;
 	}
 
-	if (normalized.startsWith("openrouter/")) {
-		return inferProviderIdFromModel(normalized.slice("openrouter/".length));
-	}
-
-	if (normalized.startsWith("ollama/")) {
-		return inferProviderIdFromModel(normalized.slice("ollama/".length));
-	}
-
 	const [prefix] = normalized.split("/", 1);
 
-	if (prefix) {
-		const exactMatch = llmProviderCatalog.find((provider) =>
-			provider.modelPrefixes.some((candidate) => candidate === prefix),
-		);
-
-		if (exactMatch) {
-			return exactMatch.id;
-		}
+	if (!prefix) {
+		return null;
 	}
 
+	// Exact match on a leading path segment, e.g. "anthropic/claude-..." or "gpt".
+	const exactMatch = llmProviderCatalog.find((provider) =>
+		(provider.modelPrefixes as readonly string[]).includes(prefix),
+	);
+
+	if (exactMatch) {
+		return exactMatch.id;
+	}
+
+	// Hyphenated match for bare model ids, e.g. "claude-3.5" or "gpt-5".
 	const partialMatch = llmProviderCatalog.find((provider) =>
 		provider.modelPrefixes.some((candidate) =>
 			normalized.startsWith(`${candidate}-`),
@@ -289,54 +330,123 @@ export function inferProviderIdFromModel(
 	return partialMatch?.id ?? null;
 }
 
+/**
+ * Expand a model id into the variants we compare against: the normalized id and,
+ * when aggregator prefixes are present, the stripped upstream id.
+ */
+function modelMatchVariants(modelId: string): string[] {
+	const normalized = modelId.trim().toLowerCase();
+
+	if (!normalized) {
+		return [];
+	}
+
+	const stripped = stripAggregatorPrefixes(normalized);
+
+	return stripped === normalized ? [normalized] : [normalized, stripped];
+}
+
+/**
+ * Check whether a model id is permitted by an allow-list. An empty allow-list
+ * permits everything. A bare provider/family entry (e.g. "anthropic") matches
+ * any fully-qualified model under it (e.g. "anthropic/claude-3.5").
+ */
 export function matchesAllowedModels({
 	allowedModels,
 	modelId,
 }: {
 	allowedModels: string[];
 	modelId: string;
-}) {
+}): boolean {
 	if (allowedModels.length === 0) {
 		return true;
 	}
 
-	const normalizedModelId = modelId.trim().toLowerCase();
-	const normalizedModelIdWithoutOpenRouterPrefix = normalizedModelId.startsWith(
-		"openrouter/",
-	)
-		? normalizedModelId.slice("openrouter/".length)
-		: normalizedModelId;
-	const normalizedModelIdWithoutOllamaPrefix = normalizedModelId.startsWith(
-		"ollama/",
-	)
-		? normalizedModelId.slice("ollama/".length)
-		: normalizedModelId;
+	const modelVariants = modelMatchVariants(modelId);
+
+	if (modelVariants.length === 0) {
+		return false;
+	}
 
 	return allowedModels.some((candidate) => {
-		const normalizedCandidate = candidate.trim().toLowerCase();
-		const normalizedCandidateWithoutOpenRouterPrefix =
-			normalizedCandidate.startsWith("openrouter/")
-				? normalizedCandidate.slice("openrouter/".length)
-				: normalizedCandidate;
-		const normalizedCandidateWithoutOllamaPrefix =
-			normalizedCandidate.startsWith("ollama/")
-				? normalizedCandidate.slice("ollama/".length)
-				: normalizedCandidate;
+		const candidateVariants = modelMatchVariants(candidate);
 
-		return (
-			normalizedCandidate === normalizedModelId ||
-			normalizedCandidateWithoutOpenRouterPrefix ===
-				normalizedModelIdWithoutOpenRouterPrefix ||
-			normalizedModelId.startsWith(`${normalizedCandidate}/`) ||
-			normalizedModelIdWithoutOpenRouterPrefix.startsWith(
-				`${normalizedCandidateWithoutOpenRouterPrefix}/`,
-			) ||
-			normalizedCandidateWithoutOllamaPrefix ===
-				normalizedModelIdWithoutOllamaPrefix ||
-			normalizedModelId.startsWith(`${normalizedCandidate}/`) ||
-			normalizedModelIdWithoutOllamaPrefix.startsWith(
-				`${normalizedCandidateWithoutOllamaPrefix}/`,
-			)
+		return candidateVariants.some((candidateVariant) =>
+			modelVariants.some(
+				(modelVariant) =>
+					modelVariant === candidateVariant ||
+					modelVariant.startsWith(`${candidateVariant}/`),
+			),
 		);
 	});
 }
+
+function dedupeModelIds(models: string[]): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+
+	for (const model of models) {
+		const key = model.toLowerCase();
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		result.push(model);
+	}
+
+	return result;
+}
+
+export const byokRoutingSettingsSchema = z
+	.object({
+		defaultRouter: llmRouterIdSchema.default("ai-gateway"),
+		fallbackRouter: llmRouterIdSchema.nullable().default("openrouter"),
+		preferUserKeys: z.boolean().default(true),
+	})
+	// A fallback that equals the default router is redundant; normalize it away.
+	.transform((settings) =>
+		settings.fallbackRouter === settings.defaultRouter
+			? { ...settings, fallbackRouter: null }
+			: settings,
+	);
+
+export type ByokRoutingSettings = z.infer<typeof byokRoutingSettingsSchema>;
+
+export const byokProviderKeySchema = z
+	.object({
+		id: z.string().min(1).optional(),
+		providerId: llmProviderIdSchema,
+		name: z.string().trim().min(1).max(80),
+		apiKey: z.string().trim().min(1).max(4096).optional(),
+		enabled: z.boolean().default(true),
+		priority: z.coerce.number().int().min(1).max(100).default(1),
+		forceDirect: z.boolean().default(false),
+		allowedModels: z
+			.array(z.string().trim().min(1).max(200))
+			.default([])
+			.transform(dedupeModelIds),
+	})
+	.superRefine((value, ctx) => {
+		// A brand-new credential (no id yet) must include an API key unless the
+		// provider runs locally. Updates may omit the key to keep the stored one.
+		const isNewCredential = !value.id;
+		const hasApiKey =
+			typeof value.apiKey === "string" && value.apiKey.length > 0;
+
+		if (
+			isNewCredential &&
+			!hasApiKey &&
+			providerRequiresApiKey(value.providerId)
+		) {
+			const definition = getLlmProviderDefinition(value.providerId);
+			ctx.addIssue({
+				code: "custom",
+				path: ["apiKey"],
+				message: `An API key is required for ${
+					definition?.label ?? value.providerId
+				}.`,
+			});
+		}
+	});
+
+export type ByokProviderKeyInput = z.infer<typeof byokProviderKeySchema>;

@@ -12,7 +12,6 @@ import {
 	buildRepositoryReviewCommentMarkdown,
 	inferProviderIdFromModel,
 	type WorkspaceManagedTool,
-	type WorkspaceManagedToolMode,
 	type WorkspaceSettings,
 } from "@gitpal/utils";
 import { generateText, Output, stepCountIs, ToolLoopAgent, tool } from "ai";
@@ -280,28 +279,14 @@ function trimPatch(patch: string | null, maxLines = 25) {
 function getEnabledTool(
 	tools: WorkspaceManagedTool[],
 	type: WorkspaceManagedTool["type"],
-	mode?: WorkspaceManagedToolMode,
 ) {
 	return tools.find(
-		(toolSetting) =>
-			toolSetting.type === type &&
-			toolSetting.enabled &&
-			(mode ? toolSetting.mode === mode : true),
+		(toolSetting) => toolSetting.type === type && toolSetting.enabled,
 	);
 }
 
 function getToolSource(tool: WorkspaceManagedTool | undefined) {
-	if (!tool) {
-		return "disabled";
-	}
-
-	if (tool.mode === "mcp") {
-		return tool.mcpServerName
-			? `mcp:${tool.mcpServerName}`
-			: "mcp:unconfigured";
-	}
-
-	return "builtin";
+	return tool ? "builtin" : "disabled";
 }
 
 function summarizeChangedFile(file: GitPullRequestFile) {
@@ -885,9 +870,6 @@ function createReviewTools(context: ReviewContext) {
 		context.settings.ai.tools.available,
 		"web-search",
 	);
-	const mcpProxyTool =
-		getEnabledTool(context.settings.ai.tools.available, "github-mcp", "mcp") ??
-		getEnabledTool(context.settings.ai.tools.available, "gitlab-mcp", "mcp");
 
 	return {
 		read_pull_request_file: tool({
@@ -924,10 +906,9 @@ function createReviewTools(context: ReviewContext) {
 			},
 		}),
 		search_repository_context: tool({
-			description:
-				repositorySearchTool || mcpProxyTool
-					? "Search related issues and pull requests in this repository."
-					: "Repository search is disabled.",
+			description: repositorySearchTool
+				? "Search related issues and pull requests in this repository."
+				: "Repository search is disabled.",
 			inputSchema: z.object({
 				query: z.string().optional(),
 				kind: z
@@ -938,15 +919,10 @@ function createReviewTools(context: ReviewContext) {
 					.int()
 					.min(1)
 					.max(20)
-					.default(
-						repositorySearchTool?.maxResults ?? mcpProxyTool?.maxResults ?? 8,
-					),
+					.default(repositorySearchTool?.maxResults ?? 8),
 			}),
 			execute: async ({ query, kind, limit }) => {
-				if (
-					!reviewContext.contextAware ||
-					(!repositorySearchTool && !mcpProxyTool)
-				) {
+				if (!reviewContext.contextAware || !repositorySearchTool) {
 					return {
 						source: "disabled",
 						items: [] as GitRepositorySearchResult[],
@@ -961,7 +937,7 @@ function createReviewTools(context: ReviewContext) {
 				});
 
 				return {
-					source: getToolSource(repositorySearchTool ?? mcpProxyTool),
+					source: getToolSource(repositorySearchTool),
 					items,
 					formatted: formatSearchResults(items),
 				};

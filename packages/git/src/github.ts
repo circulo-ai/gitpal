@@ -15,6 +15,7 @@ import {
 	type GitPullRequestCreateInput,
 	type GitPullRequestFile,
 	type GitPullRequestFileStatus,
+	type GitPullRequestReview,
 	type GitPullRequestState,
 	type GitRepository,
 	type GitRepositoryFile,
@@ -221,6 +222,54 @@ function mapPullRequest(
 			typeof pullRequest.merge_commit_sha === "string"
 				? pullRequest.merge_commit_sha
 				: null,
+	};
+}
+
+function normalizeGitHubReviewState(
+	state: string | null,
+): GitPullRequestReview["state"] {
+	switch ((state ?? "").toUpperCase()) {
+		case "APPROVED":
+			return "approved";
+		case "CHANGES_REQUESTED":
+			return "changes_requested";
+		case "COMMENTED":
+			return "commented";
+		case "DISMISSED":
+			return "dismissed";
+		case "PENDING":
+			return "pending";
+		default:
+			return "unknown";
+	}
+}
+
+function mapPullRequestReview(
+	review: Record<string, unknown>,
+	providerId: string,
+	repositoryPath: string,
+	pullRequestNumber: number,
+): GitPullRequestReview {
+	return {
+		providerId,
+		repositoryPath,
+		pullRequestNumber,
+		id: String(review.id ?? review.node_id ?? ""),
+		state: normalizeGitHubReviewState(
+			typeof review.state === "string" ? review.state : null,
+		),
+		body:
+			typeof review.body === "string" && review.body.length > 0
+				? review.body
+				: null,
+		author: mapActor(
+			typeof review.user === "object" && review.user !== null
+				? (review.user as Record<string, unknown>)
+				: null,
+		),
+		submittedAt:
+			typeof review.submitted_at === "string" ? review.submitted_at : null,
+		htmlUrl: typeof review.html_url === "string" ? review.html_url : null,
 	};
 }
 
@@ -589,6 +638,31 @@ export function createGitHubAdapter({
 				),
 			)
 			.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+	}
+
+	async function listPullRequestReviews(
+		input: GitRepositoryRef & { pullRequestNumber: number },
+	): Promise<GitPullRequestReview[]> {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const response = await octokit.paginate(octokit.rest.pulls.listReviews, {
+			owner,
+			repo,
+			pull_number: input.pullRequestNumber,
+			per_page: 100,
+		});
+
+		return response
+			.map((review) =>
+				mapPullRequestReview(
+					review as Record<string, unknown>,
+					providerId,
+					input.repositoryPath,
+					input.pullRequestNumber,
+				),
+			)
+			.sort((left, right) =>
+				(left.submittedAt ?? "").localeCompare(right.submittedAt ?? ""),
+			);
 	}
 
 	async function getFileContent(
@@ -1018,6 +1092,7 @@ export function createGitHubAdapter({
 		getPullRequest,
 		listPullRequestFiles,
 		listPullRequestComments,
+		listPullRequestReviews,
 		getFileContent,
 		searchRepository,
 		listRepositoryLabels,

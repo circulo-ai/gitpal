@@ -77,8 +77,8 @@ const workerHandles = [
 		label: "pull request sync",
 		handle: createPullRequestSyncWorker(async (data) => {
 			await processPullRequestSyncJob(data);
-		})
-	}
+		}),
+	},
 ];
 
 for (const { handle, label } of workerHandles) {

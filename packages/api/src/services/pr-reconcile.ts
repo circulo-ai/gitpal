@@ -1,11 +1,14 @@
 import { createDb } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
-import type { GitPullRequest } from "@gitpal/git";
+import type { GitProviderAdapter, GitPullRequest } from "@gitpal/git";
 import { enqueuePullRequestSyncJob } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
 import { and, eq } from "drizzle-orm";
 import { getAutomationActorForRepository } from "./git-provider-access";
-import { projectPullRequestSnapshot } from "./pr-projection";
+import {
+  projectPullRequestSnapshot,
+  recordHumanReviewSignal,
+} from "./pr-projection";
 
 const db = createDb();
 const log = createLogger("pull-request-reconcile");
@@ -21,9 +24,13 @@ const log = createLogger("pull-request-reconcile");
  *     was missed.
  *
  * This refreshes mergedAt / closedAt / state / draft / approval-independent
- * lifecycle fields. It does NOT touch firstHumanReviewAt / lastHumanReviewAt —
- * provider APIs do not expose historical review timestamps, so those are owned
- * by the real-time webhook path only.
+ * lifecycle fields. It also backfills review timing (firstHumanReviewAt /
+ * lastHumanReviewAt / approvedAt / approvalState) from
+ * adapter.listPullRequestReviews for each projected PR, so a missed
+ * pull_request_review webhook self-heals on the next reconcile. Only reviews
+ * that carry a real provider timestamp are folded in; GitLab approvals without
+ * a system note (hence no timestamp) are skipped to avoid polluting timing with
+ * the reconcile time.
  */
 export async function reconcilePullRequestsForRepository({
   repositoryId,
@@ -72,6 +79,12 @@ export async function reconcilePullRequestsForRepository({
       repositoryId: repository.id,
       pullRequest,
     });
+    await backfillHumanReviews({
+      adapter: automationActor.adapter,
+      repositoryId: repository.id,
+      repositoryPath: repository.repositoryPath,
+      pullRequestNumber: pullRequest.number,
+    });
     seenNumbers.add(pullRequest.number);
     projected += 1;
   }
@@ -100,6 +113,12 @@ export async function reconcilePullRequestsForRepository({
         repositoryId: repository.id,
         pullRequest,
       });
+      await backfillHumanReviews({
+        adapter: automationActor.adapter,
+        repositoryId: repository.id,
+        repositoryPath: repository.repositoryPath,
+        pullRequestNumber: number,
+      });
       projected += 1;
     } catch (error) {
       log.warn(
@@ -111,6 +130,65 @@ export async function reconcilePullRequestsForRepository({
 
   log.info({ repositoryId, projected }, "Pull request reconcile complete.");
   return { projected };
+}
+
+/**
+ * Backfill human-review timing for a single PR from the provider's reviews.
+ *
+ * Best-effort and bounded: a failure here never fails the reconcile. Bot
+ * reviews and reviews without a real timestamp are skipped so that
+ * firstHumanReviewAt / lastHumanReviewAt only ever reflect genuine human review
+ * events (never the reconcile time).
+ */
+async function backfillHumanReviews({
+  adapter,
+  repositoryId,
+  repositoryPath,
+  pullRequestNumber,
+}: {
+  adapter: GitProviderAdapter;
+  repositoryId: string;
+  repositoryPath: string;
+  pullRequestNumber: number;
+}): Promise<void> {
+  let reviews: Awaited<
+    ReturnType<GitProviderAdapter["listPullRequestReviews"]>
+  >;
+  try {
+    reviews = await adapter.listPullRequestReviews({
+      repositoryPath,
+      pullRequestNumber,
+    });
+  } catch (error) {
+    log.debug(
+      { err: error, repositoryId, pullRequestNumber },
+      "Review backfill skipped — listPullRequestReviews error.",
+    );
+    return;
+  }
+
+  for (const review of reviews) {
+    // Pending reviews have not been submitted; skip.
+    if (review.state === "pending") {
+      continue;
+    }
+    // Only fold in reviews with a real provider timestamp so we never set review
+    // timing to the reconcile time (e.g. GitLab approvals without a note).
+    if (!review.submittedAt) {
+      continue;
+    }
+    const login = review.author?.login?.toLowerCase() ?? "";
+    if (review.author?.kind === "bot" || login.endsWith("[bot]")) {
+      continue;
+    }
+    await recordHumanReviewSignal({
+      repositoryId,
+      pullRequestNumber,
+      reviewedAt: new Date(review.submittedAt),
+      isApproval: review.state === "approved",
+      approvalState: review.state,
+    });
+  }
 }
 
 /**

@@ -107,8 +107,20 @@ export function ActiveWorkspaceProvider({
 	const authActiveWorkspaceId = activeOrganizationQuery.data?.id ?? null;
 
 	React.useEffect(() => {
+		// Only reconcile once the workspaces query has actually resolved. The
+		// previous version ran on every render — including while the query was
+		// still loading (workspaces === []) or had transiently errored — and took
+		// the `workspaces.length === 0` branch, which cleared the persisted cookie
+		// via writeActiveWorkspaceId(null). That wiped the active workspace on
+		// every page load before defaulting back to workspaces[0]. Bailing until
+		// isSuccess keeps the persisted selection intact across reloads.
+		if (!workspacesQuery.isSuccess) {
+			return;
+		}
+
 		if (workspaces.length === 0) {
-			setSelectedWorkspaceId(null);
+			// Genuinely no workspaces for this user — clear any stale selection.
+			setSelectedWorkspaceId((current) => (current === null ? current : null));
 			writeActiveWorkspaceId(null);
 			return;
 		}
@@ -123,8 +135,16 @@ export function ActiveWorkspaceProvider({
 			setSelectedWorkspaceId(preferredWorkspaceId);
 		}
 
-		writeActiveWorkspaceId(preferredWorkspaceId);
-	}, [authActiveWorkspaceId, selectedWorkspaceId, workspaces]);
+		// Never persist a null/undefined preference — that would clear the cookie.
+		if (preferredWorkspaceId) {
+			writeActiveWorkspaceId(preferredWorkspaceId);
+		}
+	}, [
+		authActiveWorkspaceId,
+		selectedWorkspaceId,
+		workspaces,
+		workspacesQuery.isSuccess,
+	]);
 
 	const activeWorkspace =
 		workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ??

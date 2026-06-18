@@ -290,7 +290,6 @@ export const knowledgeBaseLearning = pgTable(
 		}),
 		title: text("title").notNull(),
 		source: text("source").default("review").notNull(),
-		mcpServer: text("mcp_server"),
 		toolName: text("tool_name"),
 		timesApplied: integer("times_applied").default(0).notNull(),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -299,7 +298,6 @@ export const knowledgeBaseLearning = pgTable(
 	(table) => [
 		index("knowledge_base_learning_repository_id_idx").on(table.repositoryId),
 		index("knowledge_base_learning_created_at_idx").on(table.createdAt),
-		index("knowledge_base_learning_mcp_server_idx").on(table.mcpServer),
 	],
 );
 

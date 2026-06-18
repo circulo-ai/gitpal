@@ -510,10 +510,6 @@ function InstructionListEditor<
 	);
 }
 
-function isMcpToolType(type: WorkspaceManagedTool["type"]) {
-	return type === "github-mcp" || type === "gitlab-mcp";
-}
-
 const LANGUAGE_OPTIONS = [
 	{ value: "en-US", label: "English (United States)" },
 	{ value: "en-GB", label: "English (United Kingdom)" },
@@ -586,7 +582,7 @@ function ToolSettingsEditor({
 								</p>
 							</div>
 						</div>
-						<div className="grid gap-4 md:grid-cols-3">
+						<div className="grid gap-4 md:grid-cols-2">
 							<SectionToggleRow
 								title="Enabled"
 								description="Allow this tool during review runs."
@@ -605,38 +601,6 @@ function ToolSettingsEditor({
 									);
 								}}
 							/>
-							<Field label="Execution">
-								{isMcpToolType(toolSetting.type) ? (
-									<Select
-										value={toolSetting.mode}
-										disabled={disabled}
-										onValueChange={(mode) => {
-											onChange(
-												tools.map((tool, toolIndex) =>
-													toolIndex === index
-														? {
-																...tool,
-																mode: mode as "builtin" | "mcp",
-															}
-														: tool,
-												),
-											);
-										}}
-									>
-										<SelectTrigger className="w-full">
-											<SelectValue placeholder="Select execution" />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="builtin">Built-in</SelectItem>
-											<SelectItem value="mcp">MCP</SelectItem>
-										</SelectContent>
-									</Select>
-								) : (
-									<div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-muted-foreground text-sm">
-										Built-in execution
-									</div>
-								)}
-							</Field>
 							<NumberField
 								label="Max results"
 								value={toolSetting.maxResults}
@@ -657,17 +621,6 @@ function ToolSettingsEditor({
 								}}
 							/>
 						</div>
-						{isMcpToolType(toolSetting.type) && toolSetting.mode === "mcp" ? (
-							<Field
-								label="MCP server binding"
-								description="GitPal binds GitHub and GitLab MCP tools automatically so the server name stays consistent across the UI and runtime."
-							>
-								<div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm">
-									{toolSetting.mcpServerName ??
-										(toolSetting.type === "github-mcp" ? "github" : "gitlab")}
-								</div>
-							</Field>
-						) : null}
 					</div>
 				</div>
 			))}

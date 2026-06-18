@@ -960,13 +960,6 @@ function buildKnowledge(ctx: AnalyticsContext) {
 				series: [{ key: "applied", label: "Applied" }],
 			}),
 			chart({
-				id: "pr-coverage-by-mcp-server",
-				title: "PR coverage by MCP server",
-				type: "bar",
-				data: countBy(learnings, (learning) => learning.mcpServer),
-				series: [{ key: "value", label: "Learnings" }],
-			}),
-			chart({
 				id: "mcp-tool-usage",
 				title: "MCP tool usage",
 				type: "bar",

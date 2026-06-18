@@ -23,7 +23,6 @@ import {
   saveRepositoryWorkspaceSettings,
 } from "../services/workspace-settings";
 import { inngest } from "@gitpal/jobs";
-import { syncRepositories } from "@gitpal/jobs/inngest/functions/sync-repositories";
 
 const organizationScopeSchema = z.object({
   organizationId: z.string().min(1).optional(),

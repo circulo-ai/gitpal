@@ -25,8 +25,15 @@ import { createLogger } from "@gitpal/logger";
 const log = createLogger("ReviewAgent");
 
 const reviewFindingSchema = z.object({
-  title: z.string(),
-  severity: z.enum(["low", "medium", "high", "critical"]),
+  title: z
+    .string()
+    .min(1)
+    .describe(
+      "Short, specific title. Plain text, no markdown or trailing punctuation.",
+    ),
+  severity: z
+    .enum(["low", "medium", "high", "critical"])
+    .describe("Impact level of the finding."),
   category: z.enum([
     "correctness",
     "security",
@@ -36,29 +43,94 @@ const reviewFindingSchema = z.object({
     "documentation",
     "architecture",
   ]),
-  body: z.string(),
-  filePath: z.string().nullable(),
-  line: z.number().int().nullable(),
+  body: z
+    .string()
+    .min(1)
+    .describe(
+      "Markdown explanation of the issue and concrete fix. Use inline code for symbols. Do NOT wrap in a code fence.",
+    ),
+  filePath: z
+    .string()
+    .nullable()
+    .describe("Repository-relative path the finding applies to, or null."),
+  line: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .describe("1-based line number within filePath, or null."),
 });
 
 const relatedWorkSchema = z.object({
   kind: z.enum(["issue", "pull_request"]),
-  number: z.number().int(),
-  title: z.string(),
-  reason: z.string(),
-  htmlUrl: z.string(),
+  number: z.number().int().positive(),
+  title: z.string().min(1),
+  reason: z
+    .string()
+    .min(1)
+    .describe("One concise sentence explaining why this item is related."),
+  htmlUrl: z.string().url(),
 });
 
 const preMergeCheckSchema = z.object({
-  name: z.string(),
+  name: z.string().min(1),
   status: z.enum(["passed", "warning", "failed"]),
-  details: z.string(),
+  details: z
+    .string()
+    .min(1)
+    .describe("One concise sentence describing the check result."),
+});
+
+const reviewEffortSchema = z.object({
+  score: z
+    .number()
+    .int()
+    .min(1)
+    .max(5)
+    .describe("Review effort from 1 (trivial) to 5 (very involved)."),
+  label: z
+    .string()
+    .min(1)
+    .describe("Short human label for the score, e.g. 'Moderate'."),
+  minutes: z
+    .number()
+    .int()
+    .positive()
+    .describe("Rough estimate of focused review time, in minutes."),
 });
 
 export const repositoryReviewOutputSchema = z.object({
-  summary: z.string(),
-  walkthrough: z.string(),
-  suggestedLabels: z.array(z.string()).default([]),
+  summary: z
+    .string()
+    .min(1)
+    .describe(
+      "Concise high-level summary as Markdown prose. No heading, no code fence.",
+    ),
+  walkthrough: z
+    .string()
+    .min(1)
+    .describe(
+      "Markdown prose walkthrough grounded in repository context. No heading, no code fence.",
+    ),
+  sequenceDiagram: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      "Optional Mermaid 'sequenceDiagram' body (no code fence) describing the change flow, or null.",
+    ),
+  reviewEffort: reviewEffortSchema
+    .nullable()
+    .default(null)
+    .describe("Estimated review effort, or null when not requested."),
+  suggestedReviewers: z
+    .array(z.string())
+    .default([])
+    .describe("Suggested reviewer logins, each without a leading '@'."),
+  suggestedLabels: z
+    .array(z.string())
+    .default([])
+    .describe("Suggested PR labels justified by repository context."),
   relatedWork: z.array(relatedWorkSchema).default([]),
   findings: z.array(reviewFindingSchema).default([]),
   preMergeChecks: z.array(preMergeCheckSchema).default([]),
@@ -67,6 +139,113 @@ export const repositoryReviewOutputSchema = z.object({
 export type RepositoryReviewOutput = z.infer<
   typeof repositoryReviewOutputSchema
 >;
+
+// ─── Output normalization ─────────────────────────────────────────────────────────
+//
+// The model can return slightly messy structured output (stray code fences,
+// duplicate labels, blank entries, '@' prefixes, out-of-range numbers). We
+// normalize everything into one clean shape so the published comment and the
+// in-app preview render identically.
+
+function cleanMarkdown(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripCodeFence(value: string): string {
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:[\w-]+)?\n([\s\S]*?)\n?```$/);
+  return fenced ? (fenced[1]?.trim() ?? "") : trimmed;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const value = raw.trim();
+    if (!value) {
+      continue;
+    }
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
+function sanitizeReviewOutput(
+  output: RepositoryReviewOutput,
+): RepositoryReviewOutput {
+  return {
+    summary: cleanMarkdown(stripCodeFence(output.summary)),
+    walkthrough: cleanMarkdown(stripCodeFence(output.walkthrough)),
+    sequenceDiagram: output.sequenceDiagram?.trim()
+      ? stripCodeFence(output.sequenceDiagram)
+      : null,
+    reviewEffort: output.reviewEffort
+      ? {
+          score: Math.min(
+            5,
+            Math.max(1, Math.round(output.reviewEffort.score)),
+          ),
+          label: output.reviewEffort.label.trim(),
+          minutes: Math.max(1, Math.round(output.reviewEffort.minutes)),
+        }
+      : null,
+    suggestedReviewers: dedupeStrings(
+      output.suggestedReviewers.map((reviewer) => reviewer.replace(/^@+/, "")),
+    ),
+    suggestedLabels: dedupeStrings(output.suggestedLabels),
+    relatedWork: output.relatedWork
+      .filter((item) => item.title.trim() && item.htmlUrl.trim())
+      .map((item) => ({
+        ...item,
+        title: item.title.trim(),
+        reason: cleanMarkdown(item.reason),
+        htmlUrl: item.htmlUrl.trim(),
+      })),
+    findings: output.findings
+      .filter((finding) => finding.title.trim() && finding.body.trim())
+      .map((finding) => ({
+        ...finding,
+        title: finding.title.trim(),
+        body: cleanMarkdown(stripCodeFence(finding.body)),
+        filePath: finding.filePath?.trim() ? finding.filePath.trim() : null,
+        line:
+          finding.line && finding.line > 0 ? Math.round(finding.line) : null,
+      })),
+    preMergeChecks: output.preMergeChecks
+      .filter((check) => check.name.trim())
+      .map((check) => ({
+        ...check,
+        name: check.name.trim(),
+        details: cleanMarkdown(check.details),
+      })),
+  };
+}
+
+// Drop sections the workspace settings disable so the structured output never
+// carries content the preview/published comment would hide.
+function applySettingsGating(
+  output: RepositoryReviewOutput,
+  settings: WorkspaceSettings,
+): RepositoryReviewOutput {
+  return {
+    ...output,
+    reviewEffort: settings.reviews.walkthrough.estimateCodeReviewEffort
+      ? output.reviewEffort
+      : null,
+    sequenceDiagram: settings.reviews.walkthrough.sequenceDiagrams
+      ? output.sequenceDiagram
+      : null,
+  };
+}
 
 type ReviewRunKind = "review" | "mention" | "pre-merge";
 
@@ -451,11 +630,23 @@ Seeded repository context:
 ${seededContext}
 
 Required output expectations:
-- Produce a concise summary.
+- Produce a concise summary as Markdown prose (no heading, no code fences).
 - Produce a walkthrough that reflects repository context, not just the diff.
-- Produce findings only for real issues; do not invent them.
-- Include pre-merge checks when relevant.
-- Include related issues and pull requests when you have evidence.
+- Produce findings only for real issues; do not invent them. Use severity low|medium|high|critical.
+- Include pre-merge checks when relevant (status passed|warning|failed).
+- Include related issues and pull requests only when you have evidence.
+- Suggest reviewers as bare logins, without a leading "@".
+${
+  settings.reviews.walkthrough.estimateCodeReviewEffort
+    ? "- Provide reviewEffort with a 1-5 score, a short label, and an estimate in minutes."
+    : "- Leave reviewEffort null; review-effort estimates are disabled for this workspace."
+}
+${
+  settings.reviews.walkthrough.sequenceDiagrams
+    ? "- Provide sequenceDiagram as a Mermaid 'sequenceDiagram' body (no code fence) capturing the key runtime flow of this change."
+    : "- Leave sequenceDiagram null; sequence diagrams are disabled for this workspace."
+}
+- Keep every string clean: no wrapping code fences, no leading/trailing whitespace, no duplicate labels.
 - Return only the structured review content; the app assembles the publish-ready Markdown comment.
 `.trim();
 }
@@ -482,11 +673,16 @@ function buildReviewCommentMarkdown(
     kind: context.kind,
     summary: output.summary,
     walkthrough: output.walkthrough,
+    sequenceDiagram: output.sequenceDiagram,
+    reviewEffort: output.reviewEffort,
     findings: output.findings,
     relatedWork: output.relatedWork,
     preMergeChecks: output.preMergeChecks,
     suggestedLabels: output.suggestedLabels,
-    suggestedReviewers: context.suggestedReviewers ?? [],
+    suggestedReviewers: dedupeStrings([
+      ...(context.suggestedReviewers ?? []),
+      ...output.suggestedReviewers,
+    ]),
     changedFiles: buildChangedFileSummaries(files),
     poem: poem ?? null,
   });
@@ -941,19 +1137,24 @@ export async function runRepositoryReview(context: ReviewContext) {
   });
   log.info(reviewGeneration, "reviewGeneration");
   const result = reviewGeneration.result;
-  const output = repositoryReviewOutputSchema.parse(result.output);
+  const parsedOutput = repositoryReviewOutputSchema.parse(result.output);
+  const output = applySettingsGating(
+    sanitizeReviewOutput(parsedOutput),
+    context.settings,
+  );
   log.info(output, "reviewGeneration");
   const walkthrough = await generateWalkthroughText({
     context,
     output,
     files: context.files,
   });
+  const cleanedWalkthrough = cleanMarkdown(stripCodeFence(walkthrough));
   const finalOutput: RepositoryReviewOutput =
-    walkthrough === output.walkthrough
+    cleanedWalkthrough === output.walkthrough
       ? output
       : {
           ...output,
-          walkthrough,
+          walkthrough: cleanedWalkthrough,
         };
   log.info(finalOutput, "finalOutput");
   const poem = await generateFunPoem({

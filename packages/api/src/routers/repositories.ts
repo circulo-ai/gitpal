@@ -63,7 +63,7 @@ export const repositoriesRouter = router({
         ctx.session.session.activeOrganizationId ??
         null;
 
-      // FIX Issue 2: auto-sync on first load so new users always see their
+      // auto-sync on first load so new users always see their
       // repos without having to manually hit the sync button. The TTL (15 min)
       // means this is effectively a no-op after the first call.
       await ensureRepositoriesSyncedForUser({

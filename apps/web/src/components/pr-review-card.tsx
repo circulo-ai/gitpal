@@ -98,9 +98,9 @@ export function PrReviewCard() {
     );
 
   return (
-    <div className="relative isolate w-full max-w-[36rem] justify-self-center md:justify-self-end">
+    <div className="relative isolate w-full max-w-xl justify-self-center md:justify-self-end">
       {/* ambient glow */}
-      <div className="-z-10 absolute -inset-8 rounded-[2.5rem] bg-primary/10 blur-3xl" />
+      <div className="absolute -inset-8 -z-10 rounded-[2.5rem] bg-primary/10 blur-3xl" />
 
       <div
         onMouseEnter={() => setPaused(true)}
@@ -125,7 +125,7 @@ export function PrReviewCard() {
             <span className="size-3 rounded-full bg-[#febc2e]" />
             <span className="size-3 rounded-full bg-[#28c840]" />
           </div>
-          <div className="mx-auto flex w-[60%] items-center justify-center gap-2 rounded-md border border-[#d1d9e0] bg-white px-3 py-1 text-[0.72rem] text-[#59636e]">
+          <div className="mx-auto flex w-[60%] items-center justify-center gap-2 rounded-md border border-[#d1d9e0] bg-white px-3 py-1 text-[#59636e] text-[0.72rem]">
             <svg
               viewBox="0 0 16 16"
               className="size-3 fill-[#59636e]"
@@ -140,13 +140,13 @@ export function PrReviewCard() {
         {/* PR header */}
         <div className="px-5 pt-4">
           <div className="flex items-start justify-between gap-3">
-            <h3 className="text-[1.05rem] font-semibold leading-snug">
+            <h3 className="font-semibold text-[1.05rem] leading-snug">
               feat(auth): add magic link sign in{" "}
               <span className={gh.muted}>#318</span>
             </h3>
             <span
               className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.75rem] font-medium text-white transition-colors duration-500",
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-[0.75rem] text-white transition-colors duration-500",
                 committed ? "bg-[#8250df]" : "bg-[#1a7f37]",
               )}
             >
@@ -247,10 +247,10 @@ export function PrReviewCard() {
                   )}
                 >
                   <span className="font-semibold">GitPal</span>
-                  <span className="rounded-full border border-[#d1d9e0] px-1.5 text-[0.65rem] font-medium text-[#59636e]">
+                  <span className="rounded-full border border-[#d1d9e0] px-1.5 font-medium text-[#59636e] text-[0.65rem]">
                     bot
                   </span>
-                  <span className="rounded-md bg-[#fff1e5] px-1.5 text-[0.68rem] font-medium text-[#bc4c00]">
+                  <span className="rounded-md bg-[#fff1e5] px-1.5 font-medium text-[#bc4c00] text-[0.68rem]">
                     High severity
                   </span>
                   <span className={cn("ml-auto", gh.muted)}>just now</span>
@@ -270,7 +270,7 @@ export function PrReviewCard() {
                   >
                     <div
                       className={cn(
-                        "flex items-center justify-between border-b px-3 py-1.5 text-[0.76rem] font-medium",
+                        "flex items-center justify-between border-b px-3 py-1.5 font-medium text-[0.76rem]",
                         gh.border,
                         gh.subtle,
                       )}
@@ -304,14 +304,14 @@ export function PrReviewCard() {
                     >
                       <button
                         type="button"
-                        className="rounded-md border border-[#d1d9e0] bg-white px-2.5 py-1 text-[0.74rem] font-medium hover:bg-[#f3f4f6]"
+                        className="rounded-md border border-[#d1d9e0] bg-white px-2.5 py-1 font-medium text-[0.74rem] hover:bg-[#f3f4f6]"
                       >
                         Add to batch
                       </button>
                       <button
                         type="button"
                         className={cn(
-                          "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[0.74rem] font-medium text-white transition-colors duration-500",
+                          "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium text-[0.74rem] text-white transition-colors duration-500",
                           committed
                             ? "bg-[#1a7f37]"
                             : "bg-[#1f883d] hover:bg-[#1a7f37]",
@@ -357,7 +357,7 @@ export function PrReviewCard() {
                   )}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-[0.82rem] font-semibold">
+                  <p className="font-semibold text-[0.82rem]">
                     {checksPassed
                       ? "All checks have passed"
                       : "Some checks haven't completed yet"}
@@ -379,7 +379,7 @@ export function PrReviewCard() {
                   type="button"
                   disabled={!checksPassed}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[0.78rem] font-semibold text-white transition-all duration-500",
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold text-[0.78rem] text-white transition-all duration-500",
                     checksPassed
                       ? "bg-[#8250df] hover:bg-[#6f42c1]"
                       : "cursor-not-allowed bg-[#94d3a2]",
@@ -407,7 +407,7 @@ export function PrReviewCard() {
             gh.subtle,
           )}
         >
-          <span className="flex items-center gap-2 text-[0.75rem] text-[#59636e]">
+          <span className="flex items-center gap-2 text-[#59636e] text-[0.75rem]">
             <span className="size-2 animate-pulse rounded-full bg-[#1a7f37]" />
             Live review
           </span>

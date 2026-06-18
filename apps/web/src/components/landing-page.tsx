@@ -21,6 +21,7 @@ import {
   Shield01Icon,
   SparklesIcon,
   LockIcon,
+  CreditCard,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
@@ -189,9 +190,9 @@ export default function LandingPage() {
     <main className="relative isolate overflow-hidden bg-background text-foreground selection:bg-primary/20">
       {/* ambient background — no theme() arbitrary values */}
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(120,120,140,0.07)_1px,transparent_1px),linear-gradient(to_bottom,rgba(120,120,140,0.07)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_at_top,#000_30%,transparent_75%)]" />
-        <div className="absolute top-0 -left-24 h-[34rem] w-[34rem] rounded-full bg-primary/10 blur-3xl" />
-        <div className="absolute top-14 -right-40 h-[30rem] w-[30rem] rounded-full bg-emerald-500/[0.06] blur-3xl" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(120,120,140,0.07)_1px,transparent_1px),linear-gradient(to_bottom,rgba(120,120,140,0.07)_1px,transparent_1px)] bg-[size:64px_64px] mask-[radial-gradient(ellipse_at_top,#000_30%,transparent_75%)]" />
+        <div className="absolute top-0 -left-24 h-136 w-136 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute top-14 -right-40 h-120 w-120 rounded-full bg-emerald-500/6 blur-3xl" />
       </div>
 
       {/* header */}
@@ -212,55 +213,63 @@ export default function LandingPage() {
             </Link>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" render={<Link href="/login" />}>
-            Log in
-          </Button>
-          <Button render={<Link href="/dashboard" />}>Get started</Button>
-        </div>
+        <Button className={"ms-auto w-max"} render={<Link href="/dashboard" />}>
+          Get started
+        </Button>
       </header>
 
       {/* hero */}
-      <section className="mx-auto grid max-w-7xl gap-14 px-6 pt-14 pb-20 sm:px-8 md:grid-cols-[0.9fr_1.1fr] md:items-center md:gap-10 md:pt-20 md:pb-24 lg:px-10">
-        <Reveal className="flex max-w-xl flex-col gap-8">
-          <Badge
-            variant="secondary"
-            className="w-fit gap-2 rounded-full px-3 py-1 font-medium text-[0.8rem]"
-          >
-            <span className="size-2 animate-pulse rounded-full bg-primary" />
-            AI code review, on autopilot
-          </Badge>
-          <div className="space-y-6">
-            <h1 className="max-w-[16ch] text-balance font-heading text-[clamp(3rem,5.4vw,5.25rem)] text-foreground leading-[0.95] tracking-[-0.05em]">
-              Code reviews, elevated by{" "}
-              <span className="text-primary">AI.</span>
-            </h1>
-            <p className="max-w-[30rem] text-balance text-[1.05rem] text-muted-foreground leading-8 sm:text-[1.15rem]">
-              GitPal is an AI code review assistant that helps your team ship
-              higher quality code, faster. Get insightful feedback, catch issues
-              early, and keep your standards consistent.
-            </p>
-          </div>
-          <InstallButtons />
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
-            {heroPills.map(({ icon: Icon, label }) => (
-              <div
-                key={label}
-                className="flex items-center gap-2 whitespace-nowrap text-[0.88rem] text-foreground/75"
-              >
-                <HugeiconsIcon
-                  icon={Icon}
-                  className="size-3.5 stroke-[1.8] text-primary"
-                />
-                <span>{label}</span>
-              </div>
-            ))}
-          </div>
-        </Reveal>
+      <section className="mx-auto max-w-7xl px-4 pt-14 pb-20 sm:px-8 sm:pt-16 sm:pb-24 lg:px-10 lg:pt-20">
+        <div className="grid grid-cols-1 items-center gap-10 md:grid-cols-2 md:gap-12 lg:gap-16">
+          {/* ── Copy ─────────────────────────────────────────── */}
+          <Reveal className="flex flex-col gap-7 text-center md:text-left">
+            <Badge
+              variant="secondary"
+              className="mx-auto w-fit gap-2 rounded-full px-3 py-1 font-medium text-[0.8rem] md:mx-0"
+            >
+              <span className="size-2 animate-pulse rounded-full bg-primary" />
+              AI code review, on autopilot
+            </Badge>
 
-        <Reveal delay={120}>
-          <PrReviewCard />
-        </Reveal>
+            <div className="space-y-5">
+              <h1 className="text-balance font-heading text-[clamp(2.5rem,5.4vw,5.25rem)] text-foreground leading-[0.95] tracking-tighter">
+                Code reviews, elevated by{" "}
+                <span className="text-primary">AI.</span>
+              </h1>
+              <p className="mx-auto max-w-prose text-balance text-[1.05rem] text-muted-foreground leading-8 sm:text-[1.1rem] md:mx-0 md:max-w-[32rem]">
+                GitPal is an AI code review assistant that helps your team ship
+                higher quality code, faster. Get insightful feedback, catch
+                issues early, and keep your standards consistent.
+              </p>
+            </div>
+
+            {/* CTA buttons */}
+            <div className="flex justify-center md:justify-start">
+              <InstallButtons />
+            </div>
+
+            {/* Social proof pills — visible on all sizes */}
+            <div className="flex flex-wrap justify-center gap-x-5 gap-y-2.5 md:justify-start">
+              {heroPills.map(({ icon: Icon, label }) => (
+                <div
+                  key={label}
+                  className="flex items-center gap-2 whitespace-nowrap text-[0.84rem] text-foreground/65"
+                >
+                  <HugeiconsIcon
+                    icon={Icon}
+                    className="size-3.5 shrink-0 stroke-[1.8] text-primary"
+                  />
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+
+          {/* ── PR demo card ──────────────────────────────────── */}
+          <Reveal delay={120} className="w-full min-w-0">
+            <PrReviewCard />
+          </Reveal>
+        </div>
       </section>
 
       {/* features */}
@@ -313,34 +322,74 @@ export default function LandingPage() {
       </section>
 
       {/* CTA */}
-      <section className="mx-auto max-w-7xl px-6 pt-16 pb-16 sm:px-8 lg:px-10 lg:pt-20">
+      <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-8 lg:px-10">
         <Reveal>
-          <Card className="relative overflow-hidden rounded-[1.85rem] border-0 bg-[linear-gradient(135deg,#0a1120_0%,#101b34_54%,#0a1020_100%)] p-0 text-white shadow-2xl">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_120%,rgba(73,109,255,0.4),transparent_30%),radial-gradient(circle_at_14%_16%,rgba(255,255,255,0.06),transparent_26%)]" />
-            <div className="relative grid gap-8 px-6 py-12 sm:px-8 md:grid-cols-[1.08fr_0.92fr] md:items-center md:px-12 md:py-16">
-              <div className="space-y-5">
-                <h2 className="font-heading text-[clamp(2.4rem,3.8vw,4rem)] leading-[0.96] tracking-tighter">
-                  Better reviews.
-                  <br />
-                  {/* fixed: visible bright gradient instead of dark text-primary */}
-                  <span className="bg-gradient-to-r from-sky-300 via-indigo-300 to-violet-300 bg-clip-text text-transparent">
+          <div className="relative overflow-hidden rounded-[2rem] bg-[linear-gradient(145deg,#080e1e_0%,#0f1a35_45%,#090d1e_100%)] px-6 py-14 shadow-[0_32px_80px_rgba(0,0,0,0.6)] sm:px-10 sm:py-16 md:px-16 md:py-20">
+            {/* ── Radial colour layers ───────────────────────── */}
+            <div className="pointer-events-none absolute inset-0">
+              {/* primary blue bloom — bottom-right */}
+              <div className="absolute -right-20 -bottom-20 h-112 w-md rounded-full bg-indigo-600/25 blur-[80px]" />
+              {/* violet accent — top-left */}
+              <div className="absolute -top-10 -left-10 h-80 w-[20rem] rounded-full bg-violet-700/15 blur-[70px]" />
+              {/* subtle white sheen — top-right corner */}
+              <div className="absolute top-0 right-0 h-56 w-[20rem] rounded-bl-full bg-white/3" />
+            </div>
+
+            {/* ── Decorative grid ───────────────────────────── */}
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:48px_48px] [mask-image:radial-gradient(ellipse_at_center,#000_40%,transparent_80%)]" />
+
+            {/* ── Content ───────────────────────────────────── */}
+            <div className="relative flex flex-col items-center gap-10 text-center md:flex-row md:items-center md:justify-between md:gap-12 md:text-left">
+              {/* Headline + sub-copy */}
+              <div className="flex flex-col gap-5">
+                <h2 className="font-heading text-[clamp(2.2rem,4.2vw,4rem)] text-white leading-[0.95] tracking-[-0.045em]">
+                  Better reviews. <br className="hidden sm:block" />
+                  <span className="bg-linear-to-r from-sky-300 via-indigo-300 to-violet-400 bg-clip-text text-transparent">
                     Better code.
                   </span>
                 </h2>
-                <p className="max-w-[34rem] text-[0.98rem] text-white/70 leading-7 sm:text-[1rem]">
-                  Join thousands of developers shipping with confidence.
+
+                <p className="mx-auto max-w-md text-[0.98rem] text-white/55 leading-7 md:mx-0">
+                  Join thousands of developers shipping with confidence. No
+                  setup friction, no surprise bills.
                 </p>
-              </div>
-              <div className="flex flex-col items-start gap-4 md:items-end">
-                <InstallButtons tone="dark" />
-                <div className="flex items-center gap-2 text-[0.95rem] text-white/65">
-                  <HugeiconsIcon icon={LockIcon} className="size-4" />
-                  <span>No credit card required</span>
+
+                {/* trust row — mobile shows below p, desktop stays here */}
+                <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 pt-1 md:justify-start">
+                  {[
+                    { icon: CheckmarkCircle02Icon, label: "Free to start" },
+                    { icon: LockIcon, label: "SOC 2 compliant" },
+                    { icon: FlashIcon, label: "5-min setup" },
+                  ].map(({ icon: Icon, label }) => (
+                    <div
+                      key={label}
+                      className="flex items-center gap-1.5 text-[0.82rem] text-white/45"
+                    >
+                      <HugeiconsIcon
+                        icon={Icon}
+                        className="size-3.5 shrink-0 text-indigo-300"
+                      />
+                      {label}
+                    </div>
+                  ))}
                 </div>
               </div>
+
+              {/* Actions */}
+              <div className="flex w-full flex-col items-center gap-5 sm:w-auto md:items-end md:shrink-0">
+                <InstallButtons tone="dark" />
+
+                {/* pay-as-you-go note */}
+                <p className="flex items-center gap-2 text-[0.85rem] text-white/40">
+                  <HugeiconsIcon
+                    icon={CreditCard}
+                    className="size-4 shrink-0"
+                  />
+                  Pay as you go — no seat minimums
+                </p>
+              </div>
             </div>
-            <div className="pointer-events-none absolute -right-16 -bottom-16 h-48 w-72 rounded-full bg-primary/20 blur-3xl" />
-          </Card>
+          </div>
         </Reveal>
       </section>
     </main>

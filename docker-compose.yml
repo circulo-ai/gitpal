@@ -189,11 +189,11 @@ services:
     container_name: inngest-postgres
     restart: unless-stopped
     environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${INNGEST_POSTGRES_DB}
+      - POSTGRES_USER=${INNGEST_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${INNGEST_POSTGRES_PASSWORD}
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
-      - PGUSER=${POSTGRES_USER}
+      - PGUSER=${INNGEST_POSTGRES_USER}
     volumes:
       - inngest_postgres_data:/var/lib/postgresql/data
     ports:

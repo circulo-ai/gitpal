@@ -58,11 +58,6 @@ export const repositoriesRouter = router({
   list: protectedProcedure
     .input(organizationScopeSchema.optional())
     .query(async ({ ctx, input }) => {
-      // TODO: for test
-      await inngest.send({
-        name: "repositories/sync",
-      });
-
       const organizationId =
         input?.organizationId ??
         ctx.session.session.activeOrganizationId ??

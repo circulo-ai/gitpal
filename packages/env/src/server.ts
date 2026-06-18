@@ -50,22 +50,7 @@ export const env = createEnv({
       .number()
       .min(0)
       .default(1000),
-    WORKFLOW_REDIS_URI: z.url().default("redis://localhost:6379"),
-    WORKFLOW_BASE_URL: z.url().optional(),
-    WORKFLOW_TARGET_WORLD: z.string().default("@workflow-worlds/redis"),
-    WORKFLOW_REDIS_KEY_PREFIX: z.string().default("gitpal"),
-    WORKFLOW_REDIS_CONCURRENCY: z.coerce.number().int().positive().default(20),
-    WORKFLOW_REDIS_MAX_RETRIES: z.coerce.number().int().positive().default(3),
-    WORKFLOW_REDIS_IDEMPOTENCY_TTL_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(60_000),
-    WORKFLOW_REDIS_STREAM_MAX_LEN: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(10_000),
+    REDIS_URI: z.url().default("redis://localhost:6379"),
     AI_GATEWAY_API_KEY: z.string().optional(),
     OPENROUTER_API_KEY: z.string().optional(),
     OPENROUTER_BASE_URL: z.url().default("https://openrouter.ai/api/v1"),

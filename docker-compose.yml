@@ -52,8 +52,9 @@ services:
       GITLAB_WEBHOOK_SECRET: ${GITLAB_WEBHOOK_SECRET}
       NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL}
       REDIS_URL: redis://redis:6379
-      WORKFLOW_TARGET_WORLD: "@workflow-worlds/redis"
-      WORKFLOW_REDIS_URI: redis://redis:6379
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
+      INNGEST_API_BASE_URL: ${INNGEST_API_BASE_URL}
     healthcheck:
       test:
         [

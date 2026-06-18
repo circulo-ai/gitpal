@@ -14,7 +14,7 @@
 		"@gitpal/logger": "workspace:*",
 		"@gitpal/redis": "workspace:*",
 		"bullmq": "catalog:",
-		"inngest": "^4.6.0",
+		"inngest": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

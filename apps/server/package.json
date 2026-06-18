@@ -22,6 +22,7 @@
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",
 		"hono": "^4.12.26",
+		"inngest": "catalog:",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

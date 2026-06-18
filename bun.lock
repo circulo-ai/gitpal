@@ -57,6 +57,7 @@
         "better-auth": "catalog:",
         "dotenv": "catalog:",
         "hono": "^4.12.26",
+        "inngest": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -244,7 +245,7 @@
         "@gitpal/logger": "workspace:*",
         "@gitpal/redis": "workspace:*",
         "bullmq": "catalog:",
-        "inngest": "^4.6.0",
+        "inngest": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -334,6 +335,7 @@
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.8.2",
+    "inngest": "^4.6.0",
     "lucide-react": "^0.546.0",
     "next-themes": "^0.4.6",
     "octokit": "^5.0.5",

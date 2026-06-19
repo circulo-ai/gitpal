@@ -41,8 +41,11 @@ export type LlmProviderDefinition = {
  * Aggregator router prefixes. A model routed through one of these keeps the
  * *upstream* provider prefix (e.g. `openrouter/anthropic/claude-...`), so we
  * strip them before trying to detect the underlying provider.
+ *
+ * FIX #2: Added "gateway/" so that explicit gateway-routed model IDs like
+ * `gateway/google/gemini-2.5-pro` are correctly stripped before provider inference.
  */
-const AGGREGATOR_MODEL_PREFIXES = ["openrouter/", "ollama/"] as const;
+const AGGREGATOR_MODEL_PREFIXES = ["openrouter/", "ollama/", "gateway/"] as const;
 
 export const llmProviderCatalog = [
 	{
@@ -274,8 +277,9 @@ export function maskSecret(secret: string): string {
 	return `${trimmed.slice(0, 4)}${MASK_CHARACTER.repeat(4)}${trimmed.slice(-4)}`;
 }
 
-/** * Strip leading aggregator router prefixes only if they are part of a multi-slash 
- * nested routing string (e.g. openrouter/anthropic/claude-3-5-sonnet). 
+/**
+ * Strip leading aggregator router prefixes only if they are part of a multi-slash
+ * nested routing string (e.g. openrouter/anthropic/claude-3-5-sonnet).
  * Short native aggregator paths like "openrouter/free" or "ollama/llama3.2" are safely preserved.
  */
 export function stripAggregatorPrefixes(modelId: string): string {
@@ -287,7 +291,7 @@ export function stripAggregatorPrefixes(modelId: string): string {
 		for (const prefix of AGGREGATOR_MODEL_PREFIXES) {
 			if (result.toLowerCase().startsWith(prefix)) {
 				const segments = result.split("/");
-				// OpenRouter/Ollama models are structured as provider/model (2 segments).
+				// OpenRouter/Ollama/Gateway models are structured as provider/model (2 segments).
 				// If there are 3 or more segments, it's an explicit routing override prefix that must be stripped.
 				if (segments.length > 2) {
 					result = result.slice(prefix.length);
@@ -315,7 +319,7 @@ export function inferProviderIdFromModel(
 
 	// 1. Direct Explicit Aggregator Check
 	// If a model explicitly starts with an aggregator prefix, the user's explicit
-	// intent is to route through that specific platform. Return it directly so the 
+	// intent is to route through that specific platform. Return it directly so the
 	// system looks up the correct BYOK key (e.g. the user's custom OpenRouter API key).
 	for (const prefix of AGGREGATOR_MODEL_PREFIXES) {
 		if (trimmed.startsWith(prefix)) {
@@ -325,9 +329,8 @@ export function inferProviderIdFromModel(
 	}
 
 	// 2. Standard Fallback Inference
-	const normalized = stripAggregatorPrefixes(trimmed);
-
-	const [prefix] = normalized.split("/", 1);
+	// Strip any aggregator prefixes first, then match on the underlying provider segment.
+	const [prefix] = trimmed.split("/", 1);
 
 	if (!prefix) {
 		return null;
@@ -345,7 +348,7 @@ export function inferProviderIdFromModel(
 	// Hyphenated match for bare model ids, e.g. "claude-3.5" or "gpt-5".
 	const partialMatch = llmProviderCatalog.find((provider) =>
 		provider.modelPrefixes.some((candidate) =>
-			normalized.startsWith(`${candidate}-`),
+			trimmed.startsWith(`${candidate}-`),
 		),
 	);
 
@@ -372,6 +375,10 @@ function modelMatchVariants(modelId: string): string[] {
  * Check whether a model id is permitted by an allow-list. An empty allow-list
  * permits everything. A bare provider/family entry (e.g. "anthropic") matches
  * any fully-qualified model under it (e.g. "anthropic/claude-3.5").
+ *
+ * Note: matching is intentionally asymmetric — a bare provider entry in
+ * allowedModels acts as a wildcard prefix, but a fully-qualified model ID in
+ * allowedModels only matches that exact model (or models nested under it).
  */
 export function matchesAllowedModels({
 	allowedModels,
@@ -447,6 +454,9 @@ export const byokProviderKeySchema = z
 			.array(z.string().trim().min(1).max(200))
 			.default([])
 			.transform(dedupeModelIds),
+		// FIX #4: Expose per-key baseUrl so users can point a provider at a custom
+		// endpoint (e.g. a self-hosted proxy). When omitted the catalog default is used.
+		baseUrl: z.string().trim().url().max(512).nullable().optional(),
 	})
 	.superRefine((value, ctx) => {
 		// A brand-new credential (no id yet) must include an API key unless the

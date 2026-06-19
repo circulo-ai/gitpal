@@ -101,15 +101,25 @@ export function parseModelIdRoute(modelId: string): {
 	return { explicitRouterId: null, modelIdForRouter: trimmed };
 }
 
+/**
+ * FIX #3: Removed the internal parseModelIdRoute call — callers already pass
+ * a pre-stripped modelIdForRouter, so re-parsing here caused a double-strip
+ * and incorrect provider inference for some aggregator-prefixed model IDs.
+ *
+ * FIX #1: Added forcedOnly parameter so that keys marked forceDirect are
+ * respected even when preferUserKeys is false in the user's routing settings.
+ */
 async function getMatchingDirectKey({
 	userId,
 	modelId,
+	forcedOnly = false,
 }: {
 	userId: string;
 	modelId: string;
+	/** When true, only return keys that have forceDirect set. */
+	forcedOnly?: boolean;
 }) {
-	const { modelIdForRouter } = parseModelIdRoute(modelId);
-	const inferredProviderId = inferProviderIdFromModel(modelIdForRouter);
+	const inferredProviderId = inferProviderIdFromModel(modelId);
 
 	if (!inferredProviderId) {
 		return null;
@@ -128,10 +138,11 @@ async function getMatchingDirectKey({
 		rows.find(
 			(row) =>
 				row.enabled &&
+				(!forcedOnly || row.forceDirect) &&
 				row.providerId === inferredProviderId &&
 				matchesAllowedModels({
 					allowedModels: row.allowedModels,
-					modelId: modelIdForRouter,
+					modelId: modelId,
 				}),
 		) ?? null
 	);
@@ -146,25 +157,40 @@ export async function previewModelRouteForUser({
 }): Promise<ModelRoutePreview | null> {
 	const { explicitRouterId, modelIdForRouter } = parseModelIdRoute(modelId);
 	const settings = await getByokRoutingSettingsForUser(userId);
-	
-	// Check for direct key bypass only if no specific router channel was forced
-	const directKey = (explicitRouterId === "direct" || !explicitRouterId) && settings.preferUserKeys
+
+	// FIX #1: Two-phase direct key lookup.
+	// Phase 1: Normal lookup when the user has preferUserKeys enabled and no
+	//          explicit router channel was forced via a routing prefix.
+	const shouldAttemptDirectKey =
+		(explicitRouterId === "direct" || !explicitRouterId) &&
+		settings.preferUserKeys;
+
+	const directKey = shouldAttemptDirectKey
 		? await getMatchingDirectKey({ userId, modelId: modelIdForRouter })
 		: null;
 
-	if (directKey) {
-		const provider = getLlmProviderDefinition(directKey.providerId);
+	// Phase 2: Even when preferUserKeys is false, a key marked forceDirect must
+	//          bypass the router. Do a second lookup restricted to those keys.
+	const forcedDirectKey =
+		!directKey && !shouldAttemptDirectKey
+			? await getMatchingDirectKey({ userId, modelId: modelIdForRouter, forcedOnly: true })
+			: null;
+
+	const resolvedDirectKey = directKey ?? forcedDirectKey;
+
+	if (resolvedDirectKey) {
+		const provider = getLlmProviderDefinition(resolvedDirectKey.providerId);
 		return {
 			mode: "direct",
 			billedBy: "byok",
-			label: `Direct via ${provider?.label ?? directKey.providerId}`,
-			providerId: directKey.providerId,
-			providerLabel: provider?.label ?? directKey.providerId,
+			label: `Direct via ${provider?.label ?? resolvedDirectKey.providerId}`,
+			providerId: resolvedDirectKey.providerId,
+			providerLabel: provider?.label ?? resolvedDirectKey.providerId,
 			routerId: null,
 			usesFallback: false,
-			keyId: directKey.id,
-			keyName: directKey.name,
-			baseUrl: directKey.baseUrl,
+			keyId: resolvedDirectKey.id,
+			keyName: resolvedDirectKey.name,
+			baseUrl: resolvedDirectKey.baseUrl,
 		};
 	}
 
@@ -181,12 +207,14 @@ export async function previewModelRouteForUser({
 			continue;
 		}
 
+		// FIX #8: Infer the real underlying provider from the model id rather than
+		// hard-coding "openai" for the ai-gateway, which routes to many providers.
 		const providerId =
 			routerId === "openrouter"
 				? "openrouter"
 				: routerId === "ollama"
 					? "ollama"
-					: "openai";
+					: (inferProviderIdFromModel(modelIdForRouter) ?? "openai");
 		const provider = getLlmProviderDefinition(providerId);
 
 		return {
@@ -315,6 +343,11 @@ function mapStoredKey(row: UserLlmApiKeyRow): StoredByokKeySummary {
 	};
 }
 
+/**
+ * FIX #5: Replaced `Boolean(env.OLLAMA_API_KEY) || true` with a meaningful
+ * check. Ollama is local and doesn't use an API key; the correct signal for
+ * "Ollama is configured" is whether a base URL has been set.
+ */
 function getRouterAvailability(routerId: LlmRouterId) {
 	if (routerId === "ai-gateway") {
 		return Boolean(env.AI_GATEWAY_API_KEY);
@@ -325,7 +358,7 @@ function getRouterAvailability(routerId: LlmRouterId) {
 	}
 
 	if (routerId === "ollama") {
-		return Boolean(env.OLLAMA_API_KEY) || true;
+		return Boolean(env.OLLAMA_BASE_URL);
 	}
 
 	return true;
@@ -482,6 +515,11 @@ export async function listByokKeysForUser(userId: string) {
 	return rows.map(mapStoredKey);
 }
 
+/**
+ * FIX #4: baseUrl is now read from validated.baseUrl when explicitly supplied,
+ * falling back to the catalog's static default. Previously this always wrote
+ * provider.baseUrl, silently discarding any custom endpoint the user configured.
+ */
 export async function saveByokKeyForUser({
 	userId,
 	input,
@@ -514,6 +552,13 @@ export async function saveByokKeyForUser({
 		throw new Error("API key is required.");
 	}
 
+	// Resolve the base URL: prefer an explicitly supplied value, then the stored
+	// value on an existing row, then the catalog default.
+	const resolvedBaseUrl =
+		validated.baseUrl !== undefined
+			? validated.baseUrl
+			: (currentRow?.baseUrl ?? provider.baseUrl);
+
 	const now = new Date();
 	const [row] = await db
 		.insert(aiSchema.userLlmApiKey)
@@ -534,7 +579,7 @@ export async function saveByokKeyForUser({
 			priority: validated.priority,
 			forceDirect: validated.forceDirect,
 			allowedModels: validated.allowedModels,
-			baseUrl: provider.baseUrl,
+			baseUrl: resolvedBaseUrl,
 			metadata: {},
 			createdAt: currentRow?.createdAt ?? now,
 			updatedAt: now,
@@ -554,7 +599,7 @@ export async function saveByokKeyForUser({
 				priority: validated.priority,
 				forceDirect: validated.forceDirect,
 				allowedModels: validated.allowedModels,
-				baseUrl: provider.baseUrl,
+				baseUrl: resolvedBaseUrl,
 				updatedAt: now,
 			},
 		})

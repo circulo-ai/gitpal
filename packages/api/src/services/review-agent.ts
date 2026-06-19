@@ -18,6 +18,7 @@ import { generateText, Output, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { runTrackedAiGeneration } from "./ai-billing";
 import { resolveLanguageModelForUser } from "./llm-credentials";
+import { recordObservabilityEvent } from "./observability";
 
 const log = createLogger("ReviewAgent");
 
@@ -852,6 +853,88 @@ Keep it concise, warm, and suitable for a professional review comment. Output on
 	}
 }
 
+async function observeReviewToolCall<TResult>({
+	context,
+	toolName,
+	input,
+	run,
+}: {
+	context: ReviewContext;
+	toolName: string;
+	input: Record<string, unknown>;
+	run: () => Promise<TResult>;
+}) {
+	const startedAt = Date.now();
+	const sourceId = context.reviewRunId
+		? `${context.reviewRunId}:${toolName}:${startedAt}`
+		: null;
+
+	try {
+		const result = await run();
+
+		try {
+			await recordObservabilityEvent({
+				userId: context.userId,
+				repositoryId: context.repositoryDbId ?? null,
+				pullRequestId: context.pullRequestDbId ?? null,
+				reviewRunId: context.reviewRunId ?? null,
+				traceId: context.reviewRunId ?? null,
+				kind: "tool",
+				action: toolName,
+				status: "succeeded",
+				severity: "success",
+				title: `${toolName} succeeded`,
+				body: `Tool call completed for ${context.repository.fullName}#${context.pullRequest.number}.`,
+				sourceType: "review-tool-call",
+				sourceId,
+				durationMs: Date.now() - startedAt,
+				metadata: {
+					input,
+					repository: context.repository.fullName,
+					pullRequestNumber: context.pullRequest.number,
+					reviewKind: context.kind,
+				},
+			});
+		} catch (error) {
+			log.warn({ err: error, toolName }, "Tool call observability failed.");
+		}
+
+		return result;
+	} catch (error) {
+		try {
+			await recordObservabilityEvent({
+				userId: context.userId,
+				repositoryId: context.repositoryDbId ?? null,
+				pullRequestId: context.pullRequestDbId ?? null,
+				reviewRunId: context.reviewRunId ?? null,
+				traceId: context.reviewRunId ?? null,
+				kind: "tool",
+				action: toolName,
+				status: "failed",
+				severity: "error",
+				title: `${toolName} failed`,
+				body: error instanceof Error ? error.message : "Tool call failed.",
+				sourceType: "review-tool-call",
+				sourceId,
+				durationMs: Date.now() - startedAt,
+				metadata: {
+					input,
+					repository: context.repository.fullName,
+					pullRequestNumber: context.pullRequest.number,
+					reviewKind: context.kind,
+				},
+			});
+		} catch (observabilityError) {
+			log.warn(
+				{ err: observabilityError, toolName },
+				"Tool call failure observability failed.",
+			);
+		}
+
+		throw error;
+	}
+}
+
 function createReviewTools(context: ReviewContext) {
 	const reviewContext = context.settings.reviews.behavior.context;
 	const repositorySearchTool = getEnabledTool(
@@ -879,31 +962,37 @@ function createReviewTools(context: ReviewContext) {
 				path: z.string(),
 				ref: z.enum(["head", "base"]).default("head"),
 			}),
-			execute: async ({ path, ref }) => {
-				if (!reviewContext.includeRepositoryFiles) {
-					return {
-						path,
-						ref,
-						content:
-							"Repository file access is disabled for this review context.",
-					};
-				}
+			execute: async ({ path, ref }) =>
+				observeReviewToolCall({
+					context,
+					toolName: "read_pull_request_file",
+					input: { path, ref },
+					run: async () => {
+						if (!reviewContext.includeRepositoryFiles) {
+							return {
+								path,
+								ref,
+								content:
+									"Repository file access is disabled for this review context.",
+							};
+						}
 
-				const content = await context.adapter.getFileContent({
-					repositoryPath: context.repository.repositoryPath,
-					filePath: path,
-					ref:
-						ref === "base"
-							? context.pullRequest.targetBranch
-							: context.pullRequest.sourceBranch,
-				});
+						const content = await context.adapter.getFileContent({
+							repositoryPath: context.repository.repositoryPath,
+							filePath: path,
+							ref:
+								ref === "base"
+									? context.pullRequest.targetBranch
+									: context.pullRequest.sourceBranch,
+						});
 
-				return {
-					path: content.path,
-					ref: content.ref,
-					content: content.content,
-				};
-			},
+						return {
+							path: content.path,
+							ref: content.ref,
+							content: content.content,
+						};
+					},
+				}),
 		}),
 		search_repository_context: tool({
 			description: repositorySearchTool
@@ -921,27 +1010,33 @@ function createReviewTools(context: ReviewContext) {
 					.max(20)
 					.default(repositorySearchTool?.maxResults ?? 8),
 			}),
-			execute: async ({ query, kind, limit }) => {
-				if (!reviewContext.contextAware || !repositorySearchTool) {
-					return {
-						source: "disabled",
-						items: [] as GitRepositorySearchResult[],
-					};
-				}
+			execute: async ({ query, kind, limit }) =>
+				observeReviewToolCall({
+					context,
+					toolName: "search_repository_context",
+					input: { query, kind, limit },
+					run: async () => {
+						if (!reviewContext.contextAware || !repositorySearchTool) {
+							return {
+								source: "disabled",
+								items: [] as GitRepositorySearchResult[],
+							};
+						}
 
-				const items = await context.adapter.searchRepository({
-					repositoryPath: context.repository.repositoryPath,
-					query,
-					kind: kind as GitRepositorySearchKind[],
-					limit,
-				});
+						const items = await context.adapter.searchRepository({
+							repositoryPath: context.repository.repositoryPath,
+							query,
+							kind: kind as GitRepositorySearchKind[],
+							limit,
+						});
 
-				return {
-					source: getToolSource(repositorySearchTool),
-					items,
-					formatted: formatSearchResults(items),
-				};
-			},
+						return {
+							source: getToolSource(repositorySearchTool),
+							items,
+							formatted: formatSearchResults(items),
+						};
+					},
+				}),
 		}),
 		search_related_issues: tool({
 			description:
@@ -958,29 +1053,35 @@ function createReviewTools(context: ReviewContext) {
 					.max(20)
 					.default(relatedIssuesTool?.maxResults ?? 6),
 			}),
-			execute: async ({ query, limit }) => {
-				if (
-					!reviewContext.includeRelatedIssues &&
-					!relatedIssuesTool?.enabled
-				) {
-					return {
-						items: [] as GitRepositorySearchResult[],
-						formatted: "Related issue search is disabled.",
-					};
-				}
+			execute: async ({ query, limit }) =>
+				observeReviewToolCall({
+					context,
+					toolName: "search_related_issues",
+					input: { query, limit },
+					run: async () => {
+						if (
+							!reviewContext.includeRelatedIssues &&
+							!relatedIssuesTool?.enabled
+						) {
+							return {
+								items: [] as GitRepositorySearchResult[],
+								formatted: "Related issue search is disabled.",
+							};
+						}
 
-				const items = await context.adapter.searchRepository({
-					repositoryPath: context.repository.repositoryPath,
-					query,
-					kind: ["issue"],
-					limit,
-				});
+						const items = await context.adapter.searchRepository({
+							repositoryPath: context.repository.repositoryPath,
+							query,
+							kind: ["issue"],
+							limit,
+						});
 
-				return {
-					items,
-					formatted: formatSearchResults(items),
-				};
-			},
+						return {
+							items,
+							formatted: formatSearchResults(items),
+						};
+					},
+				}),
 		}),
 		search_related_pull_requests: tool({
 			description:
@@ -997,29 +1098,35 @@ function createReviewTools(context: ReviewContext) {
 					.max(20)
 					.default(relatedPullRequestsTool?.maxResults ?? 6),
 			}),
-			execute: async ({ query, limit }) => {
-				if (
-					!reviewContext.includeRelatedPRs &&
-					!relatedPullRequestsTool?.enabled
-				) {
-					return {
-						items: [] as GitRepositorySearchResult[],
-						formatted: "Related pull request search is disabled.",
-					};
-				}
+			execute: async ({ query, limit }) =>
+				observeReviewToolCall({
+					context,
+					toolName: "search_related_pull_requests",
+					input: { query, limit },
+					run: async () => {
+						if (
+							!reviewContext.includeRelatedPRs &&
+							!relatedPullRequestsTool?.enabled
+						) {
+							return {
+								items: [] as GitRepositorySearchResult[],
+								formatted: "Related pull request search is disabled.",
+							};
+						}
 
-				const items = await context.adapter.searchRepository({
-					repositoryPath: context.repository.repositoryPath,
-					query,
-					kind: ["pull_request"],
-					limit,
-				});
+						const items = await context.adapter.searchRepository({
+							repositoryPath: context.repository.repositoryPath,
+							query,
+							kind: ["pull_request"],
+							limit,
+						});
 
-				return {
-					items,
-					formatted: formatSearchResults(items),
-				};
-			},
+						return {
+							items,
+							formatted: formatSearchResults(items),
+						};
+					},
+				}),
 		}),
 		web_search: tool({
 			description: webSearchTool
@@ -1034,19 +1141,25 @@ function createReviewTools(context: ReviewContext) {
 					.max(10)
 					.default(webSearchTool?.maxResults ?? 5),
 			}),
-			execute: async ({ query, limit }) => {
-				if (!webSearchTool) {
-					return {
-						source: "disabled",
-						results: [] as WebSearchResult[],
-					};
-				}
+			execute: async ({ query, limit }) =>
+				observeReviewToolCall({
+					context,
+					toolName: "web_search",
+					input: { query, limit },
+					run: async () => {
+						if (!webSearchTool) {
+							return {
+								source: "disabled",
+								results: [] as WebSearchResult[],
+							};
+						}
 
-				return {
-					source: "duckduckgo",
-					results: await runWebSearch(query, limit),
-				};
-			},
+						return {
+							source: "duckduckgo",
+							results: await runWebSearch(query, limit),
+						};
+					},
+				}),
 		}),
 	};
 }

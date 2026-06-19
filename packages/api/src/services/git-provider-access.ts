@@ -2,18 +2,48 @@ import { auth } from "@gitpal/auth";
 import { createDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import { env } from "@gitpal/env/server";
 import {
 	createGitHubAdapter,
+	createGitHubAppInstallationAdapter,
 	createGitLabAdapter,
 	type GitProviderAdapter,
 } from "@gitpal/git";
+import { createLogger } from "@gitpal/logger";
 import { and, desc, eq, sql } from "drizzle-orm";
 
 const db = createDb();
+const log = createLogger("git-provider-access");
 
 export type GitAccount = typeof authSchema.account.$inferSelect;
 export type EnterpriseProvider =
 	typeof authSchema.enterpriseGitProvider.$inferSelect;
+type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
+
+function normalizePemSecret(value: string) {
+	const trimmed = value.trim().replace(/\\n/g, "\n");
+	if (trimmed.includes("-----BEGIN")) {
+		return trimmed;
+	}
+
+	try {
+		const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+		return decoded.includes("-----BEGIN") ? decoded : trimmed;
+	} catch {
+		return trimmed;
+	}
+}
+
+function getCloudGitHubAppConfig() {
+	if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
+		return null;
+	}
+
+	return {
+		appId: env.GITHUB_APP_ID,
+		privateKey: normalizePemSecret(env.GITHUB_APP_PRIVATE_KEY),
+	};
+}
 
 async function getValidAccessTokenForAccount(account: GitAccount) {
 	try {
@@ -77,10 +107,12 @@ export async function createAdapterFromAccount({
 	account,
 	enterpriseProviders,
 	webhookSecrets = [],
+	webhookSigningSecrets = [],
 }: {
 	account: GitAccount;
 	enterpriseProviders: Map<string, EnterpriseProvider>;
 	webhookSecrets?: string[];
+	webhookSigningSecrets?: string[];
 }): Promise<GitProviderAdapter | null> {
 	const accessToken = await getValidAccessTokenForAccount(account);
 	if (!accessToken) {
@@ -108,6 +140,7 @@ export async function createAdapterFromAccount({
 				token: accessToken,
 			},
 			webhookSecrets,
+			webhookSigningSecrets,
 		});
 	}
 
@@ -146,6 +179,32 @@ export async function createAdapterFromAccount({
 			token: accessToken,
 		},
 		webhookSecrets,
+		webhookSigningSecrets,
+	});
+}
+
+async function createAppAdapterForRepository({
+	repository,
+	webhookSecrets = [],
+}: {
+	repository: RepositoryRow;
+	webhookSecrets?: string[];
+}): Promise<GitProviderAdapter | null> {
+	if (repository.providerId !== "github") {
+		return null;
+	}
+
+	const config = getCloudGitHubAppConfig();
+	if (!config) {
+		return null;
+	}
+
+	return createGitHubAppInstallationAdapter({
+		providerId: "github",
+		appId: config.appId,
+		privateKey: config.privateKey,
+		repositoryPath: repository.repositoryPath,
+		webhookSecrets,
 	});
 }
 
@@ -153,10 +212,12 @@ export async function createAdapterForUserProvider({
 	userId,
 	providerId,
 	webhookSecrets = [],
+	webhookSigningSecrets = [],
 }: {
 	userId: string;
 	providerId: string;
 	webhookSecrets?: string[];
+	webhookSigningSecrets?: string[];
 }) {
 	const [enterpriseProviders, account] = await Promise.all([
 		getEnterpriseProviderMap(),
@@ -171,6 +232,7 @@ export async function createAdapterForUserProvider({
 		account,
 		enterpriseProviders,
 		webhookSecrets,
+		webhookSigningSecrets,
 	});
 }
 
@@ -181,10 +243,11 @@ export async function getAutomationActorForRepository({
 	repositoryId: string;
 	providerId: string;
 }) {
-	const [candidate] = await db
+	const candidates = await db
 		.select({
 			userId: dashboardSchema.repositoryAccess.userId,
 			account: authSchema.account,
+			repository: dashboardSchema.repository,
 			organizationRole: authSchema.member.role,
 			lastSeenAt: dashboardSchema.repositoryAccess.lastSeenAt,
 			roleRank: sql<number>`
@@ -223,30 +286,76 @@ export async function getAutomationActorForRepository({
 		.where(
 			and(
 				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
+				eq(dashboardSchema.repository.providerId, providerId),
 				eq(dashboardSchema.repositoryAccess.enabled, true),
 			),
 		)
 		.orderBy(sql`role_rank`, desc(dashboardSchema.repositoryAccess.lastSeenAt))
-		.limit(1);
+		.limit(10);
 
-	if (!candidate) {
+	if (candidates.length === 0) {
 		return null;
 	}
 
 	const enterpriseProviders = await getEnterpriseProviderMap();
-	const adapter = await createAdapterFromAccount({
-		account: candidate.account,
-		enterpriseProviders,
-	});
-
-	if (!adapter) {
-		return null;
+	const primaryCandidate = candidates[0];
+	if (primaryCandidate) {
+		try {
+			const appAdapter = await createAppAdapterForRepository({
+				repository: primaryCandidate.repository,
+			});
+			if (appAdapter) {
+				return {
+					userId: primaryCandidate.userId,
+					account: primaryCandidate.account,
+					organizationRole: primaryCandidate.organizationRole,
+					adapter: appAdapter,
+					credentialSource: "app" as const,
+				};
+			}
+		} catch (error) {
+			log.warn(
+				{
+					err: error,
+					repositoryId,
+					providerId,
+					repositoryPath: primaryCandidate.repository.repositoryPath,
+				},
+				"App-backed provider adapter could not be created; falling back to user credentials.",
+			);
+		}
 	}
 
-	return {
-		userId: candidate.userId,
-		account: candidate.account,
-		organizationRole: candidate.organizationRole,
-		adapter,
-	};
+	for (const candidate of candidates) {
+		try {
+			const adapter = await createAdapterFromAccount({
+				account: candidate.account,
+				enterpriseProviders,
+			});
+
+			if (!adapter) {
+				continue;
+			}
+
+			return {
+				userId: candidate.userId,
+				account: candidate.account,
+				organizationRole: candidate.organizationRole,
+				adapter,
+				credentialSource: "user" as const,
+			};
+		} catch (error) {
+			log.warn(
+				{
+					err: error,
+					repositoryId,
+					providerId,
+					userId: candidate.userId,
+				},
+				"Provider account could not create an automation adapter; trying next candidate.",
+			);
+		}
+	}
+
+	return null;
 }

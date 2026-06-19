@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
 	type GitActor,
@@ -41,6 +41,7 @@ type GitLabAdapterOptions = {
 	apiBaseUrl?: string;
 	auth?: GitProviderAuth;
 	webhookSecrets?: string[];
+	webhookSigningSecrets?: string[];
 };
 
 type GitLabProject = {
@@ -196,6 +197,7 @@ const capabilities: GitProviderCapabilities = {
 	// true here would be a capability lie that misleads trust-sensitive callers.
 	appAuthentication: false,
 };
+const GITLAB_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 
 const gitlabProjectSchema = z.object({
 	id: z.number(),
@@ -700,6 +702,88 @@ function constantTimeEquals(a: string, b: string): boolean {
 	return timingSafeEqual(aBuffer, bBuffer);
 }
 
+export function isGitLabWebhookSigningToken(secret: string) {
+	return secret.startsWith("whsec_");
+}
+
+function decodeGitLabSigningToken(secret: string) {
+	if (!isGitLabWebhookSigningToken(secret)) {
+		return null;
+	}
+
+	try {
+		return Buffer.from(secret.slice("whsec_".length), "base64");
+	} catch {
+		return null;
+	}
+}
+
+function isRecentGitLabWebhookTimestamp(timestamp: string) {
+	const asNumber = Number(timestamp);
+	if (!Number.isFinite(asNumber)) {
+		return false;
+	}
+
+	const nowSeconds = Date.now() / 1000;
+	return (
+		Math.abs(nowSeconds - asNumber) <=
+		GITLAB_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
+	);
+}
+
+function verifyGitLabWebhookSignature({
+	signingSecrets,
+	messageId,
+	timestamp,
+	rawBody,
+	signatureHeader,
+}: {
+	signingSecrets: string[];
+	messageId: string | null;
+	timestamp: string | null;
+	rawBody: string;
+	signatureHeader: string | null;
+}) {
+	if (
+		signingSecrets.length === 0 ||
+		!messageId ||
+		!timestamp ||
+		!signatureHeader ||
+		!isRecentGitLabWebhookTimestamp(timestamp)
+	) {
+		return false;
+	}
+
+	const receivedSignatures = signatureHeader
+		.split(/\s+/)
+		.map((signature) => signature.trim())
+		.filter(Boolean);
+	if (receivedSignatures.length === 0) {
+		return false;
+	}
+
+	const message = `${messageId}.${timestamp}.${rawBody}`;
+	for (const secret of signingSecrets) {
+		const rawKey = decodeGitLabSigningToken(secret);
+		if (!rawKey) {
+			continue;
+		}
+		const digest = createHmac("sha256", rawKey)
+			.update(message)
+			.digest("base64");
+		const expected = `v1,${digest}`;
+		if (
+			receivedSignatures.some((signature) =>
+				constantTimeEquals(signature, expected),
+			)
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 // Maps a raw GitLab event name (header value or object_kind, lowercased) onto
 // the unified event taxonomy. Order matters: "tag push" must be checked before
 // the generic "push" check, otherwise tag pushes are misclassified as branch
@@ -720,23 +804,46 @@ function mapGitLabWebhookEvent(rawEvent: string): string {
 function createGitLabWebhookVerifier(
 	providerId: string,
 	webhookSecrets: string[] = [],
+	webhookSigningSecrets: string[] = [],
 ): GitProviderAdapter["webhooks"] {
+	const signingSecrets = [
+		...webhookSigningSecrets,
+		...webhookSecrets.filter(isGitLabWebhookSigningToken),
+	];
+	const legacySecrets = webhookSecrets.filter(
+		(secret) => !isGitLabWebhookSigningToken(secret),
+	);
+	const verificationStrength =
+		signingSecrets.length > 0 && legacySecrets.length > 0
+			? "hmac-or-shared-token"
+			: signingSecrets.length > 0
+				? "hmac"
+				: "shared-token";
+
 	return {
 		providerId,
-		// GitLab verifies via a static shared token (X-Gitlab-Token): it proves the
-		// sender knows the secret, but does NOT prove body integrity the way
-		// GitHub's HMAC signature does.
-		verificationStrength: "shared-token",
-		verify: ({ headers }) => {
+		verificationStrength,
+		verify: ({ headers, rawBody }) => {
+			const signature = getHeaderValue(headers, "webhook-signature");
+			if (signature) {
+				return verifyGitLabWebhookSignature({
+					signingSecrets,
+					messageId: getHeaderValue(headers, "webhook-id"),
+					timestamp: getHeaderValue(headers, "webhook-timestamp"),
+					rawBody,
+					signatureHeader: signature,
+				});
+			}
+
 			const token = getHeaderValue(headers, "x-gitlab-token");
 
-			if (!token || webhookSecrets.length === 0) {
+			if (!token || legacySecrets.length === 0) {
 				return false;
 			}
 
 			// Constant-time comparison against every configured secret to avoid
 			// leaking the secret through response-timing side channels.
-			return webhookSecrets.some((secret) => constantTimeEquals(token, secret));
+			return legacySecrets.some((secret) => constantTimeEquals(token, secret));
 		},
 		parse: ({ headers, rawBody }) => {
 			const payload = JSON.parse(rawBody) as GitLabWebhookPayload;
@@ -755,7 +862,10 @@ function createGitLabWebhookVerifier(
 					typeof payload.object_attributes?.action === "string"
 						? payload.object_attributes.action
 						: null,
-				deliveryId: getHeaderValue(headers, "x-gitlab-event-uuid"),
+				deliveryId:
+					getHeaderValue(headers, "webhook-id") ??
+					getHeaderValue(headers, "x-gitlab-event-uuid") ??
+					getHeaderValue(headers, "idempotency-key"),
 				repository:
 					payload.project && typeof payload.project === "object"
 						? mapRepository(
@@ -850,6 +960,7 @@ export function createGitLabAdapter({
 	apiBaseUrl = `${normalizeGitHostUrl(baseUrl)}/api/v4`,
 	auth,
 	webhookSecrets = [],
+	webhookSigningSecrets = [],
 }: GitLabAdapterOptions = {}): GitProviderAdapter {
 	const normalizedBaseUrl = normalizeGitHostUrl(baseUrl);
 	const normalizedApiBaseUrl = normalizeBaseUrl(apiBaseUrl);
@@ -1639,6 +1750,15 @@ export function createGitLabAdapter({
 	}
 
 	async function createWebhook(input: GitWebhookCreateInput) {
+		const signingSecret =
+			input.signingSecret ??
+			(input.secret && isGitLabWebhookSigningToken(input.secret)
+				? input.secret
+				: undefined);
+		const legacySecret =
+			input.secret && !isGitLabWebhookSigningToken(input.secret)
+				? input.secret
+				: undefined;
 		const response = await requestJson<unknown>(
 			`${createRepositoryUrl(normalizedApiBaseUrl, input.repositoryPath)}/hooks`,
 			{
@@ -1649,7 +1769,8 @@ export function createGitLabAdapter({
 				},
 				body: JSON.stringify({
 					url: input.url,
-					token: input.secret,
+					token: legacySecret,
+					signing_token: signingSecret,
 					enable_ssl_verification: true,
 					push_events: input.events ? input.events.includes("push") : true,
 					merge_requests_events: input.events
@@ -1667,7 +1788,7 @@ export function createGitLabAdapter({
 		const hook = gitlabHookSchema.parse(response);
 		return {
 			...mapWebhook(hook, providerId, input.repositoryPath),
-			secretConfigured: Boolean(input.secret),
+			secretConfigured: Boolean(legacySecret || signingSecret),
 		};
 	}
 
@@ -1693,7 +1814,11 @@ export function createGitLabAdapter({
 		baseUrl: normalizedBaseUrl,
 		apiBaseUrl: normalizedApiBaseUrl,
 		capabilities,
-		webhooks: createGitLabWebhookVerifier(providerId, webhookSecrets),
+		webhooks: createGitLabWebhookVerifier(
+			providerId,
+			webhookSecrets,
+			webhookSigningSecrets,
+		),
 		listRepositories,
 		getCurrentUser,
 		getRepository,

@@ -870,12 +870,10 @@ export async function listWorkspacesForUser({ userId }: { userId: string }) {
 
 export async function addRepositoryForUser({
 	userId,
-	organizationId,
 	providerId,
 	repositoryPath,
 }: {
 	userId: string;
-	organizationId: string;
 	providerId: string;
 	repositoryPath: string;
 }) {

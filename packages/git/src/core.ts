@@ -252,7 +252,21 @@ export type GitWebhookCreateInput = {
 	repositoryPath: string;
 	url: string;
 	events?: string[];
+	/**
+	 * Legacy provider webhook secret.
+	 *
+	 * GitHub uses this to sign `X-Hub-Signature-256`. GitLab sends this value in
+	 * `X-Gitlab-Token`, which authenticates the sender but does not protect body
+	 * integrity.
+	 */
 	secret?: string;
+	/**
+	 * Provider HMAC signing secret where supported.
+	 *
+	 * Currently used by GitLab's Standard Webhooks-compatible signing token
+	 * (`whsec_<base64>`), which produces `webhook-signature`.
+	 */
+	signingSecret?: string;
 	active?: boolean;
 };
 
@@ -284,9 +298,14 @@ export interface GitWebhookAdapter {
 	 * - "hmac": signature is an HMAC over the raw body (proves secret knowledge
 	 *   AND body integrity). Used by GitHub.
 	 * - "shared-token": a static shared token is compared (proves secret
-	 *   knowledge only, NOT body integrity). Used by GitLab.
+	 *   knowledge only, NOT body integrity). Used by legacy GitLab webhooks.
+	 * - "hmac-or-shared-token": HMAC is verified when present, with a legacy
+	 *   shared-token fallback for migration.
 	 */
-	readonly verificationStrength: "hmac" | "shared-token";
+	readonly verificationStrength:
+		| "hmac"
+		| "shared-token"
+		| "hmac-or-shared-token";
 	verify(input: GitWebhookVerificationInput): Promise<boolean> | boolean;
 	parse(input: GitWebhookVerificationInput): GitWebhookEnvelope;
 }

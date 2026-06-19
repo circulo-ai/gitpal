@@ -9,6 +9,8 @@ import { requireOrganizationPermission } from "../services/organization-access";
 import { analyticsRouter } from "./analytics";
 import { apiKeysRouter } from "./api-keys";
 import { billingRouter } from "./billing";
+import { notificationsRouter } from "./notifications";
+import { observabilityRouter } from "./observability";
 import { repositoriesRouter } from "./repositories";
 
 type EnterpriseGitProviderType = "github" | "gitlab";
@@ -88,6 +90,8 @@ export const appRouter = router({
 	analytics: analyticsRouter,
 	apiKeys: apiKeysRouter,
 	billing: billingRouter,
+	notifications: notificationsRouter,
+	observability: observabilityRouter,
 	repositories: repositoriesRouter,
 	enterpriseGitProvider: router({
 		lookup: publicProcedure

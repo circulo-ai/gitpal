@@ -195,7 +195,8 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 	const [accountOpen, setAccountOpen] = React.useState(
 		pathname.startsWith("/account"),
 	);
-	const ReviewsIcon = workspaceNavItems[1].icon;
+	const reviewNavItem = workspaceNavItems.find((item) => "items" in item);
+	const ReviewsIcon = reviewNavItem?.icon;
 	const AccountIcon = accountNavItems[0].icon;
 
 	React.useEffect(() => {
@@ -219,14 +220,17 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 					<SidebarGroupContent>
 						<SidebarMenu>
 							{workspaceNavItems
-								.filter((item) => item.title === "Repositories")
+								.filter((item) => !("items" in item))
 								.map((item) => {
 									const Icon = item.icon;
 
 									return (
 										<SidebarMenuItem key={item.title}>
 											<SidebarMenuButton
-												isActive={pathname === item.href}
+												isActive={
+													pathname === item.href ||
+													pathname.startsWith(`${item.href}/`)
+												}
 												tooltip={item.title}
 												className="justify-start"
 												render={<Link href={item.href} />}
@@ -252,7 +256,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 									aria-expanded={reviewsOpen}
 									aria-controls="git-platform-reviews"
 								>
-									<ReviewsIcon />
+									{ReviewsIcon ? <ReviewsIcon /> : null}
 									<span>Git platform reviews</span>
 									<ChevronDownIcon
 										data-icon="inline-end"
@@ -269,7 +273,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 							className={cn(!reviewsOpen && "hidden")}
 						>
 							<SidebarMenuSub>
-								{workspaceNavItems[1].items.map((subItem) => {
+								{reviewNavItem?.items.map((subItem) => {
 									const SubIcon = subItem.icon;
 
 									return (

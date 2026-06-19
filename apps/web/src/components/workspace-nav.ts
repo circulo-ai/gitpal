@@ -1,5 +1,7 @@
 import {
+	ActivityIcon,
 	BarChart3Icon,
+	BellIcon,
 	BookOpenIcon,
 	CheckCircle2Icon,
 	Clock3Icon,
@@ -80,6 +82,16 @@ export const workspaceNavItems = [
 		icon: FolderGit2Icon,
 	},
 	{
+		title: "Observability",
+		href: "/observability",
+		icon: ActivityIcon,
+	},
+	{
+		title: "Notifications",
+		href: "/notifications",
+		icon: BellIcon,
+	},
+	{
 		title: "Git platform reviews",
 		href: "/dashboard/summary",
 		icon: DatabaseIcon,
@@ -146,6 +158,22 @@ export function getWorkspacePageInfo(pathname: string) {
 			section: "Account",
 			title: item?.title ?? "Account",
 			subtitle: "Workspaces, billing, and keys",
+		};
+	}
+
+	if (pathname.startsWith("/observability")) {
+		return {
+			section: "Workspace",
+			title: "Observability",
+			subtitle: "Logs, traces, and system events",
+		};
+	}
+
+	if (pathname.startsWith("/notifications")) {
+		return {
+			section: "Workspace",
+			title: "Notifications",
+			subtitle: "Important app events",
 		};
 	}
 

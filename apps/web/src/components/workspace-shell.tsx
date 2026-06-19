@@ -18,6 +18,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { ActiveWorkspaceProvider } from "./active-workspace-provider";
+import { NotificationBell } from "./notification-bell";
 import UserMenu from "./user-menu";
 import { getWorkspacePageInfo } from "./workspace-nav";
 import { WorkspaceSidebar } from "./workspace-sidebar";
@@ -73,7 +74,8 @@ export function WorkspaceShell({ children, user }: WorkspaceShellProps) {
 									</BreadcrumbItem>
 								</BreadcrumbList>
 							</Breadcrumb>
-							<div className="ml-auto shrink-0">
+							<div className="ml-auto flex shrink-0 items-center gap-2">
+								<NotificationBell />
 								<UserMenu user={user} />
 							</div>
 						</div>

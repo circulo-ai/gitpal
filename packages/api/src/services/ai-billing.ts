@@ -9,6 +9,8 @@ import {
 import { createGateway } from "ai";
 import { eq } from "drizzle-orm";
 import type { ModelRoutePreview } from "./llm-credentials";
+import { sendUserNotification } from "./notifications";
+import { recordObservabilityEvent } from "./observability";
 import { applyWalletUsageDebitInTransaction } from "./wallet";
 
 const db = createDb();
@@ -399,14 +401,44 @@ async function insertGenerationRow({
 		createdAt: now,
 		updatedAt: now,
 	});
+
+	await recordObservabilityEvent({
+		userId,
+		repositoryId,
+		pullRequestId,
+		reviewRunId,
+		traceId: reviewRunId ?? generationId,
+		kind: "ai",
+		action: callKind,
+		status: "pending",
+		severity: "warning",
+		title: `${callKind} AI generation started`,
+		body: `${getProviderLabel(providerId)} ${modelId} through ${routePreview.label}`,
+		sourceType: "ai-generation",
+		sourceId: generationId,
+		dedupeKey: `ai-generation:${generationId}:started`,
+		metadata: {
+			modelId,
+			providerId,
+			routeId: routePreview.routerId ?? "direct",
+			routeLabel: routePreview.label,
+			billingMode: routePreview.billedBy,
+			tags,
+		},
+		occurredAt: now,
+	});
 }
 
 async function completeGenerationRow({
 	executor = db,
 	generationId,
+	userId,
 	callKind,
 	modelId,
 	routePreview,
+	repositoryId,
+	pullRequestId,
+	reviewRunId,
 	tags,
 	usage,
 	actualCostCents,
@@ -418,9 +450,13 @@ async function completeGenerationRow({
 }: {
 	executor?: AiBillingDbExecutor;
 	generationId: string;
+	userId: string;
 	callKind: AiCallKind;
 	modelId: string;
 	routePreview: ModelRoutePreview;
+	repositoryId?: string | null;
+	pullRequestId?: string | null;
+	reviewRunId?: string | null;
 	tags: string[];
 	usage: AiCallUsage;
 	actualCostCents: number | null;
@@ -467,15 +503,53 @@ async function completeGenerationRow({
 			updatedAt: now,
 		})
 		.where(eq(aiSchema.aiGeneration.id, generationId));
+
+	await recordObservabilityEvent(
+		{
+			userId,
+			repositoryId,
+			pullRequestId,
+			reviewRunId,
+			traceId: reviewRunId ?? generationId,
+			kind: "ai",
+			action: callKind,
+			status: "succeeded",
+			severity: "success",
+			title: `${callKind} AI generation succeeded`,
+			body: `${getProviderLabel(getModelProviderId(modelId, routePreview))} ${modelId}`,
+			sourceType: "ai-generation",
+			sourceId: generationId,
+			dedupeKey: `ai-generation:${generationId}:succeeded`,
+			durationMs: null,
+			costCents: actualCostCents,
+			metadata: {
+				modelId,
+				routeId: routePreview.routerId ?? "direct",
+				routeLabel: routePreview.label,
+				billingMode: routePreview.billedBy,
+				providerGenerationId,
+				walletDebitCents,
+				walletBalanceAfterCents,
+				usage: serializeUsage(usage),
+				tags,
+			},
+			occurredAt: now,
+		},
+		executor,
+	);
 }
 
 async function failGenerationRow({
 	executor = db,
 	generationId,
 	errorMessage,
+	userId,
 	callKind,
 	modelId,
 	routePreview,
+	repositoryId,
+	pullRequestId,
+	reviewRunId,
 	tags,
 	usage,
 	actualCostCents,
@@ -488,9 +562,13 @@ async function failGenerationRow({
 	executor?: AiBillingDbExecutor;
 	generationId: string;
 	errorMessage: string;
+	userId?: string;
 	callKind?: AiCallKind;
 	modelId?: string;
 	routePreview?: ModelRoutePreview;
+	repositoryId?: string | null;
+	pullRequestId?: string | null;
+	reviewRunId?: string | null;
 	tags?: string[];
 	usage?: AiCallUsage;
 	actualCostCents?: number | null;
@@ -563,6 +641,41 @@ async function failGenerationRow({
 			updatedAt: now,
 		})
 		.where(eq(aiSchema.aiGeneration.id, generationId));
+
+	if (userId && callKind && modelId && routePreview) {
+		await recordObservabilityEvent(
+			{
+				userId,
+				repositoryId,
+				pullRequestId,
+				reviewRunId,
+				traceId: reviewRunId ?? generationId,
+				kind: "ai",
+				action: callKind,
+				status: "failed",
+				severity: "error",
+				title: `${callKind} AI generation failed`,
+				body: errorMessage,
+				sourceType: "ai-generation",
+				sourceId: generationId,
+				dedupeKey: `ai-generation:${generationId}:failed`,
+				costCents: actualCostCents ?? null,
+				metadata: {
+					modelId,
+					routeId: routePreview.routerId ?? "direct",
+					routeLabel: routePreview.label,
+					billingMode: routePreview.billedBy,
+					providerGenerationId: providerGenerationId ?? null,
+					walletDebitCents: walletDebitCents ?? 0,
+					walletBalanceAfterCents: walletBalanceAfterCents ?? null,
+					usage: usage ? serializeUsage(usage) : null,
+					tags: tags ?? [],
+				},
+				occurredAt: now,
+			},
+			executor,
+		);
+	}
 }
 
 export function buildAiProviderOptions({
@@ -690,9 +803,13 @@ export async function runTrackedAiGeneration<TResult>({
 			await completeGenerationRow({
 				executor: tx,
 				generationId,
+				userId,
 				callKind,
 				modelId,
 				routePreview,
+				repositoryId,
+				pullRequestId,
+				reviewRunId,
 				tags,
 				usage,
 				actualCostCents,
@@ -734,9 +851,13 @@ export async function runTrackedAiGeneration<TResult>({
 			generationId,
 			errorMessage:
 				error instanceof Error ? error.message : "ai_generation_failed",
+			userId,
 			callKind,
 			modelId,
 			routePreview,
+			repositoryId,
+			pullRequestId,
+			reviewRunId,
 			tags,
 			usage: usage ?? undefined,
 			actualCostCents,
@@ -753,6 +874,24 @@ export async function runTrackedAiGeneration<TResult>({
 				routeLabel: routePreview.label,
 				routeMode: routePreview.mode,
 				billedBy: routePreview.billedBy,
+			},
+		});
+		await sendUserNotification({
+			userId,
+			repositoryId,
+			type: "ai_generation_failed",
+			category: "ai",
+			severity: "error",
+			title: `${callKind} AI generation failed`,
+			body: error instanceof Error ? error.message : "AI generation failed.",
+			actionHref: "/observability",
+			sourceType: "ai-generation",
+			sourceId: generationId,
+			dedupeKey: `ai-generation:${generationId}:notification:failed`,
+			metadata: {
+				modelId,
+				routeId: routePreview.routerId ?? "direct",
+				routeLabel: routePreview.label,
 			},
 		});
 		throw error;

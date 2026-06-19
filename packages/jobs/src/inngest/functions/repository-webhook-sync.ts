@@ -1,8 +1,7 @@
 import { eventType, staticSchema } from "inngest";
 import { z } from "zod";
-import { inngest } from "../client";
-import { processRepositoryWebhookSyncJob } from "@gitpal/api/services/repository-webhook-sync";
 import { buildEventId } from "../../idempotency";
+import { inngest } from "../client";
 
 export const repositoryWebhookSyncJobSchema = z.object({
 	userId: z.string().min(1),
@@ -27,20 +26,28 @@ export const repoWebhookSyncEvent = eventType("repository/webhook-sync.run", {
 	schema: staticSchema<RepositoryWebhookSyncJobData>(),
 });
 
-export const repositoryWebhookSyncFunction = inngest.createFunction(
-	{
-		id: "repository-webhook-sync",
-		triggers: [repoWebhookSyncEvent],
-		concurrency: 1,
-	},
-	async ({ event, step }) => {
-		const data = repositoryWebhookSyncJobSchema.parse(event.data);
+export type RepositoryWebhookSyncProcessor = (
+	input: RepositoryWebhookSyncJobData,
+) => Promise<unknown>;
 
-		await step.run("sync", async () => {
-			await processRepositoryWebhookSyncJob(data);
-		});
-	},
-);
+export function createRepositoryWebhookSyncFunction(
+	processRepositoryWebhookSyncJob: RepositoryWebhookSyncProcessor,
+) {
+	return inngest.createFunction(
+		{
+			id: "repository-webhook-sync",
+			triggers: [repoWebhookSyncEvent],
+			concurrency: 1,
+		},
+		async ({ event, step }) => {
+			const data = repositoryWebhookSyncJobSchema.parse(event.data);
+
+			await step.run("sync", async () => {
+				await processRepositoryWebhookSyncJob(data);
+			});
+		},
+	);
+}
 
 export async function enqueueRepositoryWebhookSyncJob(
 	input: RepositoryWebhookSyncJobData,

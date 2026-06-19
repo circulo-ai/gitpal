@@ -47,6 +47,18 @@ type GitHubAdapterOptions = {
 	webhookSecrets?: string[];
 };
 
+type GitHubAppInstallationAdapterOptions = Omit<
+	GitHubAdapterOptions,
+	"auth"
+> & {
+	appId: string;
+	privateKey: string;
+	installationId?: number;
+	repositoryPath?: string;
+	clientId?: string;
+	clientSecret?: string;
+};
+
 type GitHubWebhookPayload = {
 	action?: string;
 	repository?: Record<string, unknown> | null;
@@ -398,6 +410,52 @@ function mapRepositoryLabel(
 function splitGitHubRepositoryPath(repositoryPath: string) {
 	const { owner, repo } = splitRepositoryPath(repositoryPath);
 	return { owner, repo };
+}
+
+async function resolveGitHubRepositoryInstallationId({
+	appId,
+	privateKey,
+	clientId,
+	clientSecret,
+	apiBaseUrl,
+	userAgent,
+	repositoryPath,
+}: {
+	appId: string;
+	privateKey: string;
+	clientId?: string;
+	clientSecret?: string;
+	apiBaseUrl: string;
+	userAgent: string;
+	repositoryPath: string;
+}) {
+	const { owner, repo } = splitGitHubRepositoryPath(repositoryPath);
+	const appOctokit = new Octokit({
+		baseUrl: normalizeBaseUrl(apiBaseUrl),
+		userAgent,
+		authStrategy: createAppAuth,
+		auth: {
+			appId,
+			privateKey,
+			clientId,
+			clientSecret,
+		},
+	});
+	const response = await appOctokit.request(
+		"GET /repos/{owner}/{repo}/installation",
+		{
+			owner,
+			repo,
+		},
+	);
+	const installationId = Number(response.data.id);
+	if (!Number.isInteger(installationId) || installationId <= 0) {
+		throw new GitProviderConfigurationError(
+			"GitHub App installation id could not be resolved for repository.",
+			"github",
+		);
+	}
+	return installationId;
 }
 
 function createGitHubWebhookVerifier(
@@ -1107,4 +1165,57 @@ export function createGitHubAdapter({
 		createWebhook,
 		deleteWebhook,
 	};
+}
+
+export async function createGitHubAppInstallationAdapter({
+	providerId = "github",
+	label = getGitProviderLabel("github"),
+	authBaseUrl = "https://github.com",
+	apiBaseUrl = "https://api.github.com",
+	appId,
+	privateKey,
+	installationId,
+	repositoryPath,
+	clientId,
+	clientSecret,
+	userAgent = "GitPal",
+	webhookSecrets = [],
+}: GitHubAppInstallationAdapterOptions): Promise<GitProviderAdapter> {
+	const resolvedInstallationId =
+		installationId ??
+		(repositoryPath
+			? await resolveGitHubRepositoryInstallationId({
+					appId,
+					privateKey,
+					clientId,
+					clientSecret,
+					apiBaseUrl,
+					userAgent,
+					repositoryPath,
+				})
+			: null);
+
+	if (!resolvedInstallationId) {
+		throw new GitProviderConfigurationError(
+			"GitHub App authentication requires an installation id or repository path.",
+			providerId,
+		);
+	}
+
+	return createGitHubAdapter({
+		providerId,
+		label,
+		authBaseUrl,
+		apiBaseUrl,
+		auth: {
+			type: "github-app",
+			appId,
+			privateKey,
+			installationId: resolvedInstallationId,
+			clientId,
+			clientSecret,
+		},
+		userAgent,
+		webhookSecrets,
+	});
 }

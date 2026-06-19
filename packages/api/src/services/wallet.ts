@@ -3,13 +3,14 @@ import { createDb } from "@gitpal/db";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import { env } from "@gitpal/env/server";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
-
+import { sendUserNotification } from "./notifications";
 import {
 	createNowPaymentsCheckout,
 	isNowPaymentsCheckoutEnabled,
 	type NowPaymentsWebhookPayment,
 	normalizeNowPaymentsStatus,
 } from "./nowpayments";
+import { recordObservabilityEvent } from "./observability";
 
 const db: ReturnType<typeof createDb> = createDb();
 type WalletDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
@@ -73,6 +74,13 @@ function getLedgerId(sourceType: string, sourceId: string, entryType: string) {
 
 function toUsdAmount(priceAmountUsdCents: number) {
 	return Number((priceAmountUsdCents / 100).toFixed(2));
+}
+
+function formatUsd(cents: number) {
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+	}).format(cents / 100);
 }
 
 async function ensureWalletForUser(
@@ -239,6 +247,27 @@ export async function createWalletTopupForUser({
 	if (!topup) {
 		throw new Error("Unable to create wallet top-up.");
 	}
+
+	await recordObservabilityEvent({
+		userId,
+		kind: "billing",
+		action: "wallet-topup",
+		status: topup.status,
+		severity: "warning",
+		title: "Wallet top-up checkout created",
+		body: `${formatUsd(topup.priceAmountUsdCents)} checkout opened with NOWPayments.`,
+		sourceType: "wallet-topup",
+		sourceId: topup.id,
+		dedupeKey: `wallet-topup:${topup.id}:created`,
+		costCents: topup.priceAmountUsdCents,
+		metadata: {
+			orderId,
+			provider: "nowpayments",
+			providerInvoiceId,
+			invoiceUrl,
+		},
+		occurredAt: now,
+	});
 
 	return {
 		id: topup.id,
@@ -575,6 +604,62 @@ export async function handleNowPaymentsWebhook(
 			});
 		}
 	});
+
+	await recordObservabilityEvent({
+		userId: existingTopup.userId,
+		kind: "billing",
+		action: "wallet-topup",
+		status,
+		severity: TOPUP_FAILURE_STATUSES.has(status)
+			? "error"
+			: TOPUP_FINAL_STATUSES.has(status)
+				? "success"
+				: "info",
+		title: `Wallet top-up ${status}`,
+		body: TOPUP_FAILURE_STATUSES.has(status)
+			? `NOWPayments marked ${formatUsd(existingTopup.priceAmountUsdCents)} as ${status}.`
+			: TOPUP_FINAL_STATUSES.has(status)
+				? `${formatUsd(existingTopup.priceAmountUsdCents)} payment confirmed.`
+				: `NOWPayments status changed to ${status}.`,
+		sourceType: "wallet-topup",
+		sourceId: existingTopup.id,
+		dedupeKey: `wallet-topup:${existingTopup.id}:${status}`,
+		costCents: existingTopup.priceAmountUsdCents,
+		metadata: {
+			orderId: existingTopup.orderId,
+			provider: "nowpayments",
+			providerStatus,
+			providerInvoiceId,
+			providerPaymentId,
+		},
+	});
+
+	if (TOPUP_FINAL_STATUSES.has(status) || TOPUP_FAILURE_STATUSES.has(status)) {
+		await sendUserNotification({
+			userId: existingTopup.userId,
+			type: TOPUP_FINAL_STATUSES.has(status)
+				? "wallet_topup_paid"
+				: "wallet_topup_failed",
+			category: "billing",
+			severity: TOPUP_FINAL_STATUSES.has(status) ? "success" : "error",
+			title: TOPUP_FINAL_STATUSES.has(status)
+				? "Wallet top-up confirmed"
+				: "Wallet top-up failed",
+			body: TOPUP_FINAL_STATUSES.has(status)
+				? `${formatUsd(existingTopup.priceAmountUsdCents)} payment was confirmed and credited.`
+				: `NOWPayments marked this top-up as ${status}.`,
+			actionHref: "/account/billing",
+			sourceType: "wallet-topup",
+			sourceId: existingTopup.id,
+			dedupeKey: `wallet-topup:${existingTopup.id}:notification:${status}`,
+			metadata: {
+				orderId: existingTopup.orderId,
+				status,
+				providerPaymentId,
+				providerInvoiceId,
+			},
+		});
+	}
 
 	return {
 		updated: true,

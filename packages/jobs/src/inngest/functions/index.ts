@@ -1,9 +1,36 @@
-import { pullRequestSyncFunction } from "./pr-sync";
-import { processProviderWebhook } from "./provider-webhooks";
-import { repositoryWebhookSyncFunction } from "./repository-webhook-sync";
+import type {
+	PullRequestDispatchProcessor,
+	PullRequestReconcileProcessor,
+} from "./pr-sync";
+import { createPullRequestSyncFunction } from "./pr-sync";
+import {
+	createProcessProviderWebhookFunction,
+	type ProviderWebhookReceiptProcessor,
+} from "./provider-webhooks";
+import {
+	createRepositoryWebhookSyncFunction,
+	type RepositoryWebhookSyncProcessor,
+} from "./repository-webhook-sync";
 
-export const functions = [
-  processProviderWebhook,
-  repositoryWebhookSyncFunction,
-  pullRequestSyncFunction,
-];
+export type JobsDependencies = {
+	processProviderWebhookReceiptJob: ProviderWebhookReceiptProcessor;
+	processRepositoryWebhookSyncJob: RepositoryWebhookSyncProcessor;
+	dispatchPullRequestReconcile: PullRequestDispatchProcessor;
+	reconcilePullRequestsForRepository: PullRequestReconcileProcessor;
+};
+
+export function createFunctions(dependencies: JobsDependencies) {
+	return [
+		createProcessProviderWebhookFunction(
+			dependencies.processProviderWebhookReceiptJob,
+		),
+		createRepositoryWebhookSyncFunction(
+			dependencies.processRepositoryWebhookSyncJob,
+		),
+		createPullRequestSyncFunction({
+			dispatchPullRequestReconcile: dependencies.dispatchPullRequestReconcile,
+			reconcilePullRequestsForRepository:
+				dependencies.reconcilePullRequestsForRepository,
+		}),
+	];
+}

@@ -10,7 +10,6 @@
 		}
 	},
 	"dependencies": {
-		"@gitpal/api": "workspace:*",
 		"@gitpal/env": "workspace:*",
 		"@gitpal/logger": "workspace:*",
 		"@gitpal/redis": "workspace:*",

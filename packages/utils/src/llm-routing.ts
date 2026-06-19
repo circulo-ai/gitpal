@@ -274,17 +274,25 @@ export function maskSecret(secret: string): string {
 	return `${trimmed.slice(0, 4)}${MASK_CHARACTER.repeat(4)}${trimmed.slice(-4)}`;
 }
 
-/** Strip any leading aggregator router prefixes (handles nested prefixes). */
-function stripAggregatorPrefixes(modelId: string): string {
-	let result = modelId;
+/** * Strip leading aggregator router prefixes only if they are part of a multi-slash 
+ * nested routing string (e.g. openrouter/anthropic/claude-3-5-sonnet). 
+ * Short native aggregator paths like "openrouter/free" or "ollama/llama3.2" are safely preserved.
+ */
+export function stripAggregatorPrefixes(modelId: string): string {
+	let result = modelId.trim();
 	let changed = true;
 
 	while (changed) {
 		changed = false;
 		for (const prefix of AGGREGATOR_MODEL_PREFIXES) {
-			if (result.startsWith(prefix)) {
-				result = result.slice(prefix.length);
-				changed = true;
+			if (result.toLowerCase().startsWith(prefix)) {
+				const segments = result.split("/");
+				// OpenRouter/Ollama models are structured as provider/model (2 segments).
+				// If there are 3 or more segments, it's an explicit routing override prefix that must be stripped.
+				if (segments.length > 2) {
+					result = result.slice(prefix.length);
+					changed = true;
+				}
 			}
 		}
 	}
@@ -299,11 +307,25 @@ function stripAggregatorPrefixes(modelId: string): string {
 export function inferProviderIdFromModel(
 	modelId: string,
 ): LlmProviderId | null {
-	const normalized = stripAggregatorPrefixes(modelId.trim().toLowerCase());
+	const trimmed = modelId.trim().toLowerCase();
 
-	if (!normalized) {
+	if (!trimmed) {
 		return null;
 	}
+
+	// 1. Direct Explicit Aggregator Check
+	// If a model explicitly starts with an aggregator prefix, the user's explicit
+	// intent is to route through that specific platform. Return it directly so the 
+	// system looks up the correct BYOK key (e.g. the user's custom OpenRouter API key).
+	for (const prefix of AGGREGATOR_MODEL_PREFIXES) {
+		if (trimmed.startsWith(prefix)) {
+			const providerId = prefix.replace("/", "");
+			return providerId as LlmProviderId;
+		}
+	}
+
+	// 2. Standard Fallback Inference
+	const normalized = stripAggregatorPrefixes(trimmed);
 
 	const [prefix] = normalized.split("/", 1);
 

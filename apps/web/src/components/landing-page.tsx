@@ -8,7 +8,6 @@ import {
 	CardTitle,
 } from "@gitpal/ui/components/card";
 import { Separator } from "@gitpal/ui/components/separator";
-import { cn } from "@gitpal/ui/lib/utils";
 import {
 	AiBrain01Icon,
 	ArrowRight01Icon,
@@ -18,13 +17,14 @@ import {
 	FlashIcon,
 	GitBranchIcon,
 	GithubIcon,
-	GitlabIcon,
 	LockIcon,
 	Shield01Icon,
 	SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { StarIcon } from "lucide-react";
 import Link from "next/link";
+import { GitPalMark } from "@/components/gitpal-mark";
 import { PrReviewCard } from "@/components/pr-review-card";
 import { Reveal } from "@/components/reveal";
 import { InstallButtons } from "./install-buttons";
@@ -184,7 +184,43 @@ function WorkflowCard({ step, index }: { step: WorkflowStep; index: number }) {
 	);
 }
 
-export default function LandingPage() {
+function formatGitHubStars(stars: number | null) {
+	if (stars === null) {
+		return "GitHub";
+	}
+
+	if (stars >= 10_000) {
+		return `${Math.round(stars / 1000)}k stars`;
+	}
+
+	if (stars >= 1000) {
+		return `${(stars / 1000).toFixed(1)}k stars`;
+	}
+
+	return `${stars.toLocaleString("en-US")} stars`;
+}
+
+function formatGitHubStarsCompact(stars: number | null) {
+	if (stars === null) {
+		return "GitHub";
+	}
+
+	if (stars >= 10_000) {
+		return `${Math.round(stars / 1000)}k`;
+	}
+
+	if (stars >= 1000) {
+		return `${(stars / 1000).toFixed(1)}k`;
+	}
+
+	return stars.toLocaleString("en-US");
+}
+
+export default function LandingPage({
+	githubStars,
+}: {
+	githubStars: number | null;
+}) {
 	return (
 		<main className="relative isolate overflow-hidden bg-background text-foreground selection:bg-primary/20">
 			{/* ambient background — no theme() arbitrary values */}
@@ -197,6 +233,7 @@ export default function LandingPage() {
 			{/* header */}
 			<header className="mx-auto grid max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-6 px-6 pt-6 sm:px-8 lg:px-10">
 				<Link href="/" className="flex items-center gap-3">
+					<GitPalMark title="GitPal" className="size-9" />
 					<span className="font-semibold text-[1.45rem] tracking-[-0.04em]">
 						GitPal
 					</span>
@@ -212,9 +249,33 @@ export default function LandingPage() {
 						</Link>
 					))}
 				</nav>
-				<Button className={"ms-auto w-max"} render={<Link href="/dashboard" />}>
-					Get started
-				</Button>
+				<div className="ms-auto flex items-center gap-2">
+					<Button
+						variant="outline"
+						className="w-max"
+						render={
+							// biome-ignore lint/a11y/useAnchorContent: Base UI renders this anchor with the Button children below.
+							<a
+								href="https://github.com/circulo-ai/gitpal"
+								target="_blank"
+								rel="noreferrer"
+								aria-label="View GitPal on GitHub"
+							/>
+						}
+					>
+						<HugeiconsIcon icon={GithubIcon} data-icon="inline-start" />
+						<span className="hidden sm:inline">
+							{formatGitHubStars(githubStars)}
+						</span>
+						<span className="sm:hidden">
+							{formatGitHubStarsCompact(githubStars)}
+						</span>
+						<StarIcon data-icon="inline-end" />
+					</Button>
+					<Button className="w-max" render={<Link href="/dashboard" />}>
+						Get started
+					</Button>
+				</div>
 			</header>
 
 			{/* hero */}

@@ -2,6 +2,7 @@
 
 import {
 	type ConnectorAuthMethod,
+	type ConnectorKnowledgeBaseSettings,
 	type ConnectorProviderDefinition,
 	type ConnectorStatus,
 	type ConnectorType,
@@ -42,6 +43,8 @@ import {
 	FieldDescription,
 	FieldGroup,
 	FieldLabel,
+	FieldLegend,
+	FieldSet,
 } from "@gitpal/ui/components/field";
 import { Input } from "@gitpal/ui/components/input";
 import { RadioGroup, RadioGroupItem } from "@gitpal/ui/components/radio-group";
@@ -58,14 +61,9 @@ import { cn } from "@gitpal/ui/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
 	AlertTriangleIcon,
-	BookOpenCheckIcon,
 	BoxIcon,
 	Building2Icon,
-	CircleDotIcon,
-	FileTextIcon,
-	GitBranchIcon,
 	KeyRoundIcon,
-	LibraryIcon,
 	PlugZapIcon,
 	PlusCircleIcon,
 	ShieldCheckIcon,
@@ -120,6 +118,7 @@ type IntegrationConnection = {
 		windowSeconds: number;
 		maxRequests: number;
 	};
+	knowledgeBase: ConnectorKnowledgeBaseSettings | null;
 	lastValidatedAt: string | null;
 	lastUsedAt: string | null;
 };
@@ -137,28 +136,15 @@ type ConnectorFormState = {
 	apiKey: string;
 	additionalHeaders: string;
 	enabled: boolean;
+	knowledgeBase: {
+		optOut: boolean;
+		automaticRepositoryLinking: boolean;
+		linkedRepositoriesText: string;
+	} | null;
 };
 
 function isConnectorAuthMethod(value: unknown): value is ConnectorAuthMethod {
 	return value === "none" || value === "oauth" || value === "api_key";
-}
-
-function getProviderIcon(providerId: string) {
-	switch (providerId) {
-		case "notion-mcp":
-			return FileTextIcon;
-		case "context7-mcp":
-			return LibraryIcon;
-		case "linear":
-		case "linear-mcp":
-			return GitBranchIcon;
-		case "deepwiki-mcp":
-			return BookOpenCheckIcon;
-		case "circleci":
-			return CircleDotIcon;
-		default:
-			return BoxIcon;
-	}
 }
 
 function getStatusLabel(status: ConnectorStatus, enabled: boolean) {
@@ -192,6 +178,9 @@ function buildInitialForm(
 	provider: ConnectorProviderDefinition,
 	connection: IntegrationConnection | null,
 ): ConnectorFormState {
+	const knowledgeBase =
+		connection?.knowledgeBase ?? provider.knowledgeBase ?? null;
+
 	return {
 		label: connection?.label ?? provider.name,
 		serverUrl: connection?.serverUrl ?? provider.defaultServerUrl ?? "",
@@ -200,6 +189,13 @@ function buildInitialForm(
 		apiKey: "",
 		additionalHeaders: "",
 		enabled: connection?.enabled ?? true,
+		knowledgeBase: knowledgeBase
+			? {
+					optOut: knowledgeBase.optOut,
+					automaticRepositoryLinking: knowledgeBase.automaticRepositoryLinking,
+					linkedRepositoriesText: knowledgeBase.linkedRepositories.join("\n"),
+				}
+			: null,
 	};
 }
 
@@ -221,6 +217,32 @@ function IntegrationSkeleton() {
 			))}
 		</div>
 	);
+}
+
+function ProviderLogo({ provider }: { provider: ConnectorProviderDefinition }) {
+	return provider.logoUrl ? (
+		// biome-ignore lint/performance/noImgElement: Provider logos are catalog-supplied third-party URLs and bypass Next image domain config intentionally.
+		<img
+			src={provider.logoUrl}
+			alt=""
+			className="size-6"
+			loading="lazy"
+			decoding="async"
+		/>
+	) : (
+		<BoxIcon className="size-5" />
+	);
+}
+
+function parseLinkedRepositories(value: string) {
+	return [
+		...new Set(
+			value
+				.split(/[\n,]/)
+				.map((item) => item.trim())
+				.filter(Boolean),
+		),
+	];
 }
 
 export function IntegrationsPage() {
@@ -366,6 +388,16 @@ export function IntegrationsPage() {
 			authMethod: form.authMethod,
 			apiKey: form.apiKey,
 			additionalHeaders: form.additionalHeaders,
+			knowledgeBase: form.knowledgeBase
+				? {
+						optOut: form.knowledgeBase.optOut,
+						automaticRepositoryLinking:
+							form.knowledgeBase.automaticRepositoryLinking,
+						linkedRepositories: parseLinkedRepositories(
+							form.knowledgeBase.linkedRepositoriesText,
+						),
+					}
+				: undefined,
 			enabled: form.enabled,
 		});
 
@@ -429,19 +461,19 @@ export function IntegrationsPage() {
 					</p>
 				</div>
 				<div className="grid grid-cols-3 gap-2 text-center md:w-80">
-					<div className="rounded-xl border bg-card p-3">
+					<div className="rounded-lg border bg-card p-3">
 						<div className="font-medium text-lg tabular-nums">
 							{connections.length}
 						</div>
 						<div className="text-muted-foreground text-xs">Configured</div>
 					</div>
-					<div className="rounded-xl border bg-card p-3">
+					<div className="rounded-lg border bg-card p-3">
 						<div className="font-medium text-lg tabular-nums">
 							{connectedCount}
 						</div>
 						<div className="text-muted-foreground text-xs">Active</div>
 					</div>
-					<div className="rounded-xl border bg-card p-3">
+					<div className="rounded-lg border bg-card p-3">
 						<div className="font-medium text-lg tabular-nums">
 							{pendingCount}
 						</div>
@@ -467,7 +499,7 @@ export function IntegrationsPage() {
 				</TabsList>
 
 				{connectorTypes.map((type) => (
-					<TabsContent key={type} value={type} className="space-y-4">
+					<TabsContent key={type} value={type} className="flex flex-col gap-4">
 						{catalogQuery.isLoading || connectionsQuery.isLoading ? (
 							<IntegrationSkeleton />
 						) : providers.length > 0 ? (
@@ -477,7 +509,6 @@ export function IntegrationsPage() {
 										(connection) => connection.providerId === provider.id,
 									);
 									const primaryConnection = providerConnections[0] ?? null;
-									const Icon = getProviderIcon(provider.id);
 									const headerPreview = primaryConnection
 										? formatHeaderPreview(primaryConnection.headerPreview)
 										: "";
@@ -487,9 +518,9 @@ export function IntegrationsPage() {
 											<CardHeader>
 												<div className="flex min-w-0 items-start gap-3">
 													<div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-muted/60">
-														<Icon className="size-4" />
+														<ProviderLogo provider={provider} />
 													</div>
-													<div className="min-w-0 space-y-1">
+													<div className="flex min-w-0 flex-col gap-1">
 														<CardTitle className="truncate">
 															{provider.name}
 														</CardTitle>
@@ -510,12 +541,12 @@ export function IntegrationsPage() {
 															})
 														}
 													>
-														<PlusCircleIcon />
+														<PlusCircleIcon data-icon="inline-start" />
 														{primaryConnection ? "Manage" : "Add"}
 													</Button>
 												</CardAction>
 											</CardHeader>
-											<CardContent className="space-y-4">
+											<CardContent className="flex flex-col gap-4">
 												<p className="text-muted-foreground text-sm">
 													{provider.description}
 												</p>
@@ -547,7 +578,7 @@ export function IntegrationsPage() {
 													) : null}
 												</div>
 												{primaryConnection ? (
-													<div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/20 p-3">
+													<div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
 														<div className="min-w-0">
 															<div className="truncate font-medium text-sm">
 																{primaryConnection.label}
@@ -570,6 +601,34 @@ export function IntegrationsPage() {
 															}
 															aria-label={`Toggle ${primaryConnection.label}`}
 														/>
+													</div>
+												) : null}
+												{primaryConnection?.knowledgeBase ? (
+													<div className="flex flex-wrap gap-2">
+														<Badge
+															variant={
+																primaryConnection.knowledgeBase.optOut
+																	? "outline"
+																	: "secondary"
+															}
+														>
+															{primaryConnection.knowledgeBase.optOut
+																? "AI access off"
+																: "AI access on"}
+														</Badge>
+														<Badge variant="outline">
+															{primaryConnection.knowledgeBase
+																.automaticRepositoryLinking
+																? "Auto repository links"
+																: "Manual repository links"}
+														</Badge>
+														<Badge variant="outline">
+															{
+																primaryConnection.knowledgeBase
+																	.linkedRepositories.length
+															}{" "}
+															linked repos
+														</Badge>
 													</div>
 												) : null}
 											</CardContent>
@@ -604,7 +663,7 @@ export function IntegrationsPage() {
 			>
 				<DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
 					{dialogState && form ? (
-						<form className="space-y-6" onSubmit={handleSubmit}>
+						<form className="flex flex-col gap-6" onSubmit={handleSubmit}>
 							<DialogHeader>
 								<DialogTitle>
 									{dialogState.connection ? "Manage" : "Add"}{" "}
@@ -686,7 +745,7 @@ export function IntegrationsPage() {
 														key={option.value}
 														htmlFor={radioId}
 														className={cn(
-															"flex cursor-pointer items-start gap-3 rounded-xl border bg-muted/20 p-3 transition-colors hover:bg-muted/40",
+															"flex cursor-pointer items-start gap-3 rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/40",
 															form.authMethod === option.value &&
 																"border-primary/50 bg-primary/5",
 														)}
@@ -712,7 +771,7 @@ export function IntegrationsPage() {
 
 								{dialogState.provider.requiresApiKeyForProduction &&
 								form.authMethod === "none" ? (
-									<Alert className="border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200">
+									<Alert>
 										<AlertTriangleIcon />
 										<AlertTitle>Rate limits likely</AlertTitle>
 										<AlertDescription>
@@ -738,6 +797,95 @@ export function IntegrationsPage() {
 											required={!dialogState.connection?.credentialPreview}
 										/>
 									</Field>
+								) : null}
+
+								{form.knowledgeBase ? (
+									<FieldSet className="rounded-lg border bg-muted/20 p-4">
+										<FieldLegend>Knowledge base</FieldLegend>
+										<FieldDescription>
+											GitPal AI can use retained Linear context during review
+											workflows for this workspace.
+										</FieldDescription>
+
+										<Field orientation="horizontal">
+											<Switch
+												checked={form.knowledgeBase.optOut}
+												onCheckedChange={(optOut) =>
+													setForm({
+														...form,
+														knowledgeBase: form.knowledgeBase
+															? {
+																	...form.knowledgeBase,
+																	optOut,
+																	automaticRepositoryLinking: optOut
+																		? false
+																		: form.knowledgeBase
+																				.automaticRepositoryLinking,
+																}
+															: null,
+													})
+												}
+												aria-label="Opt out of knowledge base"
+											/>
+											<div className="flex flex-col gap-1">
+												<FieldLabel>Opt out</FieldLabel>
+												<FieldDescription>
+													Disable AI access to retained Linear context and
+													linked repository knowledge.
+												</FieldDescription>
+											</div>
+										</Field>
+
+										<Field orientation="horizontal">
+											<Switch
+												checked={form.knowledgeBase.automaticRepositoryLinking}
+												disabled={form.knowledgeBase.optOut}
+												onCheckedChange={(automaticRepositoryLinking) =>
+													setForm({
+														...form,
+														knowledgeBase: form.knowledgeBase
+															? {
+																	...form.knowledgeBase,
+																	automaticRepositoryLinking,
+																}
+															: null,
+													})
+												}
+												aria-label="Automatic repository linking"
+											/>
+											<div className="flex flex-col gap-1">
+												<FieldLabel>Automatic repository linking</FieldLabel>
+												<FieldDescription>
+													Let GitPal connect related repositories when reviewing
+													Linear-linked work.
+												</FieldDescription>
+											</div>
+										</Field>
+
+										<Field>
+											<FieldLabel htmlFor="connector-linked-repositories">
+												Linked repositories
+											</FieldLabel>
+											<Textarea
+												id="connector-linked-repositories"
+												value={form.knowledgeBase.linkedRepositoriesText}
+												onChange={(event) =>
+													setForm({
+														...form,
+														knowledgeBase: form.knowledgeBase
+															? {
+																	...form.knowledgeBase,
+																	linkedRepositoriesText: event.target.value,
+																}
+															: null,
+													})
+												}
+												disabled={form.knowledgeBase.optOut}
+												placeholder="owner/repository"
+												className="min-h-28 font-mono text-xs"
+											/>
+										</Field>
+									</FieldSet>
 								) : null}
 
 								<Field>
@@ -786,7 +934,7 @@ export function IntegrationsPage() {
 											})
 										}
 									>
-										<Trash2Icon />
+										<Trash2Icon data-icon="inline-start" />
 										Remove
 									</Button>
 								) : (
@@ -809,9 +957,9 @@ export function IntegrationsPage() {
 										}
 									>
 										{form.authMethod === "oauth" ? (
-											<ShieldCheckIcon />
+											<ShieldCheckIcon data-icon="inline-start" />
 										) : (
-											<WorkflowIcon />
+											<WorkflowIcon data-icon="inline-start" />
 										)}
 										{form.authMethod === "oauth"
 											? "Connect with OAuth"

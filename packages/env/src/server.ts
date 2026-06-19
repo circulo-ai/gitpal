@@ -103,7 +103,6 @@ export const env = createEnv({
 			.int()
 			.min(1)
 			.default(60),
-		REDIS_URI: z.url().default("redis://localhost:6379"),
 		AI_GATEWAY_API_KEY: z.string().optional(),
 		OPENROUTER_API_KEY: z.string().optional(),
 		OPENROUTER_BASE_URL: z.url().default("https://openrouter.ai/api/v1"),

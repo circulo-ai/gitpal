@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+	boolean,
 	index,
 	integer,
 	jsonb,
@@ -112,6 +113,75 @@ export const notification = pgTable(
 	],
 );
 
+export const notificationChannel = pgTable(
+	"notification_channel",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		provider: text("provider").notNull(),
+		label: text("label").notNull(),
+		targetPreview: text("target_preview"),
+		credentialEnvelope: text("credential_envelope").notNull(),
+		settings: jsonb("settings")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
+		status: text("status").default("configured").notNull(),
+		enabled: boolean("enabled").default(true).notNull(),
+		lastTestedAt: timestamp("last_tested_at"),
+		lastError: text("last_error"),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("notification_channel_user_provider_label_idx").on(
+			table.userId,
+			table.provider,
+			table.label,
+		),
+		index("notification_channel_user_idx").on(table.userId),
+		index("notification_channel_organization_idx").on(table.organizationId),
+		index("notification_channel_provider_idx").on(table.provider),
+		index("notification_channel_status_idx").on(table.status),
+	],
+);
+
+export const notificationDelivery = pgTable(
+	"notification_delivery",
+	{
+		id: text("id").primaryKey(),
+		notificationId: text("notification_id")
+			.notNull()
+			.references(() => notification.id, { onDelete: "cascade" }),
+		channelId: text("channel_id").references(() => notificationChannel.id, {
+			onDelete: "set null",
+		}),
+		provider: text("provider").notNull(),
+		status: text("status").notNull(),
+		attemptCount: integer("attempt_count").default(1).notNull(),
+		error: text("error"),
+		metadata: jsonb("metadata")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
+		deliveredAt: timestamp("delivered_at"),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+	},
+	(table) => [
+		index("notification_delivery_notification_idx").on(table.notificationId),
+		index("notification_delivery_channel_idx").on(table.channelId),
+		index("notification_delivery_status_idx").on(table.status),
+	],
+);
+
 export const observabilityEventRelations = relations(
 	observabilityEvent,
 	({ one }) => ({
@@ -152,3 +222,32 @@ export const notificationRelations = relations(notification, ({ one }) => ({
 		references: [repository.id],
 	}),
 }));
+
+export const notificationChannelRelations = relations(
+	notificationChannel,
+	({ one, many }) => ({
+		user: one(user, {
+			fields: [notificationChannel.userId],
+			references: [user.id],
+		}),
+		organization: one(organization, {
+			fields: [notificationChannel.organizationId],
+			references: [organization.id],
+		}),
+		deliveries: many(notificationDelivery),
+	}),
+);
+
+export const notificationDeliveryRelations = relations(
+	notificationDelivery,
+	({ one }) => ({
+		notification: one(notification, {
+			fields: [notificationDelivery.notificationId],
+			references: [notification.id],
+		}),
+		channel: one(notificationChannel, {
+			fields: [notificationDelivery.channelId],
+			references: [notificationChannel.id],
+		}),
+	}),
+);

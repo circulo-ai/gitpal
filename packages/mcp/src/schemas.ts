@@ -19,6 +19,18 @@ export const connectorProviderIdSchema = z.enum(
 	connectorProviders.map((provider) => provider.id) as [string, ...string[]],
 );
 
+export const connectorKnowledgeBaseSettingsSchema = z
+	.object({
+		optOut: z.boolean().default(false),
+		automaticRepositoryLinking: z.boolean().default(true),
+		linkedRepositories: z.array(z.string().min(1).max(240)).max(50).default([]),
+	})
+	.default({
+		optOut: false,
+		automaticRepositoryLinking: true,
+		linkedRepositories: [],
+	});
+
 export const connectorUpsertInputSchema = z.object({
 	organizationId: z.string().min(1),
 	connectionId: z.string().min(1).optional(),
@@ -32,6 +44,7 @@ export const connectorUpsertInputSchema = z.object({
 		.string()
 		.max(8 * 1024)
 		.optional(),
+	knowledgeBase: connectorKnowledgeBaseSettingsSchema.optional(),
 	enabled: z.boolean().default(true),
 });
 
@@ -64,6 +77,9 @@ export type ConnectorAuthMethodValue = z.infer<
 	typeof connectorAuthMethodSchema
 >;
 export type ConnectorTypeValue = z.infer<typeof connectorTypeSchema>;
+export type ConnectorKnowledgeBaseSettings = z.infer<
+	typeof connectorKnowledgeBaseSettingsSchema
+>;
 
 export function isConnectorAuthMethod(
 	value: string,

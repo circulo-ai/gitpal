@@ -1,19 +1,15 @@
-import {
-	createCipheriv,
-	createDecipheriv,
-	createHash,
-	randomBytes,
-	randomUUID,
-} from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db } from "@gitpal/db";
 import * as integrationSchema from "@gitpal/db/schema/integrations";
 import { env } from "@gitpal/env/server";
 import { createLogger } from "@gitpal/logger";
 import {
 	type ConnectorAuthMethod,
+	type ConnectorKnowledgeBaseSettings,
 	type ConnectorStatus,
 	type ConnectorType,
 	type ConnectorUpsertInput,
+	connectorKnowledgeBaseSettingsSchema,
 	connectorUpsertInputSchema,
 	getConnectorDefaultRateLimit,
 	getConnectorProvider,
@@ -23,6 +19,7 @@ import {
 	redactHeaders,
 	redactSecret,
 } from "@gitpal/mcp";
+import { createConnectorMcpToolSet } from "@gitpal/mcp/ai-sdk";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -30,6 +27,10 @@ import {
 	consumeAppRateLimit,
 	createRateLimitKeyFromRequestPath,
 } from "./rate-limit";
+import {
+	decryptSecretEnvelope,
+	encryptSecretEnvelope,
+} from "./secret-envelope";
 
 type IntegrationConnectionRow =
 	typeof integrationSchema.integrationConnection.$inferSelect;
@@ -68,6 +69,7 @@ export type PublicIntegrationConnection = {
 		windowSeconds: number;
 		maxRequests: number;
 	};
+	knowledgeBase: ConnectorKnowledgeBaseSettings | null;
 	lastValidatedAt: string | null;
 	lastUsedAt: string | null;
 	createdAt: string;
@@ -91,6 +93,7 @@ export type IntegrationToolContext = {
 		windowSeconds: number;
 		maxRequests: number;
 	};
+	knowledgeBase: ConnectorKnowledgeBaseSettings | null;
 };
 
 export type LinearIssueSearchResult = {
@@ -104,7 +107,6 @@ export type LinearIssueSearchResult = {
 };
 
 const log = createLogger("integrations");
-const credentialEnvelopeVersion = "v1";
 const oauthStateTtlMs = 10 * 60 * 1000;
 const notionVersion = "2026-03-11";
 const connectorCredentialSchema = z.object({
@@ -120,54 +122,12 @@ const connectorCredentialSchema = z.object({
 		.optional(),
 });
 
-function getEncryptionKey() {
-	return createHash("sha256").update(env.BETTER_AUTH_SECRET).digest();
-}
-
 function encryptCredential(value: StoredConnectorCredential | null) {
-	if (!value) {
-		return null;
-	}
-
-	const iv = randomBytes(12);
-	const cipher = createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
-	const ciphertext = Buffer.concat([
-		cipher.update(JSON.stringify(value), "utf8"),
-		cipher.final(),
-	]);
-	const tag = cipher.getAuthTag();
-
-	return [
-		credentialEnvelopeVersion,
-		iv.toString("base64url"),
-		tag.toString("base64url"),
-		ciphertext.toString("base64url"),
-	].join(":");
+	return encryptSecretEnvelope(value);
 }
 
 function decryptCredential(value: string | null) {
-	if (!value) {
-		return null;
-	}
-
-	const [version, iv, tag, ciphertext] = value.split(":");
-	if (version !== credentialEnvelopeVersion || !iv || !tag || !ciphertext) {
-		return null;
-	}
-
-	const decipher = createDecipheriv(
-		"aes-256-gcm",
-		getEncryptionKey(),
-		Buffer.from(iv, "base64url"),
-	);
-	decipher.setAuthTag(Buffer.from(tag, "base64url"));
-
-	const raw = Buffer.concat([
-		decipher.update(Buffer.from(ciphertext, "base64url")),
-		decipher.final(),
-	]).toString("utf8");
-
-	return connectorCredentialSchema.parse(JSON.parse(raw));
+	return decryptSecretEnvelope(value, connectorCredentialSchema);
 }
 
 function parseConnectorType(value: string): ConnectorType {
@@ -203,10 +163,111 @@ function getCredentialPreview(credential: StoredConnectorCredential | null) {
 	);
 }
 
+function getConnectionMetadata(row: IntegrationConnectionRow) {
+	return row.metadata && typeof row.metadata === "object"
+		? (row.metadata as Record<string, unknown>)
+		: {};
+}
+
+function getKnowledgeBaseSettings({
+	providerId,
+	metadata,
+	fallback,
+}: {
+	providerId: string;
+	metadata: Record<string, unknown>;
+	fallback?: ConnectorKnowledgeBaseSettings;
+}) {
+	const provider = getConnectorProvider(providerId);
+	if (!provider?.knowledgeBase) {
+		return null;
+	}
+
+	const parsed = connectorKnowledgeBaseSettingsSchema.safeParse(
+		metadata.knowledgeBase ?? fallback ?? provider.knowledgeBase,
+	);
+	const settings = parsed.success
+		? parsed.data
+		: connectorKnowledgeBaseSettingsSchema.parse(provider.knowledgeBase);
+
+	return {
+		optOut: settings.optOut,
+		automaticRepositoryLinking: settings.automaticRepositoryLinking,
+		linkedRepositories: [
+			...new Set(
+				settings.linkedRepositories
+					.map((repository) => repository.trim())
+					.filter(Boolean),
+			),
+		],
+	};
+}
+
+function normalizeRepositoryName(value: string | null | undefined) {
+	return (value ?? "")
+		.trim()
+		.toLowerCase()
+		.replace(/^https?:\/\/(?:www\.)?(?:github\.com|gitlab\.com)\//, "")
+		.replace(/\.git$/, "")
+		.replace(/^\/+|\/+$/g, "");
+}
+
+function canUseKnowledgeBaseForRepository({
+	knowledgeBase,
+	repositoryFullName,
+}: {
+	knowledgeBase: ConnectorKnowledgeBaseSettings | null;
+	repositoryFullName?: string | null;
+}) {
+	if (!knowledgeBase) {
+		return true;
+	}
+
+	if (knowledgeBase.optOut) {
+		return false;
+	}
+
+	if (knowledgeBase.automaticRepositoryLinking) {
+		return true;
+	}
+
+	const normalizedRepository = normalizeRepositoryName(repositoryFullName);
+	if (!normalizedRepository) {
+		return false;
+	}
+
+	return knowledgeBase.linkedRepositories
+		.map(normalizeRepositoryName)
+		.includes(normalizedRepository);
+}
+
+function hasAuthorizationHeader(headers: Record<string, string>) {
+	return Object.keys(headers).some(
+		(headerName) => headerName.toLowerCase() === "authorization",
+	);
+}
+
+function buildConnectorRequestHeaders(
+	credential: StoredConnectorCredential | null,
+) {
+	const headers = { ...(credential?.headers ?? {}) };
+
+	if (!hasAuthorizationHeader(headers)) {
+		if (credential?.oauth?.accessToken) {
+			headers.Authorization = `Bearer ${credential.oauth.accessToken}`;
+		} else if (credential?.apiKey) {
+			headers.Authorization = `Bearer ${credential.apiKey}`;
+		}
+	}
+
+	return headers;
+}
+
 function toPublicConnection(
 	row: IntegrationConnectionRow,
 ): PublicIntegrationConnection {
 	const credential = decryptCredential(row.credentialEnvelope);
+	const metadata = getConnectionMetadata(row);
 
 	return {
 		id: row.id,
@@ -228,6 +289,10 @@ function toPublicConnection(
 			windowSeconds: row.rateLimitWindowSeconds,
 			maxRequests: row.rateLimitMaxRequests,
 		},
+		knowledgeBase: getKnowledgeBaseSettings({
+			providerId: row.providerId,
+			metadata,
+		}),
 		lastValidatedAt: row.lastValidatedAt?.toISOString() ?? null,
 		lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
@@ -400,6 +465,7 @@ export async function upsertIntegrationConnection({
 	const existingCredential = existing
 		? decryptCredential(existing.credentialEnvelope)
 		: null;
+	const existingMetadata = existing ? getConnectionMetadata(existing) : {};
 	const { credential, headerPreview } = buildCredential({
 		authMethod: data.authMethod,
 		apiKey: data.apiKey,
@@ -433,9 +499,21 @@ export async function upsertIntegrationConnection({
 		connectedByUserId: userId,
 		lastValidatedAt: now,
 		metadata: {
+			...existingMetadata,
 			scopes: provider.scopes,
 			tools: provider.tools.map((tool) => tool.name),
 			documentationUrl: provider.documentationUrl,
+			...(provider.knowledgeBase
+				? {
+						knowledgeBase: getKnowledgeBaseSettings({
+							providerId: provider.id,
+							metadata: {
+								knowledgeBase:
+									data.knowledgeBase ?? existingMetadata.knowledgeBase,
+							},
+						}),
+					}
+				: {}),
 		},
 		createdAt: existing?.createdAt ?? now,
 		updatedAt: now,
@@ -611,10 +689,7 @@ export async function completeIntegrationOAuthCallback({
 			scopes: token.scopes,
 		},
 	};
-	const existingMetadata =
-		existing?.metadata && typeof existing.metadata === "object"
-			? (existing.metadata as Record<string, unknown>)
-			: {};
+	const existingMetadata = existing ? getConnectionMetadata(existing) : {};
 	const values = {
 		id: existing?.id ?? `int_${randomUUID()}`,
 		organizationId: oauthState.organizationId,
@@ -641,6 +716,14 @@ export async function completeIntegrationOAuthCallback({
 			oauthConnectedAt: now.toISOString(),
 			tools: provider.tools.map((tool) => tool.name),
 			documentationUrl: provider.documentationUrl,
+			...(provider.knowledgeBase
+				? {
+						knowledgeBase: getKnowledgeBaseSettings({
+							providerId: provider.id,
+							metadata: existingMetadata,
+						}),
+					}
+				: {}),
 		},
 		createdAt: existing?.createdAt ?? now,
 		updatedAt: now,
@@ -786,8 +869,93 @@ export async function listEnabledIntegrationToolContexts({
 					windowSeconds: connection.rateLimitWindowSeconds,
 					maxRequests: connection.rateLimitMaxRequests,
 				},
+				knowledgeBase: getKnowledgeBaseSettings({
+					providerId: connection.providerId,
+					metadata: getConnectionMetadata(connection),
+				}),
 			},
 		];
+	});
+}
+
+export async function createEnabledMcpToolSetForOrganization({
+	organizationId,
+	repositoryFullName,
+}: {
+	organizationId: string | null;
+	repositoryFullName?: string | null;
+}) {
+	if (!organizationId) {
+		return createConnectorMcpToolSet({ connections: [] });
+	}
+
+	const connections = await db
+		.select()
+		.from(integrationSchema.integrationConnection)
+		.where(
+			and(
+				eq(
+					integrationSchema.integrationConnection.organizationId,
+					organizationId,
+				),
+				eq(integrationSchema.integrationConnection.providerType, "mcp"),
+				eq(integrationSchema.integrationConnection.enabled, true),
+			),
+		);
+	const connectionById = new Map(
+		connections.map((connection) => [connection.id, connection]),
+	);
+
+	return createConnectorMcpToolSet({
+		connections: connections.flatMap((connection) => {
+			const provider = getConnectorProvider(connection.providerId);
+			if (!provider || connection.status !== "connected") {
+				return [];
+			}
+
+			const knowledgeBase = getKnowledgeBaseSettings({
+				providerId: connection.providerId,
+				metadata: getConnectionMetadata(connection),
+			});
+			if (
+				!canUseKnowledgeBaseForRepository({
+					knowledgeBase,
+					repositoryFullName,
+				})
+			) {
+				return [];
+			}
+
+			return [
+				{
+					connectionId: connection.id,
+					providerId: connection.providerId,
+					label: connection.label,
+					serverUrl: connection.serverUrl,
+					headers: buildConnectorRequestHeaders(
+						decryptCredential(connection.credentialEnvelope),
+					),
+				},
+			];
+		}),
+		onConnectionError: ({ connection, error }) => {
+			log.warn(
+				{ err: error, connectionId: connection.connectionId },
+				"MCP connection failed; continuing without its tools.",
+			);
+		},
+		onToolCall: async ({ connectionId, toolName }) => {
+			const connection = connectionById.get(connectionId);
+			if (!connection) {
+				return;
+			}
+
+			await consumeIntegrationToolRateLimit({ connection, toolName });
+			await db
+				.update(integrationSchema.integrationConnection)
+				.set({ lastUsedAt: new Date() })
+				.where(eq(integrationSchema.integrationConnection.id, connection.id));
+		},
 	});
 }
 
@@ -1051,10 +1219,12 @@ function getLinearAuthorizationHeader(
 
 export async function searchLinearIssuesForOrganization({
 	organizationId,
+	repositoryFullName,
 	query,
 	limit,
 }: {
 	organizationId: string | null;
+	repositoryFullName?: string | null;
 	query: string;
 	limit: number;
 }) {
@@ -1082,6 +1252,19 @@ export async function searchLinearIssuesForOrganization({
 	}
 
 	const credential = decryptCredential(connection.credentialEnvelope);
+	const knowledgeBase = getKnowledgeBaseSettings({
+		providerId: connection.providerId,
+		metadata: getConnectionMetadata(connection),
+	});
+	if (
+		!canUseKnowledgeBaseForRepository({
+			knowledgeBase,
+			repositoryFullName,
+		})
+	) {
+		return [];
+	}
+
 	const authorization = getLinearAuthorizationHeader(credential);
 	if (!authorization) {
 		return [];

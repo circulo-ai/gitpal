@@ -14,11 +14,18 @@ export type ConnectorToolDefinition = {
 	permission: "read" | "write";
 };
 
+export type ConnectorKnowledgeBaseDefaults = {
+	optOut: boolean;
+	automaticRepositoryLinking: boolean;
+	linkedRepositories: readonly string[];
+};
+
 export type ConnectorProviderDefinition = {
 	id: string;
 	type: ConnectorType;
 	name: string;
 	host: string;
+	logoUrl: string | null;
 	description: string;
 	defaultServerUrl: string | null;
 	documentationUrl: string;
@@ -31,6 +38,7 @@ export type ConnectorProviderDefinition = {
 	};
 	scopes: readonly string[];
 	tools: readonly ConnectorToolDefinition[];
+	knowledgeBase?: ConnectorKnowledgeBaseDefaults;
 	oauth?: {
 		authorizationUrl: string;
 		tokenUrl: string;
@@ -46,6 +54,7 @@ export const connectorProviders = [
 		type: "mcp",
 		name: "Notion",
 		host: "mcp.notion.com",
+		logoUrl: "https://cdn.simpleicons.org/notion",
 		description:
 			"Access Notion pages and databases through Notion's MCP server.",
 		defaultServerUrl: "https://mcp.notion.com/mcp",
@@ -74,6 +83,7 @@ export const connectorProviders = [
 		type: "mcp",
 		name: "Context7",
 		host: "mcp.context7.com",
+		logoUrl: "https://www.google.com/s2/favicons?domain=context7.com&sz=64",
 		description: "Fetch current library documentation through Context7 MCP.",
 		defaultServerUrl: "https://mcp.context7.com/mcp",
 		documentationUrl: "https://context7.com",
@@ -96,6 +106,7 @@ export const connectorProviders = [
 		type: "mcp",
 		name: "Linear MCP",
 		host: "mcp.linear.app",
+		logoUrl: "https://cdn.simpleicons.org/linear",
 		description: "Expose Linear issue context through Linear's MCP server.",
 		defaultServerUrl: "https://mcp.linear.app/mcp",
 		documentationUrl: "https://linear.app/developers",
@@ -104,6 +115,11 @@ export const connectorProviders = [
 		requiresApiKeyForProduction: false,
 		defaultRateLimit: { windowSeconds: oneMinute, maxRequests: 60 },
 		scopes: ["mcp:tools:read", "issues:read"],
+		knowledgeBase: {
+			optOut: false,
+			automaticRepositoryLinking: true,
+			linkedRepositories: [],
+		},
 		oauth: {
 			authorizationUrl: "https://linear.app/oauth/authorize",
 			tokenUrl: "https://api.linear.app/oauth/token",
@@ -123,6 +139,7 @@ export const connectorProviders = [
 		type: "mcp",
 		name: "DeepWiki",
 		host: "mcp.deepwiki.com",
+		logoUrl: "https://www.google.com/s2/favicons?domain=deepwiki.com&sz=64",
 		description: "Connect DeepWiki repository knowledge to the review agent.",
 		defaultServerUrl: "https://mcp.deepwiki.com/mcp",
 		documentationUrl: "https://deepwiki.com",
@@ -145,6 +162,7 @@ export const connectorProviders = [
 		type: "issue_tracking",
 		name: "Linear",
 		host: "api.linear.app",
+		logoUrl: "https://cdn.simpleicons.org/linear",
 		description: "Search and reference Linear issues from review workflows.",
 		defaultServerUrl: "https://api.linear.app/graphql",
 		documentationUrl: "https://linear.app/developers/graphql",
@@ -153,6 +171,11 @@ export const connectorProviders = [
 		requiresApiKeyForProduction: true,
 		defaultRateLimit: { windowSeconds: oneMinute, maxRequests: 60 },
 		scopes: ["issues:read", "teams:read"],
+		knowledgeBase: {
+			optOut: false,
+			automaticRepositoryLinking: true,
+			linkedRepositories: [],
+		},
 		oauth: {
 			authorizationUrl: "https://linear.app/oauth/authorize",
 			tokenUrl: "https://api.linear.app/oauth/token",
@@ -172,6 +195,7 @@ export const connectorProviders = [
 		type: "ci_cd",
 		name: "CircleCI",
 		host: "circleci.com",
+		logoUrl: "https://cdn.simpleicons.org/circleci",
 		description: "Expose CI/CD build status and pipeline context to reviews.",
 		defaultServerUrl: "https://circleci.com/api/v2",
 		documentationUrl: "https://circleci.com/docs/api/v2",

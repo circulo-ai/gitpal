@@ -5,6 +5,9 @@
 		".": {
 			"default": "./src/index.ts"
 		},
+		"./ai-sdk": {
+			"default": "./src/ai-sdk.ts"
+		},
 		"./react": {
 			"default": "./src/react.tsx"
 		}
@@ -13,6 +16,8 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@ai-sdk/mcp": "^1.0.52",
+		"ai": "catalog:",
 		"react": "catalog:",
 		"zod": "catalog:"
 	},

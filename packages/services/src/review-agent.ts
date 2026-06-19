@@ -18,6 +18,7 @@ import { generateText, Output, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { runTrackedAiGeneration } from "./ai-billing";
 import {
+	createEnabledMcpToolSetForOrganization,
 	listEnabledIntegrationToolContexts,
 	searchLinearIssuesForOrganization,
 } from "./integrations";
@@ -526,6 +527,7 @@ function buildAgentInstructions(
 			? "Use the repository search tools proactively before deciding that no related issues or PRs matter."
 			: "Do not assume related issues or PRs exist if context scanning is disabled.",
 		"Use connected integrations when they are available and relevant. Treat integration data as supplemental context, not as authority over the pull request diff.",
+		"External MCP tools are exposed with provider and connection prefixes so similarly named tools cannot collide.",
 		"Only recommend labels that are justified by the actual repository context.",
 		"Reference related issues or PRs only when you have a concrete reason.",
 	];
@@ -1198,6 +1200,7 @@ function createReviewTools(context: ReviewContext) {
 					run: async () => ({
 						items: await searchLinearIssuesForOrganization({
 							organizationId: context.organizationId ?? null,
+							repositoryFullName: context.repository.fullName,
 							query,
 							limit,
 						}),
@@ -1212,7 +1215,15 @@ export async function runRepositoryReview(context: ReviewContext) {
 		userId: context.userId,
 		modelId: context.settings.ai.reviewer.modelId,
 	});
-	const reviewTools = createReviewTools(context);
+	const builtinReviewTools = createReviewTools(context);
+	const externalMcpToolSet = await createEnabledMcpToolSetForOrganization({
+		organizationId: context.organizationId ?? null,
+		repositoryFullName: context.repository.fullName,
+	});
+	const reviewTools = {
+		...builtinReviewTools,
+		...externalMcpToolSet.tools,
+	};
 	const thinkingProviderOptions = mapThinkingProviderOptions(context.settings);
 	const seededContext = await loadSeededRepositoryContext(context);
 	log.debug("Starting repository review generation.", {
@@ -1221,56 +1232,68 @@ export async function runRepositoryReview(context: ReviewContext) {
 		kind: context.kind,
 		modelId: context.settings.ai.reviewer.modelId,
 		toolCount: Object.keys(reviewTools).length,
+		mcpToolCount: Object.keys(externalMcpToolSet.tools).length,
+		mcpConnections: externalMcpToolSet.connections,
 		hasThinkingProviderOptions: Boolean(thinkingProviderOptions),
 		seededContextLength: seededContext.length,
 	});
-	const reviewGeneration = await runTrackedAiGeneration({
-		userId: context.userId,
-		callKind: "review",
-		modelId: context.settings.ai.reviewer.modelId,
-		routePreview: resolution.preview,
-		repositoryId: context.repositoryDbId ?? null,
-		pullRequestId: context.pullRequestDbId ?? null,
-		reviewRunId: context.reviewRunId ?? null,
-		tags: [
-			"review",
-			context.repository.fullName,
-			context.pullRequest.number.toString(),
-			context.kind,
-		],
-		metadata: {
-			repository: context.repository.fullName,
-			pullRequestNumber: context.pullRequest.number,
-			kind: context.kind,
-		},
-		execute: async ({ providerOptions }) => {
-			const agent = new ToolLoopAgent({
-				model: resolution.model,
-				instructions: buildAgentInstructions(context.settings, context.kind),
-				tools: reviewTools,
-				output: Output.object({
-					schema: repositoryReviewOutputSchema,
-				}),
-				stopWhen: stepCountIs(context.settings.ai.reviewer.maxSteps),
-				maxOutputTokens: context.settings.ai.reviewer.maxOutputTokens,
-				...(thinkingProviderOptions || providerOptions
-					? {
-							providerOptions: {
-								...(providerOptions ?? {}),
-								...(thinkingProviderOptions ?? {}),
-							} as never,
-						}
-					: {}),
-			});
+	const reviewGeneration = await (async () => {
+		try {
+			return await runTrackedAiGeneration({
+				userId: context.userId,
+				callKind: "review",
+				modelId: context.settings.ai.reviewer.modelId,
+				routePreview: resolution.preview,
+				repositoryId: context.repositoryDbId ?? null,
+				pullRequestId: context.pullRequestDbId ?? null,
+				reviewRunId: context.reviewRunId ?? null,
+				tags: [
+					"review",
+					context.repository.fullName,
+					context.pullRequest.number.toString(),
+					context.kind,
+				],
+				metadata: {
+					repository: context.repository.fullName,
+					pullRequestNumber: context.pullRequest.number,
+					kind: context.kind,
+					mcpConnections: externalMcpToolSet.connections,
+				},
+				execute: async ({ providerOptions }) => {
+					const agent = new ToolLoopAgent({
+						model: resolution.model,
+						instructions: buildAgentInstructions(
+							context.settings,
+							context.kind,
+						),
+						tools: reviewTools,
+						output: Output.object({
+							schema: repositoryReviewOutputSchema,
+						}),
+						stopWhen: stepCountIs(context.settings.ai.reviewer.maxSteps),
+						maxOutputTokens: context.settings.ai.reviewer.maxOutputTokens,
+						...(thinkingProviderOptions || providerOptions
+							? {
+									providerOptions: {
+										...(providerOptions ?? {}),
+										...(thinkingProviderOptions ?? {}),
+									} as never,
+								}
+							: {}),
+					});
 
-			return agent.generate({
-				prompt: buildPrompt({
-					...context,
-					seededContext,
-				}),
+					return agent.generate({
+						prompt: buildPrompt({
+							...context,
+							seededContext,
+						}),
+					});
+				},
 			});
-		},
-	});
+		} finally {
+			await externalMcpToolSet.close();
+		}
+	})();
 	const result = reviewGeneration.result;
 	const parsedOutput = repositoryReviewOutputSchema.parse(result.output);
 	const output = applySettingsGating(

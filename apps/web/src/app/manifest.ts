@@ -7,16 +7,16 @@ export default function manifest(): MetadataRoute.Manifest {
 		description: "Open source AI code review for GitHub and GitLab",
 		start_url: "/",
 		display: "standalone",
-		background_color: "#f8f5ee",
-		theme_color: "#f8f5ee",
+		background_color: "#0b0d12",
+		theme_color: "#0068ff",
 		icons: [
 			{
-				src: "/favicon/web-app-manifest-192x192.png",
+				src: "/favicon/android-chrome-192x192.png",
 				sizes: "192x192",
 				type: "image/png",
 			},
 			{
-				src: "/favicon/web-app-manifest-512x512.png",
+				src: "/favicon/android-chrome-512x512.png",
 				sizes: "512x512",
 				type: "image/png",
 			},

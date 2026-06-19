@@ -51,6 +51,7 @@
         "@gitpal/env": "workspace:*",
         "@gitpal/jobs": "workspace:*",
         "@gitpal/logger": "workspace:*",
+        "@gitpal/services": "workspace:*",
         "@hono/trpc-server": "^0.4.0",
         "@trpc/server": "catalog:",
         "ai": "catalog:",
@@ -136,6 +137,7 @@
         "@gitpal/git": "workspace:*",
         "@gitpal/jobs": "workspace:*",
         "@gitpal/logger": "workspace:*",
+        "@gitpal/services": "workspace:*",
         "@gitpal/utils": "workspace:*",
         "@nowpaymentsio/nowpayments-sdk-nodejs": "^0.2.1",
         "@trpc/client": "catalog:",
@@ -225,7 +227,6 @@
     "packages/jobs": {
       "name": "@gitpal/jobs",
       "dependencies": {
-        "@gitpal/api": "workspace:*",
         "@gitpal/env": "workspace:*",
         "@gitpal/logger": "workspace:*",
         "@gitpal/redis": "workspace:*",
@@ -257,6 +258,33 @@
         "@gitpal/logger": "workspace:*",
         "@gitpal/utils": "workspace:*",
         "ioredis": "^5.6.1",
+      },
+      "devDependencies": {
+        "@gitpal/config": "workspace:*",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/services": {
+      "name": "@gitpal/services",
+      "dependencies": {
+        "@ai-sdk/anthropic": "^3.0.84",
+        "@ai-sdk/google": "^3.0.82",
+        "@ai-sdk/openai": "^3.0.71",
+        "@ai-sdk/openai-compatible": "^2.0.50",
+        "@gitpal/auth": "workspace:*",
+        "@gitpal/db": "workspace:*",
+        "@gitpal/env": "workspace:*",
+        "@gitpal/git": "workspace:*",
+        "@gitpal/jobs": "workspace:*",
+        "@gitpal/logger": "workspace:*",
+        "@gitpal/utils": "workspace:*",
+        "@nowpaymentsio/nowpayments-sdk-nodejs": "^0.2.1",
+        "@workflow/ai": "catalog:",
+        "ai": "catalog:",
+        "ai-sdk-ollama": "^3.8.7",
+        "drizzle-orm": "catalog:",
+        "ollama-ai-provider-v2": "^3.6.0",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@gitpal/config": "workspace:*",
@@ -598,6 +626,8 @@
     "@gitpal/logger": ["@gitpal/logger@workspace:packages/logger"],
 
     "@gitpal/redis": ["@gitpal/redis@workspace:packages/redis"],
+
+    "@gitpal/services": ["@gitpal/services@workspace:packages/services"],
 
     "@gitpal/ui": ["@gitpal/ui@workspace:packages/ui"],
 

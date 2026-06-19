@@ -14,14 +14,14 @@ import {
 	listRepositoryProvidersForUser,
 	listWorkspacesForUser,
 	setRepositoryEnabledForUser,
-} from "../services/repository-sync";
-import { queueRepositoryWebhookSyncForUser } from "../services/repository-webhook-sync";
+} from "@gitpal/services/repository-sync";
+import { queueRepositoryWebhookSyncForUser } from "@gitpal/services/repository-webhook-sync";
 import {
 	getOrganizationWorkspaceSettings,
 	getRepositoryWorkspaceSettings,
 	saveOrganizationWorkspaceSettings,
 	saveRepositoryWorkspaceSettings,
-} from "../services/workspace-settings";
+} from "@gitpal/services/workspace-settings";
 
 const organizationScopeSchema = z.object({
 	organizationId: z.string().min(1).optional(),

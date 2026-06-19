@@ -1,5 +1,5 @@
 {
-	"name": "@gitpal/api",
+	"name": "@gitpal/services",
 	"type": "module",
 	"exports": {
 		".": {
@@ -20,25 +20,20 @@
 		"@gitpal/auth": "workspace:*",
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
-		"@gitpal/services": "workspace:*",
 		"@gitpal/git": "workspace:*",
 		"@gitpal/jobs": "workspace:*",
 		"@gitpal/logger": "workspace:*",
 		"@gitpal/utils": "workspace:*",
 		"@nowpaymentsio/nowpayments-sdk-nodejs": "^0.2.1",
-		"@trpc/client": "catalog:",
-		"@trpc/server": "catalog:",
 		"@workflow/ai": "catalog:",
 		"ai": "catalog:",
 		"ai-sdk-ollama": "^3.8.7",
-		"dotenv": "catalog:",
 		"drizzle-orm": "catalog:",
 		"ollama-ai-provider-v2": "^3.6.0",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
 		"@gitpal/config": "workspace:*",
-		"hono": "catalog:",
 		"typescript": "catalog:"
 	}
 }

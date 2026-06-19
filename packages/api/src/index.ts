@@ -4,7 +4,7 @@ import {
 	buildAppRateLimitKey,
 	consumeAppRateLimit,
 	createRateLimitKeyFromRequestPath,
-} from "./services/rate-limit";
+} from "@gitpal/services/rate-limit";
 
 export const t = initTRPC.context<Context>().create();
 

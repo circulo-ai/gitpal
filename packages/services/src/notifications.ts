@@ -3,7 +3,7 @@ import { createDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { recordObservabilityEvent } from "./observability";
 
 const db: ReturnType<typeof createDb> = createDb();
@@ -33,6 +33,152 @@ function notificationId() {
 
 function buildNotificationDedupeKey(input: SendUserNotificationInput) {
 	return input.dedupeKey ?? null;
+}
+
+export function serializeNotification(
+	row: typeof observabilitySchema.notification.$inferSelect,
+) {
+	return {
+		id: row.id,
+		type: row.type,
+		category: row.category,
+		severity: row.severity,
+		status: row.status,
+		title: row.title,
+		body: row.body,
+		actionHref: row.actionHref,
+		sourceType: row.sourceType,
+		sourceId: row.sourceId,
+		metadata: row.metadata ?? {},
+		readAt: row.readAt?.toISOString() ?? null,
+		archivedAt: row.archivedAt?.toISOString() ?? null,
+		createdAt: row.createdAt.toISOString(),
+		updatedAt: row.updatedAt.toISOString(),
+	};
+}
+
+export async function listNotificationsForUser({
+	userId,
+	status = "active",
+	limit = 40,
+}: {
+	userId: string;
+	status?: "active" | "all" | "archived" | "read" | "unread";
+	limit?: number;
+}) {
+	const conditions = [eq(observabilitySchema.notification.userId, userId)];
+
+	if (status === "active") {
+		conditions.push(isNull(observabilitySchema.notification.archivedAt));
+	} else if (status !== "all") {
+		conditions.push(eq(observabilitySchema.notification.status, status));
+	}
+
+	const rows = await db
+		.select()
+		.from(observabilitySchema.notification)
+		.where(and(...conditions))
+		.orderBy(desc(observabilitySchema.notification.createdAt))
+		.limit(limit);
+
+	return rows.map(serializeNotification);
+}
+
+export async function countUnreadNotificationsForUser({
+	userId,
+}: {
+	userId: string;
+}) {
+	const [row] = await db
+		.select({ total: count() })
+		.from(observabilitySchema.notification)
+		.where(
+			and(
+				eq(observabilitySchema.notification.userId, userId),
+				eq(observabilitySchema.notification.status, "unread"),
+				isNull(observabilitySchema.notification.archivedAt),
+			),
+		)
+		.limit(1);
+
+	return { total: row?.total ?? 0 };
+}
+
+export async function markNotificationsReadForUser({
+	userId,
+	ids,
+}: {
+	userId: string;
+	ids: string[];
+}) {
+	const now = new Date();
+	const rows = await db
+		.update(observabilitySchema.notification)
+		.set({
+			status: "read",
+			readAt: now,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(observabilitySchema.notification.userId, userId),
+				inArray(observabilitySchema.notification.id, ids),
+			),
+		)
+		.returning({ id: observabilitySchema.notification.id });
+
+	return { updated: rows.length };
+}
+
+export async function markAllNotificationsReadForUser({
+	userId,
+}: {
+	userId: string;
+}) {
+	const now = new Date();
+	const rows = await db
+		.update(observabilitySchema.notification)
+		.set({
+			status: "read",
+			readAt: now,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(observabilitySchema.notification.userId, userId),
+				eq(observabilitySchema.notification.status, "unread"),
+				isNull(observabilitySchema.notification.archivedAt),
+			),
+		)
+		.returning({ id: observabilitySchema.notification.id });
+
+	return { updated: rows.length };
+}
+
+export async function archiveNotificationsForUser({
+	userId,
+	ids,
+}: {
+	userId: string;
+	ids: string[];
+}) {
+	const now = new Date();
+	const rows = await db
+		.update(observabilitySchema.notification)
+		.set({
+			status: "archived",
+			archivedAt: now,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(observabilitySchema.notification.userId, userId),
+				inArray(observabilitySchema.notification.id, ids),
+			),
+		)
+		.returning({ id: observabilitySchema.notification.id });
+
+	return { updated: rows.length };
 }
 
 export async function sendUserNotification(

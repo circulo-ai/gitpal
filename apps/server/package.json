@@ -14,6 +14,7 @@
 		"@gitpal/auth": "workspace:*",
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
+		"@gitpal/services": "workspace:*",
 		"@gitpal/jobs": "workspace:*",
 		"@gitpal/logger": "workspace:*",
 		"@hono/trpc-server": "^0.4.0",

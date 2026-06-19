@@ -6,7 +6,7 @@ import * as observabilitySchema from "@gitpal/db/schema/observability";
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
-import { listRepositoriesForUser } from "../services/repository-sync";
+import { listRepositoriesForUser } from "@gitpal/services/repository-sync";
 
 const db = createDb();
 const defaultLookbackDays = 14;

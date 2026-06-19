@@ -11,7 +11,7 @@ import {
 import {
 	listRepositoriesForUser,
 	type RepositorySummary,
-} from "../services/repository-sync";
+} from "@gitpal/services/repository-sync";
 
 const db = createDb();
 

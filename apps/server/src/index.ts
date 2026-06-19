@@ -4,17 +4,17 @@ import {
 	isNowPaymentsWebhookEnabled,
 	NowPaymentsValidationError,
 	parseNowPaymentsWebhook,
-} from "@gitpal/api/services/nowpayments";
+} from "@gitpal/services/nowpayments";
 import {
 	dispatchPullRequestReconcile,
 	reconcilePullRequestsForRepository,
-} from "@gitpal/api/services/pr-reconcile";
-import { processRepositoryWebhookSyncJob } from "@gitpal/api/services/repository-webhook-sync";
+} from "@gitpal/services/pr-reconcile";
+import { processRepositoryWebhookSyncJob } from "@gitpal/services/repository-webhook-sync";
 import {
 	processProviderWebhookReceiptJob,
 	receiveProviderWebhook,
-} from "@gitpal/api/services/repository-webhooks";
-import { handleNowPaymentsWebhook } from "@gitpal/api/services/wallet";
+} from "@gitpal/services/repository-webhooks";
+import { handleNowPaymentsWebhook } from "@gitpal/services/wallet";
 import { auth } from "@gitpal/auth";
 import { env } from "@gitpal/env/server";
 import { createFunctions, inngest } from "@gitpal/jobs";

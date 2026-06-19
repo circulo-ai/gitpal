@@ -7,7 +7,7 @@ import {
 import {
 	createWalletTopupForUser,
 	getWalletSummaryForUser,
-} from "../services/wallet";
+} from "@gitpal/services/wallet";
 
 const createTopupSchema = z.object({
 	amountUsd: z.coerce.number().min(5).max(10_000),

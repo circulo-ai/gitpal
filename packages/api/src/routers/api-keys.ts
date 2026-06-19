@@ -14,7 +14,7 @@ import {
 	deleteAppApiKeyForUser,
 	listAppApiKeysForUser,
 	updateAppApiKeyForUser,
-} from "../services/app-api-keys";
+} from "@gitpal/services/app-api-keys";
 import {
 	deleteByokKeyForUser,
 	getByokRoutingSettingsForUser,
@@ -23,7 +23,7 @@ import {
 	previewModelRouteForUser,
 	saveByokKeyForUser,
 	saveByokRoutingSettingsForUser,
-} from "../services/llm-credentials";
+} from "@gitpal/services/llm-credentials";
 
 const appApiKeyCreateSchema = z.object({
 	name: z.string().trim().min(1).max(80),

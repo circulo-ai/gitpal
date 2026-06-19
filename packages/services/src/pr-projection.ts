@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitPullRequest } from "@gitpal/git";
 import { createLogger } from "@gitpal/logger";
 import { and, eq } from "drizzle-orm";
+import { recordObservabilityEvent } from "./observability";
 
-const db = createDb();
 const log = createLogger("pull-request-projection");
 
 export type ProjectedPullRequestRow =
@@ -17,6 +17,15 @@ function toDateOrNull(value: string | null | undefined) {
 	}
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function durationMsBetween(start: Date | null, end: Date | null) {
+	if (!start || !end) {
+		return null;
+	}
+
+	const durationMs = end.getTime() - start.getTime();
+	return durationMs >= 0 ? durationMs : null;
 }
 
 /**
@@ -160,4 +169,88 @@ export async function recordHumanReviewSignal({
 		.where(eq(dashboardSchema.pullRequest.id, existing.id))
 		.returning();
 	return row ?? null;
+}
+
+export async function recordPullRequestMetricEvents({
+	userId,
+	repository,
+	pullRequest,
+	source,
+}: {
+	userId: string;
+	repository: Pick<
+		typeof dashboardSchema.repository.$inferSelect,
+		"id" | "organizationId" | "fullName" | "providerId"
+	>;
+	pullRequest: ProjectedPullRequestRow;
+	source: {
+		type: "webhook" | "reconcile";
+		event?: string | null;
+		action?: string | null;
+	};
+}) {
+	const mergeDurationMs = durationMsBetween(
+		pullRequest.createdAt,
+		pullRequest.mergedAt,
+	);
+	const approvalLatencyMs = durationMsBetween(
+		pullRequest.reviewReadyAt ?? pullRequest.createdAt,
+		pullRequest.approvedAt,
+	);
+
+	if (mergeDurationMs !== null && pullRequest.mergedAt) {
+		await recordObservabilityEvent({
+			userId,
+			organizationId: repository.organizationId,
+			repositoryId: repository.id,
+			pullRequestId: pullRequest.id,
+			kind: "review",
+			action: "pull-request.merge-time",
+			status: "completed",
+			severity: "success",
+			title: "Pull request merge time captured",
+			body: `${repository.fullName}#${pullRequest.number}`,
+			sourceType: "pull-request",
+			sourceId: pullRequest.id,
+			dedupeKey: `pull-request:${pullRequest.id}:merge-time:${pullRequest.mergedAt.getTime()}`,
+			durationMs: mergeDurationMs,
+			metadata: {
+				metric: "pr_merge_time",
+				providerId: repository.providerId,
+				source,
+				createdAt: pullRequest.createdAt.toISOString(),
+				mergedAt: pullRequest.mergedAt.toISOString(),
+			},
+			occurredAt: pullRequest.mergedAt,
+		});
+	}
+
+	if (approvalLatencyMs !== null && pullRequest.approvedAt) {
+		await recordObservabilityEvent({
+			userId,
+			organizationId: repository.organizationId,
+			repositoryId: repository.id,
+			pullRequestId: pullRequest.id,
+			kind: "review",
+			action: "pull-request.approval-latency",
+			status: "completed",
+			severity: "success",
+			title: "Pull request approval latency captured",
+			body: `${repository.fullName}#${pullRequest.number}`,
+			sourceType: "pull-request",
+			sourceId: pullRequest.id,
+			dedupeKey: `pull-request:${pullRequest.id}:approval-latency:${pullRequest.approvedAt.getTime()}`,
+			durationMs: approvalLatencyMs,
+			metadata: {
+				metric: "approval_latency",
+				providerId: repository.providerId,
+				source,
+				reviewReadyAt:
+					pullRequest.reviewReadyAt?.toISOString() ??
+					pullRequest.createdAt.toISOString(),
+				approvedAt: pullRequest.approvedAt.toISOString(),
+			},
+			occurredAt: pullRequest.approvedAt,
+		});
+	}
 }

@@ -1,7 +1,13 @@
 "use client";
 
 import { cn } from "@gitpal/ui/lib/utils";
-import { Check, ChevronDown, GitMerge, GitPullRequest } from "lucide-react";
+import {
+	Check,
+	ChevronDown,
+	GitMerge,
+	GitPullRequest,
+	Globe2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { GitPalMark } from "./gitpal-mark";
 
@@ -65,7 +71,6 @@ function TypingDots() {
 
 export function PrReviewCard() {
 	const [step, setStep] = useState(0);
-	const [paused, setPaused] = useState(false);
 
 	useEffect(() => {
 		if (
@@ -75,13 +80,12 @@ export function PrReviewCard() {
 			setStep(TOTAL_STEPS);
 			return;
 		}
-		if (paused) return;
 		const id = setInterval(
 			() => setStep((s) => (s >= TOTAL_STEPS ? 0 : s + 1)),
 			SEQUENCE_MS,
 		);
 		return () => clearInterval(id);
-	}, [paused]);
+	}, []);
 
 	const reviewing = step < 1;
 	const showComment = step >= 1;
@@ -103,8 +107,6 @@ export function PrReviewCard() {
 			<div className="absolute -inset-8 -z-10 rounded-[2.5rem] bg-primary/10 blur-3xl" />
 
 			<div
-				onMouseEnter={() => setPaused(true)}
-				onMouseLeave={() => setPaused(false)}
 				className={cn(
 					"overflow-hidden rounded-2xl border shadow-2xl ring-1 ring-black/5",
 					gh.canvas,
@@ -126,13 +128,7 @@ export function PrReviewCard() {
 						<span className="size-3 rounded-full bg-[#28c840]" />
 					</div>
 					<div className="mx-auto flex w-[60%] items-center justify-center gap-2 rounded-md border border-[#d1d9e0] bg-white px-3 py-1 text-[#59636e] text-[0.72rem]">
-						<svg
-							viewBox="0 0 16 16"
-							className="size-3 fill-[#59636e]"
-							aria-hidden
-						>
-							<path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm5.93 5h-2.38a12.6 12.6 0 0 0-1-2.62A6.02 6.02 0 0 1 13.93 5ZM8 2c.64.93 1.13 1.93 1.46 3H6.54C6.87 3.93 7.36 2.93 8 2Z" />
-						</svg>
+						<Globe2 aria-hidden="true" className="size-3" />
 						github.com/acme/api/pull/318
 					</div>
 				</div>

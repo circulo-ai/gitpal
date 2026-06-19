@@ -1,10 +1,8 @@
 import { workspaceAc, workspaceRoles } from "@gitpal/auth";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-
-const db = createDb();
 
 const permissionSchema = z.record(z.string(), z.array(z.string()));
 

@@ -45,7 +45,11 @@ export type LlmProviderDefinition = {
  * FIX #2: Added "gateway/" so that explicit gateway-routed model IDs like
  * `gateway/google/gemini-2.5-pro` are correctly stripped before provider inference.
  */
-const AGGREGATOR_MODEL_PREFIXES = ["openrouter/", "ollama/", "gateway/"] as const;
+const AGGREGATOR_MODEL_PREFIXES = [
+	"openrouter/",
+	"ollama/",
+	"gateway/",
+] as const;
 
 export const llmProviderCatalog = [
 	{

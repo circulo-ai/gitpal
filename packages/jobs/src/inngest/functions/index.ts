@@ -1,3 +1,9 @@
+import {
+	createRepositoryLabelerRunFunction,
+	createRepositoryReviewRunFunction,
+	type RepositoryLabelerRunProcessor,
+	type RepositoryReviewRunProcessor,
+} from "./ai-workflows";
 import type {
 	PullRequestDispatchProcessor,
 	PullRequestReconcileProcessor,
@@ -8,6 +14,10 @@ import {
 	type ProviderWebhookReceiptProcessor,
 } from "./provider-webhooks";
 import {
+	createRepositorySyncFunction,
+	type RepositorySyncProcessor,
+} from "./repo-sync";
+import {
 	createRepositoryWebhookSyncFunction,
 	type RepositoryWebhookSyncProcessor,
 } from "./repository-webhook-sync";
@@ -15,6 +25,9 @@ import {
 export type JobsDependencies = {
 	processProviderWebhookReceiptJob: ProviderWebhookReceiptProcessor;
 	processRepositoryWebhookSyncJob: RepositoryWebhookSyncProcessor;
+	processRepositorySyncJob: RepositorySyncProcessor;
+	processRepositoryReviewRunJob: RepositoryReviewRunProcessor;
+	processRepositoryLabelerRunJob: RepositoryLabelerRunProcessor;
 	dispatchPullRequestReconcile: PullRequestDispatchProcessor;
 	reconcilePullRequestsForRepository: PullRequestReconcileProcessor;
 };
@@ -26,6 +39,13 @@ export function createFunctions(dependencies: JobsDependencies) {
 		),
 		createRepositoryWebhookSyncFunction(
 			dependencies.processRepositoryWebhookSyncJob,
+		),
+		createRepositorySyncFunction(dependencies.processRepositorySyncJob),
+		createRepositoryReviewRunFunction(
+			dependencies.processRepositoryReviewRunJob,
+		),
+		createRepositoryLabelerRunFunction(
+			dependencies.processRepositoryLabelerRunJob,
 		),
 		createPullRequestSyncFunction({
 			dispatchPullRequestReconcile: dependencies.dispatchPullRequestReconcile,

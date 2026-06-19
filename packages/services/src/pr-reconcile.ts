@@ -1,16 +1,16 @@
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitProviderAdapter, GitPullRequest } from "@gitpal/git";
+import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 import { createLogger } from "@gitpal/logger";
 import { and, eq } from "drizzle-orm";
 import { getAutomationActorForRepository } from "./git-provider-access";
 import {
 	projectPullRequestSnapshot,
 	recordHumanReviewSignal,
+	recordPullRequestMetricEvents,
 } from "./pr-projection";
-import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 
-const db = createDb();
 const log = createLogger("pull-request-reconcile");
 
 /**
@@ -75,15 +75,21 @@ export async function reconcilePullRequestsForRepository({
 	let projected = 0;
 	const seenNumbers = new Set<number>();
 	for (const pullRequest of openPullRequests) {
-		await projectPullRequestSnapshot({
+		const projectedRow = await projectPullRequestSnapshot({
 			repositoryId: repository.id,
 			pullRequest,
 		});
-		await backfillHumanReviews({
+		const reviewedRow = await backfillHumanReviews({
 			adapter: automationActor.adapter,
 			repositoryId: repository.id,
 			repositoryPath: repository.repositoryPath,
 			pullRequestNumber: pullRequest.number,
+		});
+		await recordPullRequestMetricEvents({
+			userId: automationActor.userId,
+			repository,
+			pullRequest: reviewedRow ?? projectedRow,
+			source: { type: "reconcile" },
 		});
 		seenNumbers.add(pullRequest.number);
 		projected += 1;
@@ -109,15 +115,21 @@ export async function reconcilePullRequestsForRepository({
 				repositoryPath: repository.repositoryPath,
 				pullRequestNumber: number,
 			});
-			await projectPullRequestSnapshot({
+			const projectedRow = await projectPullRequestSnapshot({
 				repositoryId: repository.id,
 				pullRequest,
 			});
-			await backfillHumanReviews({
+			const reviewedRow = await backfillHumanReviews({
 				adapter: automationActor.adapter,
 				repositoryId: repository.id,
 				repositoryPath: repository.repositoryPath,
 				pullRequestNumber: number,
+			});
+			await recordPullRequestMetricEvents({
+				userId: automationActor.userId,
+				repository,
+				pullRequest: reviewedRow ?? projectedRow,
+				source: { type: "reconcile" },
 			});
 			projected += 1;
 		} catch (error) {
@@ -150,7 +162,7 @@ async function backfillHumanReviews({
 	repositoryId: string;
 	repositoryPath: string;
 	pullRequestNumber: number;
-}): Promise<void> {
+}): Promise<typeof dashboardSchema.pullRequest.$inferSelect | null> {
 	let reviews: Awaited<
 		ReturnType<GitProviderAdapter["listPullRequestReviews"]>
 	>;
@@ -164,9 +176,10 @@ async function backfillHumanReviews({
 			{ err: error, repositoryId, pullRequestNumber },
 			"Review backfill skipped — listPullRequestReviews error.",
 		);
-		return;
+		return null;
 	}
 
+	let latestRow: typeof dashboardSchema.pullRequest.$inferSelect | null = null;
 	for (const review of reviews) {
 		// Pending reviews have not been submitted; skip.
 		if (review.state === "pending") {
@@ -181,14 +194,17 @@ async function backfillHumanReviews({
 		if (review.author?.kind === "bot" || login.endsWith("[bot]")) {
 			continue;
 		}
-		await recordHumanReviewSignal({
-			repositoryId,
-			pullRequestNumber,
-			reviewedAt: new Date(review.submittedAt),
-			isApproval: review.state === "approved",
-			approvalState: review.state,
-		});
+		latestRow =
+			(await recordHumanReviewSignal({
+				repositoryId,
+				pullRequestNumber,
+				reviewedAt: new Date(review.submittedAt),
+				isApproval: review.state === "approved",
+				approvalState: review.state,
+			})) ?? latestRow;
 	}
+
+	return latestRow;
 }
 
 /**

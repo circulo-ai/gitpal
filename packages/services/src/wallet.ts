@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import { env } from "@gitpal/env/server";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
@@ -12,7 +12,6 @@ import {
 } from "./nowpayments";
 import { recordObservabilityEvent } from "./observability";
 
-const db: ReturnType<typeof createDb> = createDb();
 type WalletDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
 const TOPUP_FINAL_STATUSES = new Set(["paid"]);
 const TOPUP_FAILURE_STATUSES = new Set([

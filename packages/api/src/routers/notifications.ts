@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
 	archiveNotificationsForUser,
 	countUnreadNotificationsForUser,
@@ -6,6 +5,7 @@ import {
 	markAllNotificationsReadForUser,
 	markNotificationsReadForUser,
 } from "@gitpal/services/notifications";
+import { z } from "zod";
 import {
 	protectedMutationProcedure,
 	protectedProcedure,

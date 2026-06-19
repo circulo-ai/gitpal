@@ -1,4 +1,4 @@
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import { eq } from "drizzle-orm";
 
@@ -19,8 +19,6 @@ export type AppRateLimitDecision = {
 	allowed: boolean;
 	retryAfter: number | null;
 };
-
-const db = createDb();
 
 type RateLimitDatabase = Pick<typeof db, "select" | "insert" | "update">;
 

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
 import { eq } from "drizzle-orm";
 
-const db: ReturnType<typeof createDb> = createDb();
 type ObservabilityDbExecutor = Pick<typeof db, "insert" | "update">;
 
 export type ObservabilityEventKind =

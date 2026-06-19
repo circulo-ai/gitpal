@@ -1,19 +1,16 @@
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import {
+	listRepositoriesForUser,
+	type RepositorySummary,
+} from "@gitpal/services/repository-sync";
 import { inArray } from "drizzle-orm";
 import { z } from "zod";
-
 import {
 	protectedMutationProcedure,
 	protectedProcedure,
 	router,
 } from "../index";
-import {
-	listRepositoriesForUser,
-	type RepositorySummary,
-} from "@gitpal/services/repository-sync";
-
-const db = createDb();
 
 const dashboardViewSchema = z.enum([
 	"summary",

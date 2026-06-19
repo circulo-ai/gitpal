@@ -1,10 +1,10 @@
-import { initTRPC, TRPCError } from "@trpc/server";
-import type { Context } from "./context";
 import {
 	buildAppRateLimitKey,
 	consumeAppRateLimit,
 	createRateLimitKeyFromRequestPath,
 } from "@gitpal/services/rate-limit";
+import { initTRPC, TRPCError } from "@trpc/server";
+import type { Context } from "./context";
 
 export const t = initTRPC.context<Context>().create();
 

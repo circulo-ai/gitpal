@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { decryptSecret } from "@gitpal/auth";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
@@ -15,6 +15,14 @@ import {
 	type GitWebhookEnvelope,
 	isGitLabWebhookSigningToken,
 } from "@gitpal/git";
+import {
+	enqueueRepositoryLabelerRunJob,
+	enqueueRepositoryReviewRunJob,
+	type RepositoryLabelerRunJobData,
+	type RepositoryReviewRunJobData,
+	repositoryLabelerRunJobSchema,
+	repositoryReviewRunJobSchema,
+} from "@gitpal/jobs/inngest/functions/ai-workflows";
 import {
 	enqueueProviderWebhookReceiptJob,
 	type ProviderWebhookJobData,
@@ -36,6 +44,7 @@ import { recordObservabilityEvent } from "./observability";
 import {
 	projectPullRequestSnapshot,
 	recordHumanReviewSignal,
+	recordPullRequestMetricEvents,
 } from "./pr-projection";
 import {
 	type RepositoryReviewOutput,
@@ -43,7 +52,6 @@ import {
 } from "./review-agent";
 import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 
-const db = createDb();
 const log = createLogger("repository-webhooks");
 const ENTERPRISE_GIT_PROVIDER_PREFIX = "enterprise-git:";
 const GITHUB_WEBHOOK_EVENTS = [
@@ -1531,6 +1539,7 @@ async function runWebhookReview({
 		modelId: settings.ai.reviewer.modelId,
 		thinkingEnabled: settings.ai.thinking.enabled,
 	});
+	const reviewStartedAt = reviewRun.startedAt?.getTime() ?? Date.now();
 	await recordObservabilityEvent({
 		userId: automationActor.userId,
 		organizationId: repository.organizationId,
@@ -1637,6 +1646,7 @@ async function runWebhookReview({
 			sourceType: "review-run",
 			sourceId: reviewRun.id,
 			dedupeKey: `review-run:${reviewRun.id}:completed`,
+			durationMs: Date.now() - reviewStartedAt,
 			metadata: {
 				trigger: dispatch.trigger,
 				providerEvent: envelope.event,
@@ -1705,6 +1715,7 @@ async function runWebhookReview({
 				sourceType: "review-run",
 				sourceId: reviewRun.id,
 				dedupeKey: `review-run:${reviewRun.id}:ignored`,
+				durationMs: Date.now() - reviewStartedAt,
 				metadata: {
 					reason: "credential_error",
 					providerEvent: envelope.event,
@@ -1756,6 +1767,7 @@ async function runWebhookReview({
 			sourceType: "review-run",
 			sourceId: reviewRun.id,
 			dedupeKey: `review-run:${reviewRun.id}:failed`,
+			durationMs: Date.now() - reviewStartedAt,
 			metadata: {
 				providerEvent: envelope.event,
 				providerAction: envelope.action,
@@ -1871,6 +1883,7 @@ async function runWebhookLabeler({
 		modelId: settings.ai.labeler.modelId,
 		thinkingEnabled: false,
 	});
+	const labelerStartedAt = labelRun.startedAt?.getTime() ?? Date.now();
 	await recordObservabilityEvent({
 		userId: automationActor.userId,
 		organizationId: repository.organizationId,
@@ -1924,6 +1937,30 @@ async function runWebhookLabeler({
 				finalCommentBody: null,
 				result: { reason: "labeler_disabled" },
 			});
+			await recordObservabilityEvent({
+				userId: automationActor.userId,
+				organizationId: repository.organizationId,
+				repositoryId: repository.id,
+				pullRequestId: pullRequestRow?.id ?? null,
+				reviewRunId: labelRun.id,
+				traceId: labelRun.id,
+				kind: "review",
+				action: "labeler",
+				status: "ignored",
+				severity: "warning",
+				title: "Labeler ignored",
+				body: "Labeler returned no result.",
+				sourceType: "review-run",
+				sourceId: labelRun.id,
+				dedupeKey: `review-run:${labelRun.id}:ignored`,
+				durationMs: Date.now() - labelerStartedAt,
+				metadata: {
+					reason: "labeler_disabled",
+					trigger: dispatch.trigger,
+					providerEvent: envelope.event,
+					providerAction: envelope.action,
+				},
+			});
 			return "ignored" as const;
 		}
 		await finalizeReviewRun({
@@ -1957,6 +1994,7 @@ async function runWebhookLabeler({
 			sourceType: "review-run",
 			sourceId: labelRun.id,
 			dedupeKey: `review-run:${labelRun.id}:completed`,
+			durationMs: Date.now() - labelerStartedAt,
 			metadata: {
 				trigger: dispatch.trigger,
 				suggestedLabels: labelResult.suggestedLabels,
@@ -1990,6 +2028,7 @@ async function runWebhookLabeler({
 			sourceType: "review-run",
 			sourceId: labelRun.id,
 			dedupeKey: `review-run:${labelRun.id}:failed`,
+			durationMs: Date.now() - labelerStartedAt,
 			metadata: {
 				trigger: dispatch.trigger,
 				providerEvent: envelope.event,
@@ -2075,9 +2114,19 @@ async function projectPullRequestLifecycle({
 		);
 		return;
 	}
-	await projectPullRequestSnapshot({
+	const pullRequestRow = await projectPullRequestSnapshot({
 		repositoryId: repository.id,
 		pullRequest,
+	});
+	await recordPullRequestMetricEvents({
+		userId: automationActor.userId,
+		repository,
+		pullRequest: pullRequestRow,
+		source: {
+			type: "webhook",
+			event: envelope.event,
+			action: envelope.action,
+		},
 	});
 
 	// Human review timing + approval state. Captured in real time only: provider
@@ -2094,13 +2143,25 @@ async function projectPullRequestLifecycle({
 		return;
 	}
 	const reviewedAt = toDateOrNull(context.reviewSubmittedAt) ?? new Date();
-	await recordHumanReviewSignal({
+	const reviewedPullRequestRow = await recordHumanReviewSignal({
 		repositoryId: repository.id,
 		pullRequestNumber: context.pullRequestNumber,
 		reviewedAt,
 		isApproval: context.reviewState?.toLowerCase() === "approved",
 		approvalState: context.reviewState,
 	});
+	if (reviewedPullRequestRow) {
+		await recordPullRequestMetricEvents({
+			userId: automationActor.userId,
+			repository,
+			pullRequest: reviewedPullRequestRow,
+			source: {
+				type: "webhook",
+				event: envelope.event,
+				action: envelope.action,
+			},
+		});
+	}
 }
 
 async function processWebhookReceipt({
@@ -2128,22 +2189,45 @@ async function processWebhookReceipt({
 				"Pull request lifecycle projection failed.",
 			);
 		}
-		const labelResult = await runWebhookLabeler({
-			repository,
-			envelope,
-			providerType: target.providerType,
-		});
-		const reviewResult = await runWebhookReview({
-			repository,
-			envelope,
-			providerType: target.providerType,
-			context,
-		});
-		if (labelResult === "processed" || reviewResult === "processed") {
-			processed += 1;
+
+		let queuedAiWork = false;
+		const labelContext = extractLabelContext(target.providerType, envelope);
+		if (labelContext?.number) {
+			try {
+				await enqueueRepositoryLabelerRunJob({
+					receiptId,
+					repositoryId: repository.id,
+					providerType: target.providerType,
+				});
+				queuedAiWork = true;
+			} catch (error) {
+				failed += 1;
+				log.warn(
+					{ err: error, receiptId, repositoryId: repository.id },
+					"Repository labeler workflow could not be queued.",
+				);
+			}
 		}
-		if (labelResult === "failed" || reviewResult === "failed") {
-			failed += 1;
+
+		if (context.pullRequestNumber) {
+			try {
+				await enqueueRepositoryReviewRunJob({
+					receiptId,
+					repositoryId: repository.id,
+					providerType: target.providerType,
+				});
+				queuedAiWork = true;
+			} catch (error) {
+				failed += 1;
+				log.warn(
+					{ err: error, receiptId, repositoryId: repository.id },
+					"Repository review workflow could not be queued.",
+				);
+			}
+		}
+
+		if (queuedAiWork) {
+			processed += 1;
 		}
 	}
 	await updateWebhookReceipt({
@@ -2158,6 +2242,14 @@ async function getWebhookReceipt(receiptId: string) {
 		.where(eq(dashboardSchema.webhookEventReceipt.id, receiptId))
 		.limit(1);
 	return receipt ?? null;
+}
+async function getRepositoryById(repositoryId: string) {
+	const [repository] = await db
+		.select()
+		.from(dashboardSchema.repository)
+		.where(eq(dashboardSchema.repository.id, repositoryId))
+		.limit(1);
+	return repository ?? null;
 }
 function createWebhookEnvelopeFromReceipt(
 	receipt: WebhookEventReceiptRow,
@@ -2177,6 +2269,94 @@ function createWebhookEnvelopeFromReceipt(
 		headers: {},
 		rawBody: JSON.stringify(payload),
 	};
+}
+async function loadDurableAiWebhookContext({
+	receiptId,
+	repositoryId,
+	providerType,
+}: {
+	receiptId: string;
+	repositoryId: string;
+	providerType: ProviderType;
+}) {
+	const [receipt, repository] = await Promise.all([
+		getWebhookReceipt(receiptId),
+		getRepositoryById(repositoryId),
+	]);
+
+	if (!receipt) {
+		log.warn({ receiptId }, "AI workflow skipped - webhook receipt missing.");
+		return null;
+	}
+
+	if (!repository) {
+		log.warn({ repositoryId }, "AI workflow skipped - repository missing.");
+		return null;
+	}
+
+	if (repository.providerType !== providerType) {
+		log.warn(
+			{
+				receiptId,
+				repositoryId,
+				expected: providerType,
+				actual: repository.providerType,
+			},
+			"AI workflow skipped - provider type mismatch.",
+		);
+		return null;
+	}
+
+	const target = await resolveWebhookTarget(receipt.providerId);
+	if (!target || target.providerType !== providerType) {
+		log.warn(
+			{ receiptId, repositoryId, providerId: receipt.providerId },
+			"AI workflow skipped - provider target missing or mismatched.",
+		);
+		return null;
+	}
+
+	return {
+		receipt,
+		repository,
+		target,
+		envelope: createWebhookEnvelopeFromReceipt(receipt),
+	};
+}
+export async function processRepositoryReviewRunJob(
+	input: RepositoryReviewRunJobData,
+) {
+	const data = repositoryReviewRunJobSchema.parse(input);
+	const context = await loadDurableAiWebhookContext(data);
+	if (!context) {
+		return { status: "ignored" };
+	}
+	const pullRequestContext = extractPullRequestContext(
+		context.target.providerType,
+		context.envelope,
+	);
+
+	return runWebhookReview({
+		repository: context.repository,
+		envelope: context.envelope,
+		providerType: context.target.providerType,
+		context: pullRequestContext,
+	});
+}
+export async function processRepositoryLabelerRunJob(
+	input: RepositoryLabelerRunJobData,
+) {
+	const data = repositoryLabelerRunJobSchema.parse(input);
+	const context = await loadDurableAiWebhookContext(data);
+	if (!context) {
+		return { status: "ignored" };
+	}
+
+	return runWebhookLabeler({
+		repository: context.repository,
+		envelope: context.envelope,
+		providerType: context.target.providerType,
+	});
 }
 export async function processProviderWebhookReceiptJob(
 	input: ProviderWebhookJobData,

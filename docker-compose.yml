@@ -49,6 +49,9 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
       CORS_ORIGIN: ${CORS_ORIGIN}
       DATABASE_URL: ${DATABASE_URL}
+      GITPAL_DB_POOL_MAX: ${GITPAL_DB_POOL_MAX:-10}
+      GITPAL_DB_POOL_IDLE_TIMEOUT_MS: ${GITPAL_DB_POOL_IDLE_TIMEOUT_MS:-30000}
+      GITPAL_DB_POOL_CONNECTION_TIMEOUT_MS: ${GITPAL_DB_POOL_CONNECTION_TIMEOUT_MS:-10000}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
@@ -124,7 +127,7 @@ services:
   inngest:
     image: inngest/inngest
     restart: unless-stopped
-    command: "inngest start --sdk-url http://server:3000/api/inngest" 
+    command: "inngest start --sdk-url http://server:3000/api/inngest --poll-interval ${INNGEST_POLL_INTERVAL:-15}"
     environment:
       - INNGEST_PORT=8288
       - INNGEST_HOST=0.0.0.0
@@ -132,7 +135,7 @@ services:
       - INNGEST_SIGNING_KEY=${INNGEST_SIGNING_KEY}
       - INNGEST_POSTGRES_URI=${INNGEST_POSTGRES_URI}
       - INNGEST_REDIS_URI=${INNGEST_REDIS_URI}
-      - INNGEST_POLL_INTERVAL=${INNGEST_POLL_INTERVAL:-60}
+      - INNGEST_POLL_INTERVAL=${INNGEST_POLL_INTERVAL:-15}
       - INNGEST_QUEUE_WORKERS=${INNGEST_QUEUE_WORKERS:-100}
       - INNGEST_RETRY_INTERVAL=${INNGEST_RETRY_INTERVAL:-1}
       - INNGEST_TICK=${INNGEST_TICK:-150}
@@ -140,9 +143,17 @@ services:
       - INNGEST_JSON=${INNGEST_JSON:-false}
       - INNGEST_VERBOSE=${INNGEST_VERBOSE:-false}
       - INNGEST_DEV=0
-    ports:
-      - "8288" # APIs and Dashboard
-      - "8289" # Websocket gateway
+    expose:
+      - "8288" # APIs and Dashboard, internal by default
+      - "8289" # Websocket gateway, internal by default
+    labels:
+      - "traefik.enable=${INNGEST_DASHBOARD_TRAEFIK_ENABLE:-false}"
+      - "traefik.http.routers.gitpal-inngest.rule=Host(`${INNGEST_DASHBOARD_HOST:-inngest.localhost}`)"
+      - "traefik.http.routers.gitpal-inngest.entrypoints=${INNGEST_DASHBOARD_TRAEFIK_ENTRYPOINTS:-websecure}"
+      - "traefik.http.routers.gitpal-inngest.tls=${INNGEST_DASHBOARD_TRAEFIK_TLS:-true}"
+      - "traefik.http.routers.gitpal-inngest.middlewares=gitpal-inngest-dashboard-auth"
+      - "traefik.http.services.gitpal-inngest.loadbalancer.server.port=8288"
+      - "traefik.http.middlewares.gitpal-inngest-dashboard-auth.basicauth.users=${INNGEST_DASHBOARD_BASIC_AUTH_USERS:-}"
     depends_on:
       postgres-inngest:
         condition: service_healthy
@@ -153,11 +164,28 @@ services:
     networks:
       - gitpal-network
     healthcheck:
-      test: ["CMD", "inngest", "alpha", "doctor", "healthcheck"]
+      test: ["CMD", "inngest", "api", "--api-host", "http://127.0.0.1", "--api-port", "8288", "health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  inngest-sync:
+    image: curlimages/curl:8.11.1
+    restart: "no"
+    command:
+      [
+        "sh",
+        "-c",
+        "curl --fail --show-error --silent --retry 12 --retry-delay 5 -X PUT http://server:3000/api/inngest",
+      ]
+    depends_on:
+      server:
+        condition: service_healthy
+      inngest:
+        condition: service_healthy
+    networks:
+      - gitpal-network
 
   postgres-inngest:
     image: postgres:17
@@ -171,7 +199,7 @@ services:
       - PGUSER=${INNGEST_POSTGRES_USER}
     volumes:
       - inngest_postgres:/var/lib/postgresql/data
-    ports:
+    expose:
       - "5432"
     networks:
       - gitpal-network
@@ -190,7 +218,7 @@ services:
       - net.core.somaxconn=1024
     volumes:
       - inngest_redis_data:/data
-    ports:
+    expose:
       - "6379"
     networks:
       - gitpal-network

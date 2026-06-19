@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import {
 	createDefaultRepositorySettings,
@@ -11,8 +11,6 @@ import {
 	workspaceSettingsSchema,
 } from "@gitpal/utils";
 import { and, eq } from "drizzle-orm";
-
-const db = createDb();
 
 type RepositorySettingsRow =
 	typeof dashboardSchema.repositorySettings.$inferSelect;

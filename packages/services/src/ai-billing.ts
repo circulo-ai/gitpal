@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as aiSchema from "@gitpal/db/schema/ai";
 import { env } from "@gitpal/env/server";
 import {
@@ -13,7 +13,6 @@ import { sendUserNotification } from "./notifications";
 import { recordObservabilityEvent } from "./observability";
 import { applyWalletUsageDebitInTransaction } from "./wallet";
 
-const db = createDb();
 type AiBillingDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
 const aiGateway = env.AI_GATEWAY_API_KEY
 	? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
@@ -447,6 +446,7 @@ async function completeGenerationRow({
 	walletBalanceAfterCents,
 	providerMetadata,
 	metadata,
+	startedAt,
 }: {
 	executor?: AiBillingDbExecutor;
 	generationId: string;
@@ -465,8 +465,10 @@ async function completeGenerationRow({
 	walletBalanceAfterCents: number | null;
 	providerMetadata: unknown;
 	metadata: Record<string, unknown>;
+	startedAt: Date;
 }) {
 	const now = new Date();
+	const durationMs = Math.max(0, now.getTime() - startedAt.getTime());
 
 	await executor
 		.update(aiSchema.aiGeneration)
@@ -520,7 +522,7 @@ async function completeGenerationRow({
 			sourceType: "ai-generation",
 			sourceId: generationId,
 			dedupeKey: `ai-generation:${generationId}:succeeded`,
-			durationMs: null,
+			durationMs,
 			costCents: actualCostCents,
 			metadata: {
 				modelId,
@@ -558,6 +560,7 @@ async function failGenerationRow({
 	walletBalanceAfterCents,
 	providerMetadata,
 	metadata,
+	startedAt,
 }: {
 	executor?: AiBillingDbExecutor;
 	generationId: string;
@@ -577,8 +580,12 @@ async function failGenerationRow({
 	walletBalanceAfterCents?: number | null;
 	providerMetadata?: unknown;
 	metadata?: Record<string, unknown>;
+	startedAt?: Date;
 }) {
 	const now = new Date();
+	const durationMs = startedAt
+		? Math.max(0, now.getTime() - startedAt.getTime())
+		: null;
 	const generationMetadata =
 		callKind && modelId && routePreview && tags && usage
 			? buildGenerationMetadata({
@@ -659,6 +666,7 @@ async function failGenerationRow({
 				sourceType: "ai-generation",
 				sourceId: generationId,
 				dedupeKey: `ai-generation:${generationId}:failed`,
+				durationMs,
 				costCents: actualCostCents ?? null,
 				metadata: {
 					modelId,
@@ -707,6 +715,7 @@ export async function runTrackedAiGeneration<TResult>({
 	execute,
 }: TrackAiGenerationInput<TResult>): Promise<TrackAiGenerationResult<TResult>> {
 	const generationId = `ai_gen_${randomUUID()}`;
+	const generationStartedAt = new Date();
 	let usage: AiCallUsage = {
 		inputTokens: 0,
 		inputNoCacheTokens: 0,
@@ -817,6 +826,7 @@ export async function runTrackedAiGeneration<TResult>({
 				walletDebitCents,
 				walletBalanceAfterCents: settledWalletBalanceAfterCents,
 				providerMetadata,
+				startedAt: generationStartedAt,
 				metadata: {
 					...metadata,
 					tags,
@@ -865,6 +875,7 @@ export async function runTrackedAiGeneration<TResult>({
 			walletDebitCents,
 			walletBalanceAfterCents,
 			providerMetadata,
+			startedAt: generationStartedAt,
 			metadata: {
 				...metadata,
 				tags,

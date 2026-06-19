@@ -1,5 +1,5 @@
 import { env } from "@gitpal/env/server";
-import { eventType, staticSchema } from "inngest";
+import { eventType, NonRetriableError, staticSchema } from "inngest";
 import { z } from "zod";
 import { buildEventId } from "../../idempotency";
 import { inngest } from "../client";
@@ -19,6 +19,17 @@ export type ProviderWebhookReceiptProcessor = (
 	input: ProviderWebhookJobData,
 ) => Promise<unknown>;
 
+function parseProviderWebhookJob(data: unknown) {
+	const result = providerWebhookJobSchema.safeParse(data);
+	if (result.success) {
+		return result.data;
+	}
+
+	throw new NonRetriableError("Invalid webhook/provider.process payload.", {
+		cause: result.error,
+	});
+}
+
 export function createProcessProviderWebhookFunction(
 	processProviderWebhookReceiptJob: ProviderWebhookReceiptProcessor,
 ) {
@@ -36,7 +47,7 @@ export function createProcessProviderWebhookFunction(
 					: undefined,
 		},
 		async ({ event, step }) => {
-			const data = providerWebhookJobSchema.parse(event.data);
+			const data = parseProviderWebhookJob(event.data);
 
 			await step.run("process-receipt", async () => {
 				await processProviderWebhookReceiptJob(data);

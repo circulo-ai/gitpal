@@ -1,9 +1,7 @@
 import { auth } from "@gitpal/auth";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import { and, desc, eq } from "drizzle-orm";
-
-const db = createDb();
 
 type ApiKeyRow = typeof authSchema.apiKey.$inferSelect;
 type ApiKeyLike = Pick<

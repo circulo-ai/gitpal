@@ -46,7 +46,6 @@ import {
 	SearchIcon,
 	Settings2Icon,
 	ShieldCheckIcon,
-	WebhookIcon,
 } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
@@ -54,8 +53,7 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
-import { syncRepositoryDataAfterRefresh } from "./repository-sync-helpers";
-import { formatWorkspaceScope } from "./workspace-scope";
+import { invalidateRepositoryData } from "./repository-sync-helpers";
 
 const PAGE_SIZE_OPTIONS = ["10", "25", "50", "100"].map((size) => ({
 	label: size,
@@ -104,8 +102,7 @@ function matchesRepositorySearchQuery(
 }
 
 export function RepositoriesPage() {
-	const { activeWorkspace, activeWorkspaceId, switchWorkspace } =
-		useActiveWorkspace();
+	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
 	const providersQuery = useQuery(trpc.repositories.providers.queryOptions());
 	const repositoriesQuery = useQuery({
 		...trpc.repositories.list.queryOptions({
@@ -120,40 +117,17 @@ export function RepositoriesPage() {
 	const syncMutation = useMutation(
 		trpc.repositories.sync.mutationOptions({
 			onSuccess: async (result) => {
-				await syncRepositoryDataAfterRefresh({
-					activeWorkspaceId,
-					switchWorkspace,
-					workspaceIds: result.workspaceIds,
-				});
+				await invalidateRepositoryData(activeWorkspaceId);
 
-				if (result.webhookSync.queued) {
-					toast.success("Repository sync completed. Webhook refresh queued.");
-					return;
-				}
-
-				toast.error(
-					result.webhookSync.error
-						? `Repository sync completed, but webhook refresh could not be queued: ${result.webhookSync.error}`
-						: "Repository sync completed, but webhook refresh could not be queued.",
-				);
-			},
-			onError: (error) => {
-				toast.error(error.message);
-			},
-		}),
-	);
-	const syncWebhooksMutation = useMutation(
-		trpc.repositories.syncWebhooks.mutationOptions({
-			onSuccess: (result) => {
 				if (result.queued) {
-					toast.success("Webhook refresh queued.");
+					toast.success("Repository sync queued.");
 					return;
 				}
 
 				toast.error(
 					result.error
-						? `Webhook refresh could not be queued: ${result.error}`
-						: "Webhook refresh could not be queued.",
+						? `Repository sync could not be queued: ${result.error}`
+						: "Repository sync could not be queued.",
 				);
 			},
 			onError: (error) => {
@@ -161,7 +135,6 @@ export function RepositoriesPage() {
 			},
 		}),
 	);
-
 	const toggleMutation = useMutation(
 		trpc.repositories.toggleEnabled.mutationOptions({
 			onSuccess: async (data, variables) => {

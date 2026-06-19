@@ -4,7 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { decryptSecret, encryptSecret } from "@gitpal/auth";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as aiSchema from "@gitpal/db/schema/ai";
 import { env } from "@gitpal/env/server";
 import {
@@ -23,8 +23,6 @@ import {
 import { createGateway, type LanguageModel } from "ai";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { createOllama } from "ollama-ai-provider-v2";
-
-const db = createDb();
 
 type UserLlmApiKeyRow = typeof aiSchema.userLlmApiKey.$inferSelect;
 
@@ -74,16 +72,28 @@ export function parseModelIdRoute(modelId: string): {
 	if (parts.length >= 3) {
 		const first = parts[0]?.toLowerCase();
 		if (first === "gateway") {
-			return { explicitRouterId: "ai-gateway", modelIdForRouter: parts.slice(1).join("/") };
+			return {
+				explicitRouterId: "ai-gateway",
+				modelIdForRouter: parts.slice(1).join("/"),
+			};
 		}
 		if (first === "openrouter") {
-			return { explicitRouterId: "openrouter", modelIdForRouter: parts.slice(1).join("/") };
+			return {
+				explicitRouterId: "openrouter",
+				modelIdForRouter: parts.slice(1).join("/"),
+			};
 		}
 		if (first === "ollama") {
-			return { explicitRouterId: "ollama", modelIdForRouter: parts.slice(1).join("/") };
+			return {
+				explicitRouterId: "ollama",
+				modelIdForRouter: parts.slice(1).join("/"),
+			};
 		}
 		if (first === "direct") {
-			return { explicitRouterId: "direct", modelIdForRouter: parts.slice(1).join("/") };
+			return {
+				explicitRouterId: "direct",
+				modelIdForRouter: parts.slice(1).join("/"),
+			};
 		}
 	}
 
@@ -95,7 +105,10 @@ export function parseModelIdRoute(modelId: string): {
 	}
 	if (lower.startsWith("ollama/")) {
 		// Ollama provider expects just the model name segment
-		return { explicitRouterId: "ollama", modelIdForRouter: trimmed.slice("ollama/".length) };
+		return {
+			explicitRouterId: "ollama",
+			modelIdForRouter: trimmed.slice("ollama/".length),
+		};
 	}
 
 	return { explicitRouterId: null, modelIdForRouter: trimmed };
@@ -173,7 +186,11 @@ export async function previewModelRouteForUser({
 	//          bypass the router. Do a second lookup restricted to those keys.
 	const forcedDirectKey =
 		!directKey && !shouldAttemptDirectKey
-			? await getMatchingDirectKey({ userId, modelId: modelIdForRouter, forcedOnly: true })
+			? await getMatchingDirectKey({
+					userId,
+					modelId: modelIdForRouter,
+					forcedOnly: true,
+				})
 			: null;
 
 	const resolvedDirectKey = directKey ?? forcedDirectKey;

@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
 import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { recordObservabilityEvent } from "./observability";
 
-const db: ReturnType<typeof createDb> = createDb();
 type NotificationDbExecutor = Pick<typeof db, "insert">;
 
 export type NotificationSeverity = "info" | "success" | "warning" | "error";

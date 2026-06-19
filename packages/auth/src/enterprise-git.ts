@@ -5,7 +5,7 @@ import {
 	randomBytes,
 } from "node:crypto";
 import { sso } from "@better-auth/sso";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as schema from "@gitpal/db/schema/auth";
 import { env } from "@gitpal/env/server";
 import { getGitApiBaseUrl, normalizeGitHostUrl } from "@gitpal/git";
@@ -225,7 +225,6 @@ export async function registerEnterpriseGitProvider({
 	githubAppClientId,
 	webhookSecret,
 }: EnterpriseGitProviderSetupInput) {
-	const db = createDb();
 	const normalizedBaseUrl = normalizeGitHostUrl(baseUrl);
 	const existing = await findEnterpriseGitProvider(type, normalizedBaseUrl);
 
@@ -507,7 +506,6 @@ async function findEnterpriseGitProvider(
 	type: EnterpriseGitProviderType,
 	baseUrl: string,
 ) {
-	const db = createDb();
 	const normalizedBaseUrl = normalizeGitHostUrl(baseUrl);
 
 	const [provider] = await db
@@ -525,7 +523,6 @@ async function findEnterpriseGitProvider(
 }
 
 async function findEnterpriseGitProviderById(id: string) {
-	const db = createDb();
 	const [provider] = await db
 		.select()
 		.from(schema.enterpriseGitProvider)

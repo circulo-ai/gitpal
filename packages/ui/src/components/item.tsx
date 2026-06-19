@@ -7,6 +7,7 @@ import type * as React from "react";
 
 function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: This primitive supports custom render targets and mixed item layouts.
 		<div
 			role="list"
 			data-slot="item-group"

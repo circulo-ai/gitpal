@@ -1,5 +1,10 @@
 import { createContext } from "@gitpal/api/context";
 import { appRouter } from "@gitpal/api/routers/index";
+import { auth } from "@gitpal/auth";
+import { type Database, db } from "@gitpal/db";
+import { env } from "@gitpal/env/server";
+import { createFunctions, inngest } from "@gitpal/jobs";
+import { createLogger } from "@gitpal/logger";
 import {
 	isNowPaymentsWebhookEnabled,
 	NowPaymentsValidationError,
@@ -9,16 +14,15 @@ import {
 	dispatchPullRequestReconcile,
 	reconcilePullRequestsForRepository,
 } from "@gitpal/services/pr-reconcile";
+import { processRepositorySyncJob } from "@gitpal/services/repository-sync";
 import { processRepositoryWebhookSyncJob } from "@gitpal/services/repository-webhook-sync";
 import {
 	processProviderWebhookReceiptJob,
+	processRepositoryLabelerRunJob,
+	processRepositoryReviewRunJob,
 	receiveProviderWebhook,
 } from "@gitpal/services/repository-webhooks";
 import { handleNowPaymentsWebhook } from "@gitpal/services/wallet";
-import { auth } from "@gitpal/auth";
-import { env } from "@gitpal/env/server";
-import { createFunctions, inngest } from "@gitpal/jobs";
-import { createLogger } from "@gitpal/logger";
 import { trpcServer } from "@hono/trpc-server";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -27,16 +31,28 @@ import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { serve } from "inngest/hono";
 
-const app = new Hono();
+type ServerEnv = {
+	Variables: {
+		db: Database;
+	};
+};
+
+const app = new Hono<ServerEnv>();
 const log = createLogger("server");
 const functions = createFunctions({
 	processProviderWebhookReceiptJob,
 	processRepositoryWebhookSyncJob,
+	processRepositorySyncJob,
+	processRepositoryReviewRunJob,
+	processRepositoryLabelerRunJob,
 	dispatchPullRequestReconcile,
 	reconcilePullRequestsForRepository,
 });
 
-async function handleProviderWebhook(c: Context, providerId: string) {
+async function handleProviderWebhook(
+	c: Context<ServerEnv>,
+	providerId: string,
+) {
 	const rawBody = await c.req.text();
 	const result = await receiveProviderWebhook({
 		providerId,
@@ -50,6 +66,10 @@ async function handleProviderWebhook(c: Context, providerId: string) {
 	);
 }
 
+app.use("*", async (c, next) => {
+	c.set("db", db);
+	await next();
+});
 app.use(logger());
 app.use(
 	secureHeaders({
@@ -161,7 +181,7 @@ app.use(
 	trpcServer({
 		router: appRouter,
 		createContext: (_opts, context) => {
-			return createContext({ context });
+			return createContext({ context, db: context.get("db") });
 		},
 	}),
 );

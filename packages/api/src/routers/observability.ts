@@ -1,14 +1,13 @@
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as aiSchema from "@gitpal/db/schema/ai";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
+import { listRepositoriesForUser } from "@gitpal/services/repository-sync";
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
-import { listRepositoriesForUser } from "@gitpal/services/repository-sync";
 
-const db = createDb();
 const defaultLookbackDays = 14;
 
 const observabilityKindSchema = z

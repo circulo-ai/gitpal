@@ -19,6 +19,17 @@ export const env = createEnv({
 			.positive()
 			.default(5 * 1024 * 1024),
 		TRUST_PROXY_HEADERS: z.coerce.boolean().default(false),
+		GITPAL_DB_POOL_MAX: z.coerce.number().int().positive().default(10),
+		GITPAL_DB_POOL_IDLE_TIMEOUT_MS: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(30_000),
+		GITPAL_DB_POOL_CONNECTION_TIMEOUT_MS: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(10_000),
 		REDIS_URL: z.url().default("redis://localhost:6379"),
 		GITPAL_QUEUE_PREFIX: z.string().min(1).default("gitpal"),
 		GITPAL_QUEUE_PRODUCER_MAX_RETRIES_PER_REQUEST: z.coerce
@@ -50,6 +61,48 @@ export const env = createEnv({
 			.number()
 			.min(0)
 			.default(1000),
+		GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(4),
+		GITPAL_REPO_SYNC_USER_CONCURRENCY: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(1),
+		GITPAL_REPO_SYNC_THROTTLE_LIMIT: z.coerce.number().int().min(1).default(20),
+		GITPAL_REPO_SYNC_THROTTLE_PERIOD_SECONDS: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(60),
+		GITPAL_REPO_SYNC_RATE_LIMIT: z.coerce.number().int().min(1).default(120),
+		GITPAL_REPO_SYNC_RATE_LIMIT_PERIOD_SECONDS: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(3600),
+		GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(4),
+		GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(1),
+		GITPAL_AI_WORKFLOW_THROTTLE_LIMIT: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(30),
+		GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.default(60),
 		REDIS_URI: z.url().default("redis://localhost:6379"),
 		AI_GATEWAY_API_KEY: z.string().optional(),
 		OPENROUTER_API_KEY: z.string().optional(),

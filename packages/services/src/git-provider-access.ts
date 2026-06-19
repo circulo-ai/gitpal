@@ -1,5 +1,5 @@
 import { auth } from "@gitpal/auth";
-import { createDb } from "@gitpal/db";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
@@ -12,7 +12,6 @@ import {
 import { createLogger } from "@gitpal/logger";
 import { and, desc, eq, sql } from "drizzle-orm";
 
-const db = createDb();
 const log = createLogger("git-provider-access");
 
 export type GitAccount = typeof authSchema.account.$inferSelect;

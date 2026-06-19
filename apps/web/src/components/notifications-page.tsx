@@ -17,7 +17,10 @@ import {
 	EmptyTitle,
 } from "@gitpal/ui/components/empty";
 import { Skeleton } from "@gitpal/ui/components/skeleton";
-import { cn } from "@gitpal/ui/lib/utils";
+import {
+	ToggleGroup,
+	ToggleGroupItem,
+} from "@gitpal/ui/components/toggle-group";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { BellIcon, InboxIcon, RefreshCcwIcon } from "lucide-react";
@@ -36,36 +39,24 @@ const statusFilters = [
 
 type StatusFilter = (typeof statusFilters)[number]["value"];
 
-function severityBadgeClass(severity: string) {
+function severityBadgeVariant(severity: string) {
 	if (severity === "error") {
-		return "border-destructive/30 bg-destructive/10 text-destructive";
-	}
-
-	if (severity === "warning") {
-		return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+		return "destructive" as const;
 	}
 
 	if (severity === "success") {
-		return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+		return "secondary" as const;
 	}
 
-	return "border-border bg-muted/30 text-foreground";
+	return "outline" as const;
 }
 
-function statusBadgeClass(status: string) {
-	if (status === "unread") {
-		return "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300";
+function statusBadgeVariant(status: string) {
+	if (status === "unread" || status === "read") {
+		return "secondary" as const;
 	}
 
-	if (status === "read") {
-		return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-	}
-
-	if (status === "archived") {
-		return "border-muted-foreground/30 bg-muted/40 text-muted-foreground";
-	}
-
-	return "border-border bg-muted/30 text-foreground";
+	return "outline" as const;
 }
 
 function NotificationSkeleton() {
@@ -73,7 +64,7 @@ function NotificationSkeleton() {
 		<div className="rounded-xl border border-border/60 bg-background p-4">
 			<div className="flex items-start gap-4">
 				<Skeleton className="mt-1 size-10 shrink-0 rounded-full" />
-				<div className="flex-1 space-y-3">
+				<div className="flex flex-1 flex-col gap-3">
 					<Skeleton className="h-5 w-2/3" />
 					<Skeleton className="h-4 w-full" />
 					<Skeleton className="h-4 w-5/6" />
@@ -145,7 +136,7 @@ export function NotificationsPage() {
 	return (
 		<main className="flex flex-col gap-6">
 			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-				<div className="space-y-1">
+				<div className="flex flex-col gap-1">
 					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
 						Notifications
 					</h1>
@@ -154,7 +145,7 @@ export function NotificationsPage() {
 						anything you do not need to keep in the inbox.
 					</p>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
 					<Badge variant="outline">{unreadCount} unread</Badge>
 					<Button
 						type="button"
@@ -164,7 +155,7 @@ export function NotificationsPage() {
 							void refreshNotifications();
 						}}
 					>
-						<RefreshCcwIcon />
+						<RefreshCcwIcon data-icon="inline-start" />
 						Refresh
 					</Button>
 				</div>
@@ -179,17 +170,25 @@ export function NotificationsPage() {
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						{statusFilters.map((item) => (
-							<Button
-								key={item.value}
-								type="button"
-								variant={status === item.value ? "default" : "outline"}
-								size="sm"
-								onClick={() => setStatus(item.value)}
-							>
-								{item.label}
-							</Button>
-						))}
+						<ToggleGroup
+							value={[status]}
+							onValueChange={(value) => {
+								const nextStatus = value[0] as StatusFilter | undefined;
+								if (nextStatus) {
+									setStatus(nextStatus);
+								}
+							}}
+							variant="outline"
+							size="sm"
+							spacing={0}
+							className="max-w-full flex-wrap"
+						>
+							{statusFilters.map((item) => (
+								<ToggleGroupItem key={item.value} value={item.value}>
+									{item.label}
+								</ToggleGroupItem>
+							))}
+						</ToggleGroup>
 						{unreadCount > 0 ? (
 							<Button
 								type="button"
@@ -207,36 +206,32 @@ export function NotificationsPage() {
 				</CardHeader>
 				<CardContent>
 					{notificationsQuery.isLoading ? (
-						<div className="space-y-3">
+						<div className="flex flex-col gap-3">
 							{Array.from({ length: 6 }).map((_, index) => (
 								<NotificationSkeleton key={index} />
 							))}
 						</div>
 					) : notifications.length > 0 ? (
-						<div className="space-y-3">
+						<div className="flex flex-col gap-3">
 							{notifications.map((notification) => (
 								<div
 									key={notification.id}
 									className="rounded-xl border border-border/60 bg-background p-4"
 								>
-									<div className="flex items-start gap-4">
+									<div className="flex flex-col gap-4 sm:flex-row sm:items-start">
 										<div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/40">
-											<BellIcon className="size-4 text-muted-foreground" />
+											<BellIcon />
 										</div>
 										<div className="min-w-0 flex-1">
 											<div className="flex flex-wrap items-center gap-2">
 												<h3 className="font-medium">{notification.title}</h3>
 												<Badge
-													variant="outline"
-													className={cn(statusBadgeClass(notification.status))}
+													variant={statusBadgeVariant(notification.status)}
 												>
 													{notification.status}
 												</Badge>
 												<Badge
-													variant="outline"
-													className={cn(
-														severityBadgeClass(notification.severity),
-													)}
+													variant={severityBadgeVariant(notification.severity)}
 												>
 													{notification.severity}
 												</Badge>
@@ -263,12 +258,13 @@ export function NotificationsPage() {
 												) : null}
 											</div>
 										</div>
-										<div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+										<div className="flex w-full shrink-0 gap-2 sm:w-auto sm:flex-col md:flex-row">
 											{notification.status === "unread" ? (
 												<Button
 													type="button"
 													variant="secondary"
 													size="sm"
+													className="flex-1 sm:flex-none"
 													disabled={markReadMutation.isPending}
 													onClick={() => {
 														markReadMutation.mutate({ ids: [notification.id] });
@@ -282,6 +278,7 @@ export function NotificationsPage() {
 													type="button"
 													variant="outline"
 													size="sm"
+													className="flex-1 sm:flex-none"
 													disabled={archiveMutation.isPending}
 													onClick={() => {
 														archiveMutation.mutate({ ids: [notification.id] });

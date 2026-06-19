@@ -9,6 +9,7 @@ import type * as React from "react";
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: This wrapper can contain inputs, buttons, addons, and textareas without fieldset form semantics.
 		<div
 			data-slot="input-group"
 			role="group"
@@ -48,6 +49,8 @@ function InputGroupAddon({
 	...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
 	return (
+		// biome-ignore lint/a11y/useKeyWithClickEvents: Clicking an addon forwards focus to the input; the addon itself is not a keyboard target.
+		// biome-ignore lint/a11y/useSemanticElements: The addon is a layout wrapper for icons, text, and buttons.
 		<div
 			role="group"
 			data-slot="input-group-addon"

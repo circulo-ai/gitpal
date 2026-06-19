@@ -1,18 +1,9 @@
-import { workspaceSettingsSchema } from "@gitpal/utils";
-import { TRPCError } from "@trpc/server";
-import { z } from "zod";
-import {
-	protectedMutationProcedure,
-	protectedProcedure,
-	router,
-} from "../index";
-import { requireOrganizationPermission } from "../services/organization-access";
 import {
 	addRepositoryForUser,
-	ensureRepositoriesSyncedForUser,
 	listRepositoriesForUser,
 	listRepositoryProvidersForUser,
 	listWorkspacesForUser,
+	queueRepositorySyncForUser,
 	setRepositoryEnabledForUser,
 } from "@gitpal/services/repository-sync";
 import { queueRepositoryWebhookSyncForUser } from "@gitpal/services/repository-webhook-sync";
@@ -22,6 +13,15 @@ import {
 	saveOrganizationWorkspaceSettings,
 	saveRepositoryWorkspaceSettings,
 } from "@gitpal/services/workspace-settings";
+import { workspaceSettingsSchema } from "@gitpal/utils";
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import {
+	protectedMutationProcedure,
+	protectedProcedure,
+	router,
+} from "../index";
+import { requireOrganizationPermission } from "../services/organization-access";
 
 const organizationScopeSchema = z.object({
 	organizationId: z.string().min(1).optional(),
@@ -62,11 +62,10 @@ export const repositoriesRouter = router({
 				ctx.session.session.activeOrganizationId ??
 				null;
 
-			// auto-sync on first load so new users always see their
-			// repos without having to manually hit the sync button. The TTL (15 min)
-			// means this is effectively a no-op after the first call.
-			await ensureRepositoriesSyncedForUser({
+			await queueRepositorySyncForUser({
 				userId: ctx.session.user.id,
+				reason: "auto",
+				force: false,
 			});
 
 			if (organizationId) {
@@ -88,37 +87,21 @@ export const repositoriesRouter = router({
 	}),
 
 	workspaces: protectedProcedure.query(async ({ ctx }) => {
-		// FIX Issue 2: auto-sync so a new user immediately sees their workspaces.
-		// Normal TTL applies — no extra cost after first run.
-		await ensureRepositoriesSyncedForUser({
+		await queueRepositorySyncForUser({
 			userId: ctx.session.user.id,
+			reason: "auto",
+			force: false,
 		});
 
 		return listWorkspacesForUser({ userId: ctx.session.user.id });
 	}),
 
 	sync: protectedMutationProcedure.mutation(async ({ ctx }) => {
-		// FIX Issue 1: bypass TTL entirely for an explicit user-triggered sync.
-		// ttlMs: 0 means "always refresh".
-		const sync = await ensureRepositoriesSyncedForUser({
+		return queueRepositorySyncForUser({
 			userId: ctx.session.user.id,
-			ttlMs: 0,
+			reason: "manual",
+			force: true,
 		});
-
-		const webhookSync = await queueRepositoryWebhookSyncForUser({
-			userId: ctx.session.user.id,
-			reason: "sync",
-		});
-
-		// FIX Issue 5: surface the first personal workspace ID so the client can
-		// set it as the active org for a newly-onboarded user.
-		const defaultWorkspaceId = sync.workspaceIds[0] ?? null;
-
-		return {
-			...sync,
-			webhookSync,
-			defaultWorkspaceId,
-		};
 	}),
 
 	syncWebhooks: protectedMutationProcedure

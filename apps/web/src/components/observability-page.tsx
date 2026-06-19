@@ -33,7 +33,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@gitpal/ui/components/table";
-import { cn } from "@gitpal/ui/lib/utils";
+import {
+	ToggleGroup,
+	ToggleGroupItem,
+} from "@gitpal/ui/components/toggle-group";
 import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow, subDays } from "date-fns";
 import {
@@ -109,23 +112,19 @@ function EventIcon({ kind }: { kind: string }) {
 								? BellIcon
 								: BriefcaseBusinessIcon;
 
-	return <Icon className="size-4 text-muted-foreground" />;
+	return <Icon className="text-muted-foreground" />;
 }
 
-function severityBadgeClass(severity: string) {
+function severityBadgeVariant(severity: string) {
 	if (severity === "error") {
-		return "border-destructive/30 bg-destructive/10 text-destructive";
-	}
-
-	if (severity === "warning") {
-		return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+		return "destructive" as const;
 	}
 
 	if (severity === "success") {
-		return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+		return "secondary" as const;
 	}
 
-	return "border-border bg-input/30 text-foreground";
+	return "outline" as const;
 }
 
 export function ObservabilityPage() {
@@ -168,7 +167,7 @@ export function ObservabilityPage() {
 	if (!activeWorkspace) {
 		return (
 			<main className="flex flex-col gap-6">
-				<div className="space-y-1">
+				<div className="flex flex-col gap-1">
 					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
 						Observability
 					</h1>
@@ -195,7 +194,7 @@ export function ObservabilityPage() {
 	return (
 		<main className="flex flex-col gap-6">
 			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-				<div className="space-y-1">
+				<div className="flex flex-col gap-1">
 					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
 						Observability
 					</h1>
@@ -214,24 +213,26 @@ export function ObservabilityPage() {
 
 			<div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 xl:flex-row xl:items-center xl:justify-between">
 				<div className="flex flex-wrap items-center gap-2">
-					<div
-						className="inline-flex flex-wrap items-center gap-1 rounded-full bg-background p-1"
-						role="tablist"
+					<ToggleGroup
+						value={[kind]}
+						onValueChange={(value) => {
+							const nextKind = value[0] as KindFilter | undefined;
+							if (nextKind) {
+								setKind(nextKind);
+							}
+						}}
+						variant="outline"
+						size="sm"
+						spacing={0}
+						className="max-w-full flex-wrap bg-background"
 						aria-label="Observability event kind"
 					>
 						{kindFilters.map((item) => (
-							<Button
-								key={item.value}
-								type="button"
-								variant={kind === item.value ? "default" : "ghost"}
-								size="sm"
-								aria-pressed={kind === item.value}
-								onClick={() => setKind(item.value)}
-							>
+							<ToggleGroupItem key={item.value} value={item.value}>
 								{item.label}
-							</Button>
+							</ToggleGroupItem>
 						))}
-					</div>
+					</ToggleGroup>
 				</div>
 				<div className="flex flex-col gap-2 md:flex-row md:items-center">
 					<Select
@@ -338,80 +339,139 @@ export function ObservabilityPage() {
 				</CardHeader>
 				<CardContent>
 					{timelineQuery.isLoading ? (
-						<div className="space-y-3">
+						<div className="flex flex-col gap-3">
 							{Array.from({ length: 8 }).map((_, index) => (
 								<Skeleton key={index} className="h-14 w-full" />
 							))}
 						</div>
 					) : events.length > 0 ? (
-						<div className="overflow-hidden rounded-xl border border-border/60">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Event</TableHead>
-										<TableHead>Status</TableHead>
-										<TableHead>Source</TableHead>
-										<TableHead>Duration</TableHead>
-										<TableHead>Cost</TableHead>
-										<TableHead>Time</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{events.map((event) => (
-										<TableRow key={event.id}>
-											<TableCell className="min-w-80 whitespace-normal">
-												<div className="flex items-start gap-3">
-													<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40">
-														<EventIcon kind={event.kind} />
+						<div className="flex flex-col gap-3">
+							<div className="flex flex-col gap-3 lg:hidden">
+								{events.map((event) => (
+									<div
+										key={event.id}
+										className="rounded-xl border border-border/60 bg-background p-4"
+									>
+										<div className="flex items-start gap-3">
+											<div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40">
+												<EventIcon kind={event.kind} />
+											</div>
+											<div className="min-w-0 flex-1">
+												<div className="flex flex-wrap items-center gap-2">
+													<span className="font-medium">{event.title}</span>
+													<Badge variant="outline">{event.kind}</Badge>
+													<Badge variant={severityBadgeVariant(event.severity)}>
+														{event.status}
+													</Badge>
+												</div>
+												<p className="mt-2 line-clamp-3 text-muted-foreground text-sm">
+													{event.body ??
+														event.repository?.fullName ??
+														event.pullRequest?.title ??
+														"-"}
+												</p>
+												<div className="mt-3 grid gap-2 text-muted-foreground text-xs sm:grid-cols-2">
+													<div>
+														<span className="font-medium text-foreground">
+															Duration
+														</span>{" "}
+														{formatDuration(event.durationMs)}
+													</div>
+													<div>
+														<span className="font-medium text-foreground">
+															Cost
+														</span>{" "}
+														{event.costCents ? formatUsd(event.costCents) : "-"}
 													</div>
 													<div className="min-w-0">
-														<div className="flex flex-wrap items-center gap-2">
-															<span className="font-medium">{event.title}</span>
-															<Badge variant="outline">{event.kind}</Badge>
-														</div>
-														<div className="mt-1 line-clamp-2 text-muted-foreground text-xs">
-															{event.body ??
-																event.repository?.fullName ??
-																event.pullRequest?.title ??
-																"-"}
-														</div>
+														<span className="font-medium text-foreground">
+															Source
+														</span>{" "}
+														<span className="font-mono">
+															{event.sourceType ?? "event"}
+														</span>
+													</div>
+													<div>
+														{formatDistanceToNow(new Date(event.timestamp), {
+															addSuffix: true,
+														})}
 													</div>
 												</div>
-											</TableCell>
-											<TableCell>
-												<Badge
-													variant="outline"
-													className={cn(severityBadgeClass(event.severity))}
-												>
-													{event.status}
-												</Badge>
-											</TableCell>
-											<TableCell className="max-w-64">
-												<div className="truncate font-mono text-xs">
-													{event.sourceType ?? "event"}
-												</div>
-												<div
-													className="truncate text-muted-foreground text-xs"
-													title={event.sourceId ?? undefined}
-												>
-													{event.sourceId ?? event.traceId ?? "-"}
-												</div>
-											</TableCell>
-											<TableCell>{formatDuration(event.durationMs)}</TableCell>
-											<TableCell>
-												{event.costCents ? formatUsd(event.costCents) : "-"}
-											</TableCell>
-											<TableCell>
-												<div className="whitespace-nowrap text-sm">
-													{formatDistanceToNow(new Date(event.timestamp), {
-														addSuffix: true,
-													})}
-												</div>
-											</TableCell>
+											</div>
+										</div>
+									</div>
+								))}
+							</div>
+							<div className="hidden overflow-x-auto rounded-xl border border-border/60 lg:block">
+								<Table>
+									<TableHeader>
+										<TableRow>
+											<TableHead>Event</TableHead>
+											<TableHead>Status</TableHead>
+											<TableHead>Source</TableHead>
+											<TableHead>Duration</TableHead>
+											<TableHead>Cost</TableHead>
+											<TableHead>Time</TableHead>
 										</TableRow>
-									))}
-								</TableBody>
-							</Table>
+									</TableHeader>
+									<TableBody>
+										{events.map((event) => (
+											<TableRow key={event.id}>
+												<TableCell className="min-w-80 whitespace-normal">
+													<div className="flex items-start gap-3">
+														<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40">
+															<EventIcon kind={event.kind} />
+														</div>
+														<div className="min-w-0">
+															<div className="flex flex-wrap items-center gap-2">
+																<span className="font-medium">
+																	{event.title}
+																</span>
+																<Badge variant="outline">{event.kind}</Badge>
+															</div>
+															<div className="mt-1 line-clamp-2 text-muted-foreground text-xs">
+																{event.body ??
+																	event.repository?.fullName ??
+																	event.pullRequest?.title ??
+																	"-"}
+															</div>
+														</div>
+													</div>
+												</TableCell>
+												<TableCell>
+													<Badge variant={severityBadgeVariant(event.severity)}>
+														{event.status}
+													</Badge>
+												</TableCell>
+												<TableCell className="max-w-64">
+													<div className="truncate font-mono text-xs">
+														{event.sourceType ?? "event"}
+													</div>
+													<div
+														className="truncate text-muted-foreground text-xs"
+														title={event.sourceId ?? undefined}
+													>
+														{event.sourceId ?? event.traceId ?? "-"}
+													</div>
+												</TableCell>
+												<TableCell>
+													{formatDuration(event.durationMs)}
+												</TableCell>
+												<TableCell>
+													{event.costCents ? formatUsd(event.costCents) : "-"}
+												</TableCell>
+												<TableCell>
+													<div className="whitespace-nowrap text-sm">
+														{formatDistanceToNow(new Date(event.timestamp), {
+															addSuffix: true,
+														})}
+													</div>
+												</TableCell>
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</div>
 						</div>
 					) : (
 						<Empty className="min-h-72">

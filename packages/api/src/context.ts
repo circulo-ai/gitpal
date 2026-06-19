@@ -1,4 +1,4 @@
-import { createDb } from "@gitpal/db";
+import { type Database, db as sharedDb } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import { env } from "@gitpal/env/server";
 import { eq } from "drizzle-orm";
@@ -6,6 +6,7 @@ import type { Context as HonoContext } from "hono";
 
 export type CreateContextOptions = {
 	context: HonoContext;
+	db?: Database;
 };
 
 type AuthUser = {
@@ -54,7 +55,6 @@ type AuthModule = {
 };
 
 const authPackageName = "@gitpal/auth";
-const db = createDb();
 
 function resolveClientIp(headers: Headers) {
 	if (!env.TRUST_PROXY_HEADERS) {
@@ -77,7 +77,10 @@ async function getAuth() {
 	return (await import(authPackageName)) as AuthModule;
 }
 
-async function ensureSessionUserRecord(session: Exclude<AuthSession, null>) {
+async function ensureSessionUserRecord(
+	db: Database,
+	session: Exclude<AuthSession, null>,
+) {
 	const [existing] = await db
 		.select({
 			id: authSchema.user.id,
@@ -101,7 +104,10 @@ async function ensureSessionUserRecord(session: Exclude<AuthSession, null>) {
 	});
 }
 
-export async function createContext({ context }: CreateContextOptions) {
+export async function createContext({
+	context,
+	db = sharedDb,
+}: CreateContextOptions) {
 	const auth = await getAuth();
 	const session = await auth.auth.api.getSession({
 		headers: context.req.raw.headers,
@@ -111,11 +117,12 @@ export async function createContext({ context }: CreateContextOptions) {
 	const url = new URL(context.req.raw.url);
 
 	if (resolvedSession) {
-		await ensureSessionUserRecord(resolvedSession);
+		await ensureSessionUserRecord(db, resolvedSession);
 	}
 
 	return {
 		auth: null,
+		db,
 		session: resolvedSession,
 		request: {
 			ip: resolveClientIp(headers),
@@ -128,6 +135,7 @@ export async function createContext({ context }: CreateContextOptions) {
 
 export type Context = {
 	auth: null;
+	db: Database;
 	session: AuthSession;
 	request: RequestMetadata;
 };

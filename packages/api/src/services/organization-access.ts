@@ -1,9 +1,9 @@
-import { TRPCError } from "@trpc/server";
 import {
-	OrganizationAccessError,
 	getActiveOrganizationMember,
+	OrganizationAccessError,
 	requireOrganizationPermission as requireOrganizationPermissionService,
 } from "@gitpal/services/organization-access";
+import { TRPCError } from "@trpc/server";
 
 function toTrpcError(error: OrganizationAccessError): TRPCError {
 	switch (error.code) {

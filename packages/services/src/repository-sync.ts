@@ -1,9 +1,14 @@
-import { createHash } from "node:crypto";
-import { createDb } from "@gitpal/db";
+import { createHash, randomUUID } from "node:crypto";
+import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
 import type { GitRepository, GitWorkspaceRef } from "@gitpal/git";
+import {
+	enqueueRepositorySyncJob,
+	type RepositorySyncJobData,
+	repositorySyncJobSchema,
+} from "@gitpal/jobs/inngest/functions/repo-sync";
 import { createLogger } from "@gitpal/logger";
 import { and, count, desc, eq, inArray, max, notInArray } from "drizzle-orm";
 
@@ -13,12 +18,13 @@ import {
 	getAccountForProvider,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
+import { recordObservabilityEvent } from "./observability";
+import { queueRepositoryWebhookSyncForUser } from "./repository-webhook-sync";
 
 type Account = typeof authSchema.account.$inferSelect;
 type RepositoryAccessRow = typeof dashboardSchema.repositoryAccess.$inferSelect;
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 
-const db = createDb();
 const log = createLogger("repository-sync");
 const DEFAULT_REPOSITORY_SYNC_TTL_MS = 10 * 60 * 1000;
 const PROVIDER_WORKSPACE_KIND = "provider-workspace";
@@ -86,6 +92,24 @@ export type RepositorySyncResult = {
 	errors: string[];
 	workspaceIds: string[];
 };
+
+export type RepositorySyncQueueResult = {
+	queued: boolean;
+	jobId: string | null;
+	reason: RepositorySyncJobData["reason"];
+	force: boolean;
+	error: string | null;
+};
+
+function toRepositoryWebhookSyncReason(
+	reason: RepositorySyncJobData["reason"],
+) {
+	if (reason === "repository-added" || reason === "repository-enabled") {
+		return reason;
+	}
+
+	return "sync";
+}
 
 export type RepositoryProviderSummary = {
 	providerId: string;
@@ -740,6 +764,124 @@ export async function ensureRepositoriesSyncedForUser({
 	}
 
 	return result;
+}
+
+export async function processRepositorySyncJob(input: RepositorySyncJobData) {
+	const data = repositorySyncJobSchema.parse(input);
+	const startedAt = Date.now();
+
+	log.info("Processing repository sync job.", {
+		userId: data.userId,
+		organizationId: data.organizationId ?? null,
+		repositoryId: data.repositoryId ?? null,
+		providerId: data.providerId ?? null,
+		reason: data.reason,
+		force: data.force,
+	});
+
+	const sync = await ensureRepositoriesSyncedForUser({
+		userId: data.userId,
+		ttlMs: data.force ? 0 : DEFAULT_REPOSITORY_SYNC_TTL_MS,
+	});
+	const webhookSync = await queueRepositoryWebhookSyncForUser({
+		userId: data.userId,
+		organizationId: data.organizationId ?? undefined,
+		repositoryId: data.repositoryId ?? undefined,
+		reason: toRepositoryWebhookSyncReason(data.reason),
+	});
+	const durationMs = Date.now() - startedAt;
+	const failed = sync.errors.length > 0 || !webhookSync.queued;
+
+	await recordObservabilityEvent({
+		userId: data.userId,
+		organizationId: data.organizationId ?? null,
+		repositoryId: data.repositoryId ?? null,
+		kind: "job",
+		action: "repository-sync",
+		status: failed ? "processed_with_errors" : "completed",
+		severity: failed ? "warning" : "success",
+		title: failed
+			? "Repository sync completed with warnings"
+			: "Repository sync completed",
+		body:
+			sync.errors.slice(0, 3).join("\n") ||
+			webhookSync.error ||
+			`${sync.syncedRepositories} repositories synced.`,
+		sourceType: "repository-sync",
+		sourceId: data.repositoryId ?? data.organizationId ?? `user:${data.userId}`,
+		dedupeKey: [
+			"repository-sync",
+			data.userId,
+			data.organizationId ?? "all",
+			data.repositoryId ?? "all",
+			data.requestId ?? data.reason,
+			failed ? "warning" : "completed",
+		].join(":"),
+		durationMs,
+		metadata: {
+			reason: data.reason,
+			force: data.force,
+			syncedRepositories: sync.syncedRepositories,
+			syncedProviders: sync.syncedProviders,
+			skippedProviders: sync.skippedProviders,
+			workspaceIds: sync.workspaceIds,
+			errors: sync.errors,
+			webhookSync,
+		},
+	});
+
+	return {
+		...sync,
+		webhookSync,
+		durationMs,
+	};
+}
+
+export async function queueRepositorySyncForUser(
+	input: Omit<RepositorySyncJobData, "requestId"> & {
+		requestId?: string;
+	},
+): Promise<RepositorySyncQueueResult> {
+	const data = repositorySyncJobSchema.parse({
+		...input,
+		requestId:
+			input.requestId ??
+			(input.force ? `repo_sync_${randomUUID()}` : undefined),
+	});
+
+	try {
+		const job = await enqueueRepositorySyncJob(data);
+		return {
+			queued: true,
+			jobId: job.ids?.[0] ?? null,
+			reason: data.reason,
+			force: data.force,
+			error: null,
+		};
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "repository_sync_queue_failed";
+
+		log.warn(
+			{
+				err: error,
+				userId: data.userId,
+				organizationId: data.organizationId ?? null,
+				repositoryId: data.repositoryId ?? null,
+				providerId: data.providerId ?? null,
+				reason: data.reason,
+			},
+			"Repository sync could not be queued.",
+		);
+
+		return {
+			queued: false,
+			jobId: null,
+			reason: data.reason,
+			force: data.force,
+			error: message,
+		};
+	}
 }
 
 export async function listRepositoryProvidersForUser({

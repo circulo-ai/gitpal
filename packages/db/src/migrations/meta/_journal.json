@@ -1,27 +1,27 @@
 {
-  "version": "7",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1781720553197,
-      "tag": "0000_icy_legion",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1781788471171,
-      "tag": "0001_omniscient_skreet",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1781869308186,
-      "tag": "0002_polite_changeling",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "postgresql",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "7",
+			"when": 1781720553197,
+			"tag": "0000_icy_legion",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1781788471171,
+			"tag": "0001_omniscient_skreet",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1781869308186,
+			"tag": "0002_polite_changeling",
+			"breakpoints": true
+		}
+	]
 }

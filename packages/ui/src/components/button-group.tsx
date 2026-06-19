@@ -28,6 +28,7 @@ function ButtonGroup({
 	...props
 }: React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>) {
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: This primitive groups arbitrary controls without fieldset browser styling or form semantics.
 		<div
 			role="group"
 			data-slot="button-group"

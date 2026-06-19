@@ -373,7 +373,7 @@ export function AccountApiKeysPage() {
 												<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
 													<div className="min-w-0 space-y-3">
 														<div>
-															<div className="break-words font-medium">
+															<div className="wrap-break-word font-medium">
 																{key.name ?? "Untitled"}
 															</div>
 															<div className="mt-1 text-muted-foreground text-xs">

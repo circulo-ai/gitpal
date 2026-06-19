@@ -41,7 +41,7 @@ const deleteSchema = z.object({
 });
 
 const routePreviewSchema = z.object({
-	modelId: z.string().trim().min(1).max(200),
+	modelId: z.string().min(1),
 });
 
 export const apiKeysRouter = router({

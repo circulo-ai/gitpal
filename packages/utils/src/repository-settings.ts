@@ -580,9 +580,7 @@ function isKnownManagedTool(tool: WorkspaceManagedTool): boolean {
 
 function normalizeModelId(value: string | null | undefined, fallback: string) {
 	const trimmed = value?.trim() || "";
-	if (trimmed.toLowerCase().startsWith("openrouter/")) {
-		return trimmed.slice("openrouter/".length) || fallback;
-	}
+	// Stop stripping aggregator prefixes destructively here
 	return trimmed || fallback;
 }
 

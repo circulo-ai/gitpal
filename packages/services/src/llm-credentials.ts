@@ -59,6 +59,226 @@ export type ModelRoutePreview = {
 	baseUrl: string | null;
 };
 
+/**
+ * Parses the model ID to extract an explicit router preference if specified,
+ * and determines the correct clean model ID to send to the provider.
+ */
+export function parseModelIdRoute(modelId: string): {
+	explicitRouterId: LlmRouterId | null;
+	modelIdForRouter: string;
+} {
+	const trimmed = modelId.trim();
+	const parts = trimmed.split("/");
+
+	// Handles 3+ part model IDs like gateway/google/gemini-2.5-flash
+	if (parts.length >= 3) {
+		const first = parts[0]?.toLowerCase();
+		if (first === "gateway") {
+			return { explicitRouterId: "ai-gateway", modelIdForRouter: parts.slice(1).join("/") };
+		}
+		if (first === "openrouter") {
+			return { explicitRouterId: "openrouter", modelIdForRouter: parts.slice(1).join("/") };
+		}
+		if (first === "ollama") {
+			return { explicitRouterId: "ollama", modelIdForRouter: parts.slice(1).join("/") };
+		}
+		if (first === "direct") {
+			return { explicitRouterId: "direct", modelIdForRouter: parts.slice(1).join("/") };
+		}
+	}
+
+	// Handles 2 part model IDs starting with an aggregator prefix
+	const lower = trimmed.toLowerCase();
+	if (lower.startsWith("openrouter/")) {
+		// OpenRouter requires the full "openrouter/free" slug
+		return { explicitRouterId: "openrouter", modelIdForRouter: trimmed };
+	}
+	if (lower.startsWith("ollama/")) {
+		// Ollama provider expects just the model name segment
+		return { explicitRouterId: "ollama", modelIdForRouter: trimmed.slice("ollama/".length) };
+	}
+
+	return { explicitRouterId: null, modelIdForRouter: trimmed };
+}
+
+async function getMatchingDirectKey({
+	userId,
+	modelId,
+}: {
+	userId: string;
+	modelId: string;
+}) {
+	const { modelIdForRouter } = parseModelIdRoute(modelId);
+	const inferredProviderId = inferProviderIdFromModel(modelIdForRouter);
+
+	if (!inferredProviderId) {
+		return null;
+	}
+
+	const rows = await db
+		.select()
+		.from(aiSchema.userLlmApiKey)
+		.where(eq(aiSchema.userLlmApiKey.userId, userId))
+		.orderBy(
+			asc(aiSchema.userLlmApiKey.priority),
+			desc(aiSchema.userLlmApiKey.updatedAt),
+		);
+
+	return (
+		rows.find(
+			(row) =>
+				row.enabled &&
+				row.providerId === inferredProviderId &&
+				matchesAllowedModels({
+					allowedModels: row.allowedModels,
+					modelId: modelIdForRouter,
+				}),
+		) ?? null
+	);
+}
+
+export async function previewModelRouteForUser({
+	userId,
+	modelId,
+}: {
+	userId: string;
+	modelId: string;
+}): Promise<ModelRoutePreview | null> {
+	const { explicitRouterId, modelIdForRouter } = parseModelIdRoute(modelId);
+	const settings = await getByokRoutingSettingsForUser(userId);
+	
+	// Check for direct key bypass only if no specific router channel was forced
+	const directKey = (explicitRouterId === "direct" || !explicitRouterId) && settings.preferUserKeys
+		? await getMatchingDirectKey({ userId, modelId: modelIdForRouter })
+		: null;
+
+	if (directKey) {
+		const provider = getLlmProviderDefinition(directKey.providerId);
+		return {
+			mode: "direct",
+			billedBy: "byok",
+			label: `Direct via ${provider?.label ?? directKey.providerId}`,
+			providerId: directKey.providerId,
+			providerLabel: provider?.label ?? directKey.providerId,
+			routerId: null,
+			usesFallback: false,
+			keyId: directKey.id,
+			keyName: directKey.name,
+			baseUrl: directKey.baseUrl,
+		};
+	}
+
+	// Honor explicit prefix routing, otherwise fallback to user routing configuration
+	const routerIds = explicitRouterId
+		? [explicitRouterId]
+		: [settings.defaultRouter, settings.fallbackRouter].filter(
+				(routerId): routerId is LlmRouterId => Boolean(routerId),
+			);
+
+	for (const [index, routerId] of routerIds.entries()) {
+		if (routerId === "direct") continue;
+		if (!getRouterAvailability(routerId)) {
+			continue;
+		}
+
+		const providerId =
+			routerId === "openrouter"
+				? "openrouter"
+				: routerId === "ollama"
+					? "ollama"
+					: "openai";
+		const provider = getLlmProviderDefinition(providerId);
+
+		return {
+			mode: "router",
+			billedBy: providerId === "ollama" ? "byok" : "wallet",
+			label:
+				routerId === "ai-gateway"
+					? "Vercel AI Gateway"
+					: (provider?.label ?? "OpenRouter"),
+			providerId,
+			providerLabel:
+				routerId === "ai-gateway"
+					? "Vercel AI Gateway"
+					: (provider?.label ?? "OpenRouter"),
+			routerId,
+			usesFallback: !explicitRouterId && index > 0,
+			keyId: null,
+			keyName: null,
+			baseUrl:
+				routerId === "openrouter"
+					? env.OPENROUTER_BASE_URL
+					: routerId === "ollama"
+						? env.OLLAMA_BASE_URL
+						: null,
+		};
+	}
+
+	return null;
+}
+
+export async function resolveLanguageModelForUser({
+	userId,
+	modelId,
+}: {
+	userId: string;
+	modelId: string;
+}) {
+	const preview = await previewModelRouteForUser({
+		userId,
+		modelId,
+	});
+
+	if (!preview) {
+		throw new Error("No usable model route is configured for this user.");
+	}
+
+	const { modelIdForRouter } = parseModelIdRoute(modelId);
+
+	if (preview.mode === "router" && preview.routerId) {
+		const model = createRouterModel({
+			routerId: preview.routerId,
+			modelId: modelIdForRouter,
+		});
+
+		if (!model) {
+			throw new Error("Configured router is not available.");
+		}
+
+		return {
+			model,
+			preview,
+		};
+	}
+
+	const directKey = await db
+		.select()
+		.from(aiSchema.userLlmApiKey)
+		.where(eq(aiSchema.userLlmApiKey.id, preview.keyId ?? ""))
+		.limit(1);
+	const key = directKey[0] ?? null;
+
+	if (!key) {
+		throw new Error("Provider key could not be found.");
+	}
+
+	const provider = getLlmProviderDefinition(key.providerId);
+
+	if (!provider) {
+		throw new Error("Unsupported provider key.");
+	}
+
+	return {
+		model: createDirectProviderModel({
+			provider,
+			modelId: modelIdForRouter,
+			apiKey: decryptSecret(key.encryptedApiKey),
+			baseUrl: key.baseUrl,
+		}),
+		preview,
+	};
+}
+
 function stableId(parts: Array<string | number | boolean | null | undefined>) {
 	return createHash("sha256")
 		.update(parts.map((part) => String(part ?? "")).join(":"))
@@ -71,16 +291,6 @@ function getRoutingSettingsId(userId: string) {
 
 function getByokKeyId(userId: string, providerId: string, name: string) {
 	return `llm_key_${stableId([userId, providerId, name]).slice(0, 32)}`;
-}
-
-function normalizeModelId(value: string) {
-	const trimmed = value.trim();
-
-	return trimmed.toLowerCase().startsWith("openrouter/")
-		? trimmed.slice("openrouter/".length)
-		: trimmed.toLowerCase().startsWith("ollama/")
-			? trimmed.slice("ollama/".length)
-			: trimmed;
 }
 
 function mapStoredKey(row: UserLlmApiKeyRow): StoredByokKeySummary {
@@ -378,176 +588,6 @@ export async function deleteByokKeyForUser({
 		});
 
 	return deleted?.userId === userId ? deleted : null;
-}
-
-async function getMatchingDirectKey({
-	userId,
-	modelId,
-}: {
-	userId: string;
-	modelId: string;
-}) {
-	const normalizedModelId = normalizeModelId(modelId);
-	const inferredProviderId = inferProviderIdFromModel(normalizedModelId);
-
-	if (!inferredProviderId) {
-		return null;
-	}
-
-	const rows = await db
-		.select()
-		.from(aiSchema.userLlmApiKey)
-		.where(eq(aiSchema.userLlmApiKey.userId, userId))
-		.orderBy(
-			asc(aiSchema.userLlmApiKey.priority),
-			desc(aiSchema.userLlmApiKey.updatedAt),
-		);
-
-	return (
-		rows.find(
-			(row) =>
-				row.enabled &&
-				row.providerId === inferredProviderId &&
-				matchesAllowedModels({
-					allowedModels: row.allowedModels,
-					modelId: normalizedModelId,
-				}),
-		) ?? null
-	);
-}
-
-export async function previewModelRouteForUser({
-	userId,
-	modelId,
-}: {
-	userId: string;
-	modelId: string;
-}): Promise<ModelRoutePreview | null> {
-	const normalizedModelId = normalizeModelId(modelId);
-	const settings = await getByokRoutingSettingsForUser(userId);
-	const directKey = settings.preferUserKeys
-		? await getMatchingDirectKey({ userId, modelId: normalizedModelId })
-		: null;
-
-	if (directKey) {
-		const provider = getLlmProviderDefinition(directKey.providerId);
-		return {
-			mode: "direct",
-			billedBy: "byok",
-			label: `Direct via ${provider?.label ?? directKey.providerId}`,
-			providerId: directKey.providerId,
-			providerLabel: provider?.label ?? directKey.providerId,
-			routerId: null,
-			usesFallback: false,
-			keyId: directKey.id,
-			keyName: directKey.name,
-			baseUrl: directKey.baseUrl,
-		};
-	}
-
-	const routerIds = [settings.defaultRouter, settings.fallbackRouter].filter(
-		(routerId): routerId is LlmRouterId => Boolean(routerId),
-	);
-
-	for (const [index, routerId] of routerIds.entries()) {
-		if (!getRouterAvailability(routerId)) {
-			continue;
-		}
-
-		const providerId =
-			routerId === "openrouter"
-				? "openrouter"
-				: routerId === "ollama"
-					? "ollama"
-					: "openai";
-		const provider = getLlmProviderDefinition(providerId);
-
-		return {
-			mode: "router",
-			billedBy: providerId === "ollama" ? "byok" : "wallet",
-			label:
-				routerId === "ai-gateway"
-					? "Vercel AI Gateway"
-					: (provider?.label ?? "OpenRouter"),
-			providerId,
-			providerLabel:
-				routerId === "ai-gateway"
-					? "Vercel AI Gateway"
-					: (provider?.label ?? "OpenRouter"),
-			routerId,
-			usesFallback: index > 0,
-			keyId: null,
-			keyName: null,
-			baseUrl:
-				routerId === "openrouter"
-					? env.OPENROUTER_BASE_URL
-					: routerId === "ollama"
-						? env.OLLAMA_BASE_URL
-						: null,
-		};
-	}
-
-	return null;
-}
-
-export async function resolveLanguageModelForUser({
-	userId,
-	modelId,
-}: {
-	userId: string;
-	modelId: string;
-}) {
-	const preview = await previewModelRouteForUser({
-		userId,
-		modelId,
-	});
-
-	if (!preview) {
-		throw new Error("No usable model route is configured for this user.");
-	}
-
-	if (preview.mode === "router" && preview.routerId) {
-		const model = createRouterModel({
-			routerId: preview.routerId,
-			modelId: normalizeModelId(modelId),
-		});
-
-		if (!model) {
-			throw new Error("Configured router is not available.");
-		}
-
-		return {
-			model,
-			preview,
-		};
-	}
-
-	const directKey = await db
-		.select()
-		.from(aiSchema.userLlmApiKey)
-		.where(eq(aiSchema.userLlmApiKey.id, preview.keyId ?? ""))
-		.limit(1);
-	const key = directKey[0] ?? null;
-
-	if (!key) {
-		throw new Error("Provider key could not be found.");
-	}
-
-	const provider = getLlmProviderDefinition(key.providerId);
-
-	if (!provider) {
-		throw new Error("Unsupported provider key.");
-	}
-
-	return {
-		model: createDirectProviderModel({
-			provider,
-			modelId: normalizeModelId(modelId),
-			apiKey: decryptSecret(key.encryptedApiKey),
-			baseUrl: key.baseUrl,
-		}),
-		preview,
-	};
 }
 
 export function listAvailableByokProviders() {

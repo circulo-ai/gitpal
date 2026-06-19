@@ -1,0 +1,24 @@
+{
+	"name": "@gitpal/mcp",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./react": {
+			"default": "./src/react.tsx"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"react": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@gitpal/config": "workspace:*",
+		"@types/react": "catalog:",
+		"typescript": "catalog:"
+	}
+}

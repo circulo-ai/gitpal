@@ -4,7 +4,14 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 const AUTH_ROUTES = ["/login", "/signup"];
-const WORKSPACE_ROUTES = ["/dashboard", "/repositories", "/account"];
+const WORKSPACE_ROUTES = [
+	"/dashboard",
+	"/repositories",
+	"/observability",
+	"/integrations",
+	"/notifications",
+	"/account",
+];
 
 export default function AppShell({ children }: { children: ReactNode }) {
 	const pathname = usePathname();

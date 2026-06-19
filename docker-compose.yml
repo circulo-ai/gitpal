@@ -39,6 +39,17 @@ services:
       - gitpal-network
     restart: unless-stopped
 
+  fumadocs:
+    build:
+      context: .
+      dockerfile: apps/fumadocs/Dockerfile
+    init: true
+    environment:
+      NEXT_TELEMETRY_DISABLED: 1
+    networks:
+      - gitpal-network
+    restart: unless-stopped
+
   server:
     build:
       context: .

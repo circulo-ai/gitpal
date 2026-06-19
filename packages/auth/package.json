@@ -12,7 +12,6 @@
 	"scripts": {},
 	"dependencies": {
 		"@better-auth/api-key": "^1.6.18",
-		"@better-auth/sso": "catalog:",
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
 		"@gitpal/git": "workspace:*",

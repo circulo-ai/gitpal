@@ -1,5 +1,4 @@
 import { apiKeyClient } from "@better-auth/api-key/client";
-import { ssoClient } from "@better-auth/sso/client";
 import { workspaceAc, workspaceRoles } from "@gitpal/auth/organization-access";
 import { env } from "@gitpal/env/web";
 import {
@@ -26,11 +25,6 @@ export const authClient = createAuthClient({
 				enabled: true,
 			},
 		}),
-		ssoClient({
-			domainVerification: {
-				enabled: true,
-			},
-		}),
 	],
 });
 
@@ -46,12 +40,6 @@ function resolveFrontendCallbackURL(callbackURL: string) {
 
 type OAuthSignInInput = {
 	providerId: string;
-	label: string;
-	callbackURL?: string;
-};
-
-type WorkEmailSsoSignInInput = {
-	email: string;
 	label: string;
 	callbackURL?: string;
 };
@@ -113,37 +101,6 @@ export async function startOAuthSignIn({
 	}
 
 	window.location.assign(data.url);
-}
-
-export async function startWorkEmailSsoSignIn({
-	email,
-	label,
-	callbackURL = DEFAULT_CALLBACK_PATH,
-}: WorkEmailSsoSignInInput) {
-	const resolvedCallbackURL = resolveFrontendCallbackURL(callbackURL);
-
-	const result = (await authClient.signIn.sso({
-		email,
-		callbackURL: resolvedCallbackURL,
-		loginHint: email,
-	})) as
-		| {
-				data?: {
-					url?: string;
-				};
-				error?: unknown;
-		  }
-		| undefined;
-
-	if (result?.error) {
-		throw new Error(
-			getSignInErrorMessage(result.error, `Unable to start ${label} sign in.`),
-		);
-	}
-
-	if (result?.data?.url) {
-		window.location.assign(result.data.url);
-	}
 }
 
 export async function startEnterpriseGitHostSignIn({

@@ -18,13 +18,11 @@ import {
 } from "@gitpal/ui/components/dropdown-menu";
 import { Input } from "@gitpal/ui/components/input";
 import { Label } from "@gitpal/ui/components/label";
-import { Separator } from "@gitpal/ui/components/separator";
 import { cn } from "@gitpal/ui/lib/utils";
 import {
 	ChevronDownIcon,
 	GithubIcon,
 	GitlabIcon,
-	Key01Icon,
 	Loading03Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -34,7 +32,6 @@ import { toast } from "sonner";
 import {
 	startEnterpriseGitHostSignIn,
 	startOAuthSignIn,
-	startWorkEmailSsoSignIn,
 } from "@/lib/auth-client";
 import { GitPalMark } from "./gitpal-mark";
 
@@ -66,7 +63,6 @@ type EnterpriseHosts = Record<ProviderId, string>;
 const STORAGE_KEY = "gitpal-auth-provider-modes";
 const LAST_USED_STORAGE_KEY = "gitpal-auth-last-used";
 const ENTERPRISE_HOST_STORAGE_KEY = "gitpal-auth-enterprise-hosts";
-const SSO_EMAIL_STORAGE_KEY = "gitpal-auth-sso-email";
 
 const PROVIDER_ORDER: ProviderId[] = ["github", "gitlab"];
 
@@ -223,18 +219,6 @@ function persistEnterpriseHosts(nextHosts: EnterpriseHosts) {
 		ENTERPRISE_HOST_STORAGE_KEY,
 		JSON.stringify(nextHosts),
 	);
-}
-
-function loadWorkEmail() {
-	if (typeof window === "undefined") {
-		return "";
-	}
-
-	return window.localStorage.getItem(SSO_EMAIL_STORAGE_KEY) ?? "";
-}
-
-function persistWorkEmail(value: string) {
-	window.localStorage.setItem(SSO_EMAIL_STORAGE_KEY, value);
 }
 
 function persistPreferences(nextModes: StoredModes, nextLastUsed: LastUsed) {
@@ -443,8 +427,6 @@ export default function AuthPage({ availability }: AuthPageProps) {
 	const [enterpriseHosts, setEnterpriseHosts] = useState<EnterpriseHosts>(() =>
 		defaultEnterpriseHosts(),
 	);
-	const [ssoEmailDraft, setSsoEmailDraft] = useState("");
-	const [ssoDialogOpen, setSsoDialogOpen] = useState(false);
 	const [enterpriseDialogProvider, setEnterpriseDialogProvider] =
 		useState<ProviderId | null>(null);
 	const [enterpriseDialogOpen, setEnterpriseDialogOpen] = useState(false);
@@ -456,16 +438,7 @@ export default function AuthPage({ availability }: AuthPageProps) {
 		setProviderModes(modes);
 		setLastUsed(loadLastUsed(availability));
 		setEnterpriseHosts(loadEnterpriseHosts());
-		setSsoEmailDraft(loadWorkEmail());
 	}, [availability]);
-
-	function openWorkEmailDialog() {
-		setSsoDialogOpen(true);
-	}
-
-	function closeWorkEmailDialog() {
-		setSsoDialogOpen(false);
-	}
 
 	function openEnterpriseDialog(provider: ProviderId) {
 		setEnterpriseDialogProvider(provider);
@@ -537,36 +510,6 @@ export default function AuthPage({ availability }: AuthPageProps) {
 		}
 
 		openEnterpriseDialog(provider);
-	}
-
-	async function submitWorkEmailSso() {
-		const email = ssoEmailDraft.trim().toLowerCase();
-
-		if (!email?.includes("@")) {
-			toast.error("Enter your work email to continue.");
-			return;
-		}
-
-		const actionKey = "sso";
-		setPendingAction(actionKey);
-
-		try {
-			persistWorkEmail(email);
-			setSsoEmailDraft(email);
-			await startWorkEmailSsoSignIn({
-				email,
-				label: "Work email SSO",
-			});
-			closeWorkEmailDialog();
-		} catch (error) {
-			toast.error(
-				error instanceof Error
-					? error.message
-					: "Unable to start work email SSO sign in.",
-			);
-		} finally {
-			setPendingAction((current) => (current === actionKey ? null : current));
-		}
 	}
 
 	async function submitEnterpriseHost() {
@@ -688,51 +631,6 @@ export default function AuthPage({ availability }: AuthPageProps) {
 								);
 							})}
 						</div>
-
-						{/* <Separator className="bg-white/10" />
-
-						<Button
-							type="button"
-							variant="outline"
-							disabled={pendingAction !== null}
-							onClick={() => {
-								void launchSingleSignOn();
-							}}
-							className={cn(
-								"h-12 w-full rounded-2xl border-white/10 bg-[#19161d] text-white hover:bg-white/5",
-								pendingAction !== null && "cursor-not-allowed opacity-50",
-							)}
-						>
-							<HugeiconsIcon
-								icon={pendingAction ? Loading03Icon : Key01Icon}
-								size={18}
-								className={cn("mr-2", pendingAction && "animate-spin")}
-							/>
-							Single Sign-On
-						</Button> */}
-
-						<PromptDialog
-							open={ssoDialogOpen}
-							title="Work email SSO"
-							description="Enter your work email to sign in with your GitPal SSO provider."
-							label="Work email"
-							inputId="work-email-sso"
-							value={ssoEmailDraft}
-							placeholder="name@company.com"
-							inputType="email"
-							autoComplete="email"
-							submitLabel="Continue"
-							pending={pendingAction === "sso"}
-							onOpenChange={(open) => {
-								setSsoDialogOpen(open);
-							}}
-							onValueChange={(value) => {
-								setSsoEmailDraft(value);
-							}}
-							onSubmit={() => {
-								void submitWorkEmailSso();
-							}}
-						/>
 
 						<PromptDialog
 							open={enterpriseDialogOpen}

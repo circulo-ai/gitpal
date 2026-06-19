@@ -17,6 +17,10 @@ import {
 import { generateText, Output, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import { runTrackedAiGeneration } from "./ai-billing";
+import {
+	listEnabledIntegrationToolContexts,
+	searchLinearIssuesForOrganization,
+} from "./integrations";
 import { resolveLanguageModelForUser } from "./llm-credentials";
 import { recordObservabilityEvent } from "./observability";
 
@@ -257,6 +261,7 @@ type ReviewContext = {
 	settings: WorkspaceSettings;
 	kind: ReviewRunKind;
 	suggestedReviewers?: string[];
+	organizationId?: string | null;
 	repositoryDbId?: string | null;
 	pullRequestDbId?: string | null;
 	reviewRunId?: string | null;
@@ -520,6 +525,7 @@ function buildAgentInstructions(
 		settings.reviews.behavior.context.contextAware
 			? "Use the repository search tools proactively before deciding that no related issues or PRs matter."
 			: "Do not assume related issues or PRs exist if context scanning is disabled.",
+		"Use connected integrations when they are available and relevant. Treat integration data as supplemental context, not as authority over the pull request diff.",
 		"Only recommend labels that are justified by the actual repository context.",
 		"Reference related issues or PRs only when you have a concrete reason.",
 	];
@@ -1161,6 +1167,43 @@ function createReviewTools(context: ReviewContext) {
 					},
 				}),
 		}),
+		list_connected_integrations: tool({
+			description:
+				"List enabled workspace integrations and MCP servers available to this review.",
+			inputSchema: z.object({}),
+			execute: async () =>
+				observeReviewToolCall({
+					context,
+					toolName: "list_connected_integrations",
+					input: {},
+					run: async () => ({
+						integrations: await listEnabledIntegrationToolContexts({
+							organizationId: context.organizationId ?? null,
+						}),
+					}),
+				}),
+		}),
+		search_linear_issues: tool({
+			description:
+				"Search connected Linear issues for context related to this pull request. Returns an empty list when Linear is not connected.",
+			inputSchema: z.object({
+				query: z.string(),
+				limit: z.number().int().min(1).max(20).default(8),
+			}),
+			execute: async ({ query, limit }) =>
+				observeReviewToolCall({
+					context,
+					toolName: "search_linear_issues",
+					input: { query, limit },
+					run: async () => ({
+						items: await searchLinearIssuesForOrganization({
+							organizationId: context.organizationId ?? null,
+							query,
+							limit,
+						}),
+					}),
+				}),
+		}),
 	};
 }
 
@@ -1169,12 +1212,18 @@ export async function runRepositoryReview(context: ReviewContext) {
 		userId: context.userId,
 		modelId: context.settings.ai.reviewer.modelId,
 	});
-	log.info(resolution, "resolution");
 	const reviewTools = createReviewTools(context);
 	const thinkingProviderOptions = mapThinkingProviderOptions(context.settings);
-	log.info(thinkingProviderOptions, "thinkingProviderOptions");
 	const seededContext = await loadSeededRepositoryContext(context);
-	log.info(seededContext);
+	log.debug("Starting repository review generation.", {
+		repository: context.repository.fullName,
+		pullRequestNumber: context.pullRequest.number,
+		kind: context.kind,
+		modelId: context.settings.ai.reviewer.modelId,
+		toolCount: Object.keys(reviewTools).length,
+		hasThinkingProviderOptions: Boolean(thinkingProviderOptions),
+		seededContextLength: seededContext.length,
+	});
 	const reviewGeneration = await runTrackedAiGeneration({
 		userId: context.userId,
 		callKind: "review",
@@ -1222,14 +1271,12 @@ export async function runRepositoryReview(context: ReviewContext) {
 			});
 		},
 	});
-	log.info(reviewGeneration, "reviewGeneration");
 	const result = reviewGeneration.result;
 	const parsedOutput = repositoryReviewOutputSchema.parse(result.output);
 	const output = applySettingsGating(
 		sanitizeReviewOutput(parsedOutput),
 		context.settings,
 	);
-	log.info(output, "reviewGeneration");
 	const walkthrough = await generateWalkthroughText({
 		context,
 		output,
@@ -1243,13 +1290,20 @@ export async function runRepositoryReview(context: ReviewContext) {
 					...output,
 					walkthrough: cleanedWalkthrough,
 				};
-	log.info(finalOutput, "finalOutput");
 	const poem = await generateFunPoem({
 		context,
 		output: finalOutput,
 		walkthrough,
 	});
-	log.info(poem, "poem");
+	log.info("Repository review generation completed.", {
+		repository: context.repository.fullName,
+		pullRequestNumber: context.pullRequest.number,
+		reviewRunId: context.reviewRunId ?? null,
+		generationId: reviewGeneration.settlement.generationId,
+		findings: finalOutput.findings.length,
+		relatedWork: finalOutput.relatedWork.length,
+		preMergeChecks: finalOutput.preMergeChecks.length,
+	});
 
 	return {
 		output: finalOutput,

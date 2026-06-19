@@ -5,6 +5,7 @@ import { type Database, db } from "@gitpal/db";
 import { env } from "@gitpal/env/server";
 import { createFunctions, inngest } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
+import { completeIntegrationOAuthCallback } from "@gitpal/services/integrations";
 import {
 	isNowPaymentsWebhookEnabled,
 	NowPaymentsValidationError,
@@ -27,7 +28,6 @@ import { trpcServer } from "@hono/trpc-server";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { serve } from "inngest/hono";
 
@@ -70,7 +70,35 @@ app.use("*", async (c, next) => {
 	c.set("db", db);
 	await next();
 });
-app.use(logger());
+app.use("*", async (c, next) => {
+	const startedAt = Date.now();
+
+	try {
+		await next();
+	} catch (error) {
+		log.error("HTTP request crashed.", {
+			err: error,
+			method: c.req.method,
+			path: c.req.path,
+			durationMs: Date.now() - startedAt,
+		});
+		throw error;
+	}
+
+	const context = {
+		method: c.req.method,
+		path: c.req.path,
+		status: c.res.status,
+		durationMs: Date.now() - startedAt,
+	};
+
+	if (c.res.status >= 500) {
+		log.error("HTTP request failed.", context);
+		return;
+	}
+
+	log.debug("HTTP request completed.", context);
+});
 app.use(
 	secureHeaders({
 		strictTransportSecurity: false,
@@ -94,6 +122,40 @@ app.use(
 );
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+app.get("/integrations/oauth/callback", async (c) => {
+	const fallbackUrl = new URL(
+		`${env.CORS_ORIGIN.replace(/\/$/, "")}/integrations`,
+	);
+	const code = c.req.query("code");
+	const state = c.req.query("state");
+	const oauthError = c.req.query("error");
+
+	if (oauthError) {
+		fallbackUrl.searchParams.set("integration_oauth", "cancelled");
+		return c.redirect(fallbackUrl.toString());
+	}
+
+	if (!code || !state) {
+		fallbackUrl.searchParams.set("integration_oauth", "missing_code");
+		return c.redirect(fallbackUrl.toString());
+	}
+
+	try {
+		const result = await completeIntegrationOAuthCallback({ code, state });
+		const returnUrl = new URL(result.returnTo);
+		returnUrl.searchParams.set("integration_oauth", "connected");
+		returnUrl.searchParams.set("connectionId", result.connection.id);
+
+		return c.redirect(returnUrl.toString());
+	} catch (error) {
+		log.warn("Integration OAuth callback failed.", {
+			err: error,
+		});
+		fallbackUrl.searchParams.set("integration_oauth", "error");
+		return c.redirect(fallbackUrl.toString());
+	}
+});
 
 async function handleNowPaymentsWebhookRequest(c: Context) {
 	if (!isNowPaymentsWebhookEnabled()) {

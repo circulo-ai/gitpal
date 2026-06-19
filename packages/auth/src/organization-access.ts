@@ -5,6 +5,7 @@ import { defaultStatements } from "better-auth/plugins/organization/access";
 
 export const workspaceStatements = {
 	...defaultStatements,
+	integrations: ["read", "update"],
 	repository: ["read", "update", "sync"],
 	settings: ["read", "update"],
 } as const;
@@ -18,6 +19,7 @@ export const workspaceRoles = {
 		invitation: ["create", "cancel"],
 		team: ["create", "update", "delete"],
 		ac: ["create", "read", "update", "delete"],
+		integrations: ["read", "update"],
 		repository: ["read", "update", "sync"],
 		settings: ["read", "update"],
 	}),
@@ -27,6 +29,7 @@ export const workspaceRoles = {
 		invitation: ["create", "cancel"],
 		team: ["create", "update", "delete"],
 		ac: ["read"],
+		integrations: ["read", "update"],
 		repository: ["read", "update", "sync"],
 		settings: ["read", "update"],
 	}),
@@ -36,6 +39,7 @@ export const workspaceRoles = {
 		invitation: [],
 		team: [],
 		ac: ["read"],
+		integrations: ["read"],
 		repository: ["read"],
 		settings: ["read"],
 	}),

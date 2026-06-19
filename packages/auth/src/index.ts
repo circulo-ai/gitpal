@@ -9,7 +9,6 @@ import { organization } from "better-auth/plugins/organization";
 import {
 	createCloudOAuthPlugin,
 	createEnterpriseGitAuthPlugin,
-	createSsoPlugin,
 } from "./enterprise-git";
 import { workspaceAc, workspaceRoles } from "./organization-access";
 
@@ -51,7 +50,6 @@ export function createAuth() {
 		plugins: [
 			createCloudOAuthPlugin(),
 			createEnterpriseGitAuthPlugin(),
-			createSsoPlugin(),
 			apiKey({
 				defaultPrefix: "gp_",
 				requireName: true,

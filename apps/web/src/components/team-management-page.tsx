@@ -27,7 +27,7 @@ import { toast } from "sonner";
 
 import { trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
-import { syncRepositoryDataAfterRefresh } from "./repository-sync-helpers";
+import { invalidateRepositoryData } from "./repository-sync-helpers";
 import { formatWorkspaceScope } from "./workspace-scope";
 
 function getScopeBuckets(
@@ -48,21 +48,19 @@ export function TeamManagementPage() {
 	const syncMutation = useMutation(
 		trpc.repositories.sync.mutationOptions({
 			onSuccess: async (result) => {
-				await syncRepositoryDataAfterRefresh({
-					activeWorkspaceId,
-					switchWorkspace,
-					workspaceIds: result.workspaceIds,
-				});
+				await invalidateRepositoryData(activeWorkspaceId);
 
-				if (result.webhookSync.queued) {
-					toast.success("Workspace sync completed. Webhook refresh queued.");
+				if (result.queued) {
+					toast.success(
+						"Workspace sync queued. Repository data will refresh shortly.",
+					);
 					return;
 				}
 
 				toast.error(
-					result.webhookSync.error
-						? `Workspace sync completed, but webhook refresh could not be queued: ${result.webhookSync.error}`
-						: "Workspace sync completed, but webhook refresh could not be queued.",
+					result.error
+						? `Workspace sync could not be queued: ${result.error}`
+						: "Workspace sync could not be queued.",
 				);
 			},
 			onError: (error) => {

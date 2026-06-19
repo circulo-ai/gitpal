@@ -4,7 +4,6 @@ import {
 	createHash,
 	randomBytes,
 } from "node:crypto";
-import { sso } from "@better-auth/sso";
 import { db } from "@gitpal/db";
 import * as schema from "@gitpal/db/schema/auth";
 import { env } from "@gitpal/env/server";
@@ -466,21 +465,6 @@ export function createCloudOAuthPlugin() {
 		config: providers.filter(
 			(provider): provider is GenericOAuthConfig => provider !== null,
 		),
-	});
-}
-
-export function createSsoPlugin() {
-	return sso({
-		domainVerification: {
-			enabled: true,
-			tokenPrefix: "gitpal-sso",
-		},
-		saml: {
-			enableInResponseToValidation: true,
-			allowIdpInitiated: true,
-			clockSkew: env.NODE_ENV === "production" ? 60 * 1000 : 5 * 60 * 1000,
-			requireTimestamps: env.NODE_ENV === "production",
-		},
 	});
 }
 

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 		template: "%s | GitPal",
 	},
 	description:
-		"Open source AI code review for GitHub and GitLab, with BYOK, enterprise SSO, and self-hosted deployments.",
+		"Open source AI code review for GitHub and GitLab, with BYOK and self-hosted deployments.",
 };
 
 export default function RootLayout({

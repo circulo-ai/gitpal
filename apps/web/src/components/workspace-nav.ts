@@ -12,6 +12,7 @@ import {
 	GitPullRequestIcon,
 	KeyRoundIcon,
 	LineChartIcon,
+	PlugZapIcon,
 	Settings2Icon,
 	ShieldCheckIcon,
 	TablePropertiesIcon,
@@ -85,6 +86,11 @@ export const workspaceNavItems = [
 		title: "Observability",
 		href: "/observability",
 		icon: ActivityIcon,
+	},
+	{
+		title: "Integrations",
+		href: "/integrations",
+		icon: PlugZapIcon,
 	},
 	{
 		title: "Notifications",
@@ -166,6 +172,14 @@ export function getWorkspacePageInfo(pathname: string) {
 			section: "Workspace",
 			title: "Observability",
 			subtitle: "Logs, traces, and system events",
+		};
+	}
+
+	if (pathname.startsWith("/integrations")) {
+		return {
+			section: "Workspace",
+			title: "Integrations",
+			subtitle: "Connectors and external context",
 		};
 	}
 

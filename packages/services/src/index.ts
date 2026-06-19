@@ -1,6 +1,7 @@
 export * from "./ai-billing";
 export * from "./app-api-keys";
 export * from "./git-provider-access";
+export * from "./integrations";
 export * from "./labeler";
 export * from "./llm-credentials";
 export * from "./notifications";

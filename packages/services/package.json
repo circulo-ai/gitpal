@@ -23,6 +23,7 @@
 		"@gitpal/git": "workspace:*",
 		"@gitpal/jobs": "workspace:*",
 		"@gitpal/logger": "workspace:*",
+		"@gitpal/mcp": "workspace:*",
 		"@gitpal/utils": "workspace:*",
 		"@nowpaymentsio/nowpayments-sdk-nodejs": "^0.2.1",
 		"@workflow/ai": "catalog:",

@@ -9,6 +9,7 @@ import { requireOrganizationPermission } from "../services/organization-access";
 import { analyticsRouter } from "./analytics";
 import { apiKeysRouter } from "./api-keys";
 import { billingRouter } from "./billing";
+import { integrationsRouter } from "./integrations";
 import { notificationsRouter } from "./notifications";
 import { observabilityRouter } from "./observability";
 import { repositoriesRouter } from "./repositories";
@@ -90,6 +91,7 @@ export const appRouter = router({
 	analytics: analyticsRouter,
 	apiKeys: apiKeysRouter,
 	billing: billingRouter,
+	integrations: integrationsRouter,
 	notifications: notificationsRouter,
 	observability: observabilityRouter,
 	repositories: repositoriesRouter,

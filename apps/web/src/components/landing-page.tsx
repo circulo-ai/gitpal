@@ -23,9 +23,8 @@ import {
 	SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { StarIcon } from "lucide-react";
 import Link from "next/link";
-import type { UrlObject } from "url";
+import type { UrlObject } from "node:url";
 import { GitPalMark } from "@/components/gitpal-mark";
 import { PrReviewCard } from "@/components/pr-review-card";
 import { Reveal } from "@/components/reveal";

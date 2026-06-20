@@ -2777,10 +2777,23 @@ export async function processRepositoryLabelerRunJob(
 				});
 				return { status: "ignored" };
 			}
-			const target = await automationActor.adapter.getIssue({
+			let forcedTarget: GitIssue | null = null;
+			let forcedKind: "issue" | "pull_request" = "issue";
+			try {
+			await automationActor.adapter.getPullRequest({
+				repositoryPath: repository.repositoryPath,
+				pullRequestNumber: data.targetNumber,
+			});
+			// It's a PR — forcedTarget stays null; runWebhookLabeler will re-fetch
+			// via getPullRequest itself in the pull_request dispatch branch.
+			forcedKind = "pull_request";
+			} catch {
+			forcedTarget = await automationActor.adapter.getIssue({
 				repositoryPath: repository.repositoryPath,
 				issueNumber: data.targetNumber,
 			});
+			forcedKind = "issue";
+			}
 			const result = await runWebhookLabeler({
 				repository,
 				envelope: {
@@ -2795,8 +2808,8 @@ export async function processRepositoryLabelerRunJob(
 					rawBody: "{}",
 				},
 				providerType: data.providerType,
-				forcedTarget: target,
-				forcedDispatch: { kind: "issue", trigger: "manual", manual: true },
+				forcedTarget,
+				forcedDispatch: { kind: forcedKind, trigger: "manual", manual: true },
 				requestedByUserId: data.requestedByUserId ?? null,
 				retryOfRunId: data.retryOfRunId ?? null,
 				precreatedRunId: data.runId ?? null,

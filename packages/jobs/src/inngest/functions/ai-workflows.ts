@@ -107,7 +107,7 @@ const aiWorkflowFlowControl = {
 	throttle: {
 		limit: Number(env.GITPAL_AI_WORKFLOW_THROTTLE_LIMIT),
 		period:
-			`${env.GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS}s` as `${number}s`,
+			`${Number(env.GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS)}s` as `${number}s`,
 		key: `"ai-provider"`,
 	},
 };

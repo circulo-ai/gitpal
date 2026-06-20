@@ -21,7 +21,7 @@ import {
 	matchesAllowedModels,
 } from "@gitpal/utils";
 import { createGateway, type LanguageModel } from "ai";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { createOllama } from "ollama-ai-provider-v2";
 
 type UserLlmApiKeyRow = typeof aiSchema.userLlmApiKey.$inferSelect;
@@ -577,6 +577,65 @@ export async function saveByokKeyForUser({
 			: (currentRow?.baseUrl ?? provider.baseUrl);
 
 	const now = new Date();
+
+	if (currentRow) {
+		const [duplicate] = await db
+			.select({ id: aiSchema.userLlmApiKey.id })
+			.from(aiSchema.userLlmApiKey)
+			.where(
+				and(
+					eq(aiSchema.userLlmApiKey.userId, userId),
+					eq(aiSchema.userLlmApiKey.providerId, validated.providerId),
+					eq(aiSchema.userLlmApiKey.name, validated.name),
+					ne(aiSchema.userLlmApiKey.id, currentRow.id),
+				),
+			)
+			.limit(1);
+
+		if (duplicate) {
+			throw new Error(
+				"A provider key with this provider and name already exists.",
+			);
+		}
+
+		const [row] = await db
+			.update(aiSchema.userLlmApiKey)
+			.set({
+				providerId: validated.providerId,
+				name: validated.name,
+				encryptedApiKey: validated.apiKey
+					? encryptSecret(validated.apiKey)
+					: currentRow.encryptedApiKey,
+				keyPreview: validated.apiKey
+					? maskSecret(validated.apiKey)
+					: currentRow.keyPreview,
+				enabled: validated.enabled,
+				priority: validated.priority,
+				forceDirect: validated.forceDirect,
+				allowedModels: validated.allowedModels,
+				baseUrl: resolvedBaseUrl,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(aiSchema.userLlmApiKey.id, currentRow.id),
+					eq(aiSchema.userLlmApiKey.userId, userId),
+				),
+			)
+			.returning();
+
+		if (!row) {
+			throw new Error("Unable to save provider key.");
+		}
+
+		return mapStoredKey(row);
+	}
+
+	const newApiKey = validated.apiKey;
+	if (!newApiKey) {
+		throw new Error("API key is required.");
+	}
+
 	const [row] = await db
 		.insert(aiSchema.userLlmApiKey)
 		.values({
@@ -586,32 +645,26 @@ export async function saveByokKeyForUser({
 			userId,
 			providerId: validated.providerId,
 			name: validated.name,
-			encryptedApiKey: validated.apiKey
-				? encryptSecret(validated.apiKey)
-				: (currentRow?.encryptedApiKey ?? ""),
-			keyPreview: validated.apiKey
-				? maskSecret(validated.apiKey)
-				: (currentRow?.keyPreview ?? ""),
+			encryptedApiKey: encryptSecret(newApiKey),
+			keyPreview: maskSecret(newApiKey),
 			enabled: validated.enabled,
 			priority: validated.priority,
 			forceDirect: validated.forceDirect,
 			allowedModels: validated.allowedModels,
 			baseUrl: resolvedBaseUrl,
 			metadata: {},
-			createdAt: currentRow?.createdAt ?? now,
+			createdAt: now,
 			updatedAt: now,
 		})
 		.onConflictDoUpdate({
-			target: aiSchema.userLlmApiKey.id,
+			target: [
+				aiSchema.userLlmApiKey.userId,
+				aiSchema.userLlmApiKey.providerId,
+				aiSchema.userLlmApiKey.name,
+			],
 			set: {
-				providerId: validated.providerId,
-				name: validated.name,
-				encryptedApiKey: validated.apiKey
-					? encryptSecret(validated.apiKey)
-					: (currentRow?.encryptedApiKey ?? ""),
-				keyPreview: validated.apiKey
-					? maskSecret(validated.apiKey)
-					: (currentRow?.keyPreview ?? ""),
+				encryptedApiKey: encryptSecret(newApiKey),
+				keyPreview: maskSecret(newApiKey),
 				enabled: validated.enabled,
 				priority: validated.priority,
 				forceDirect: validated.forceDirect,

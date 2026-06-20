@@ -29,7 +29,7 @@ const log = createLogger("repository-sync");
 const DEFAULT_REPOSITORY_SYNC_TTL_MS = 10 * 60 * 1000;
 const PROVIDER_WORKSPACE_KIND = "provider-workspace";
 
-type ProviderWorkspaceMetadata = {
+export type ProviderWorkspaceMetadata = {
 	kind: typeof PROVIDER_WORKSPACE_KIND;
 	providerId: string;
 	providerName: string;
@@ -252,7 +252,7 @@ function buildPersonalWorkspaceRef(
 	};
 }
 
-function readWorkspaceMetadata(
+export function readWorkspaceMetadata(
 	value: unknown,
 ): ProviderWorkspaceMetadata | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {

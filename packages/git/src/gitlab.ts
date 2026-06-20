@@ -24,6 +24,7 @@ import {
 	type GitWebhookCreateInput,
 	type GitWebhookDeleteInput,
 	type GitWebhookSubscription,
+	type GitWorkspaceMember,
 	type GitWorkspaceRef,
 	getGitProviderLabel,
 	getHeaderValue,
@@ -356,6 +357,17 @@ const gitlabCurrentUserSchema = z.object({
 	web_url: z.string().nullable().optional(),
 });
 
+const gitlabGroupMemberSchema = z.object({
+	id: z.number(),
+	username: z.string().optional(),
+	name: z.string().optional(),
+	email: z.string().nullable().optional(),
+	public_email: z.string().nullable().optional(),
+	avatar_url: z.string().nullable().optional(),
+	web_url: z.string().nullable().optional(),
+	access_level: z.number().optional(),
+});
+
 const gitlabReviewNoteSchema = z.object({
 	id: z.number(),
 	body: z.string(),
@@ -446,6 +458,31 @@ function mapActor(
 		avatarUrl: actor.avatar_url ?? null,
 		htmlUrl: actor.web_url ?? null,
 		kind: "user",
+	};
+}
+
+function mapGitLabAccessLevel(accessLevel: number | undefined) {
+	if (accessLevel === 50) return "owner";
+	if (accessLevel === 40) return "maintainer";
+	if (accessLevel === 30) return "developer";
+	if (accessLevel === 20) return "reporter";
+	if (accessLevel === 10) return "guest";
+	return "member";
+}
+
+function mapWorkspaceMember(
+	member: z.infer<typeof gitlabGroupMemberSchema>,
+): GitWorkspaceMember {
+	const login = member.username ?? null;
+
+	return {
+		id: String(member.id),
+		login,
+		name: member.name ?? login,
+		email: member.email ?? member.public_email ?? null,
+		avatarUrl: member.avatar_url ?? null,
+		htmlUrl: member.web_url ?? null,
+		role: mapGitLabAccessLevel(member.access_level),
 	};
 }
 
@@ -1002,6 +1039,48 @@ export function createGitLabAdapter({
 				kind: "user",
 			}
 		);
+	}
+
+	async function listWorkspaceMembers(
+		workspace: GitWorkspaceRef,
+	): Promise<GitWorkspaceMember[]> {
+		if (workspace.scope === "personal") {
+			const currentUser = await getCurrentUser();
+			return [
+				{
+					id: currentUser.id,
+					login: currentUser.login,
+					name: currentUser.name,
+					email: currentUser.email,
+					avatarUrl: currentUser.avatarUrl,
+					htmlUrl: currentUser.htmlUrl,
+					role: "owner",
+				},
+			];
+		}
+
+		const members: GitWorkspaceMember[] = [];
+		for (let page = 1; page <= 100; page += 1) {
+			const response = await requestJson<unknown>(
+				`${normalizedApiBaseUrl}/groups/${encodeURIComponent(
+					workspace.providerOwnerPath,
+				)}/members/all?per_page=100&page=${page}`,
+				{
+					headers: {
+						...createGitLabRequestHeaders(auth),
+					},
+				},
+				providerId,
+			);
+			const pageMembers = z.array(gitlabGroupMemberSchema).parse(response);
+			members.push(...pageMembers.map(mapWorkspaceMember));
+
+			if (pageMembers.length < 100) {
+				break;
+			}
+		}
+
+		return members;
 	}
 
 	async function getRepository(
@@ -1821,6 +1900,7 @@ export function createGitLabAdapter({
 		),
 		listRepositories,
 		getCurrentUser,
+		listWorkspaceMembers,
 		getRepository,
 		listPullRequests,
 		getPullRequest,

@@ -67,6 +67,11 @@ export const userLlmApiKey = pgTable(
 			.notNull(),
 	},
 	(table) => [
+		uniqueIndex("user_llm_api_key_user_provider_name_idx").on(
+			table.userId,
+			table.providerId,
+			table.name,
+		),
 		index("user_llm_api_key_user_id_idx").on(table.userId),
 		index("user_llm_api_key_provider_id_idx").on(table.providerId),
 		index("user_llm_api_key_enabled_idx").on(table.enabled),

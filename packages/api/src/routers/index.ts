@@ -13,6 +13,7 @@ import { integrationsRouter } from "./integrations";
 import { notificationsRouter } from "./notifications";
 import { observabilityRouter } from "./observability";
 import { repositoriesRouter } from "./repositories";
+import { teamManagementRouter } from "./team-management";
 
 type EnterpriseGitProviderType = "github" | "gitlab";
 
@@ -95,6 +96,7 @@ export const appRouter = router({
 	notifications: notificationsRouter,
 	observability: observabilityRouter,
 	repositories: repositoriesRouter,
+	teamManagement: teamManagementRouter,
 	enterpriseGitProvider: router({
 		lookup: publicProcedure
 			.input(enterpriseGitProviderLookupSchema)

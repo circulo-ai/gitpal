@@ -26,6 +26,7 @@ import {
 	type GitWebhookAdapter,
 	type GitWebhookCreateInput,
 	type GitWebhookDeleteInput,
+	type GitWorkspaceMember,
 	type GitWorkspaceRef,
 	getGitProviderLabel,
 	getHeaderValue,
@@ -583,6 +584,57 @@ export function createGitHubAdapter({
 				kind: "user",
 			}
 		);
+	}
+
+	async function listWorkspaceMembers(
+		workspace: GitWorkspaceRef,
+	): Promise<GitWorkspaceMember[]> {
+		if (workspace.scope === "personal") {
+			const currentUser = await getCurrentUser();
+			return [
+				{
+					id: currentUser.id,
+					login: currentUser.login,
+					name: currentUser.name,
+					email: currentUser.email,
+					avatarUrl: currentUser.avatarUrl,
+					htmlUrl: currentUser.htmlUrl,
+					role: "owner",
+				},
+			];
+		}
+
+		const members = await octokit.paginate(octokit.rest.orgs.listMembers, {
+			org: workspace.providerOwnerPath,
+			role: "all",
+			per_page: 100,
+		});
+
+		const roleResults = await Promise.allSettled(
+			members.map(async (member) => {
+				const response = await octokit.rest.orgs.getMembershipForUser({
+					org: workspace.providerOwnerPath,
+					username: member.login,
+				});
+				return [member.login, response.data.role ?? "member"] as const;
+			}),
+		);
+		const roleByLogin = new Map<string, string>();
+		for (const result of roleResults) {
+			if (result.status === "fulfilled") {
+				roleByLogin.set(result.value[0], result.value[1]);
+			}
+		}
+
+		return members.map((member) => ({
+			id: String(member.id ?? member.node_id ?? member.login),
+			login: member.login ?? null,
+			name: member.name ?? member.login ?? null,
+			email: null,
+			avatarUrl: member.avatar_url ?? null,
+			htmlUrl: member.html_url ?? null,
+			role: roleByLogin.get(member.login) ?? "member",
+		}));
 	}
 
 	async function getRepository(
@@ -1145,6 +1197,7 @@ export function createGitHubAdapter({
 		webhooks: createGitHubWebhookVerifier(providerId, webhookSecrets),
 		listRepositories,
 		getCurrentUser,
+		listWorkspaceMembers,
 		getRepository,
 		listPullRequests,
 		getPullRequest,

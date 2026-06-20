@@ -125,6 +125,7 @@ export const notificationChannel = pgTable(
 		}),
 		provider: text("provider").notNull(),
 		label: text("label").notNull(),
+		targetId: text("target_id"),
 		targetPreview: text("target_preview"),
 		credentialEnvelope: text("credential_envelope").notNull(),
 		settings: jsonb("settings")
@@ -150,6 +151,7 @@ export const notificationChannel = pgTable(
 		index("notification_channel_user_idx").on(table.userId),
 		index("notification_channel_organization_idx").on(table.organizationId),
 		index("notification_channel_provider_idx").on(table.provider),
+		index("notification_channel_target_idx").on(table.provider, table.targetId),
 		index("notification_channel_status_idx").on(table.status),
 	],
 );
@@ -179,6 +181,10 @@ export const notificationDelivery = pgTable(
 		index("notification_delivery_notification_idx").on(table.notificationId),
 		index("notification_delivery_channel_idx").on(table.channelId),
 		index("notification_delivery_status_idx").on(table.status),
+		uniqueIndex("notification_delivery_notification_channel_idx").on(
+			table.notificationId,
+			table.channelId,
+		),
 	],
 );
 

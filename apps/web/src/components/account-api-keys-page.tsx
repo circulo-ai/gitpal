@@ -24,6 +24,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@gitpal/ui/components/select";
+import { Skeleton } from "@gitpal/ui/components/skeleton";
 import { Switch } from "@gitpal/ui/components/switch";
 import {
 	Tabs,
@@ -37,7 +38,6 @@ import { formatDistanceToNow } from "date-fns";
 import {
 	CheckIcon,
 	KeyRoundIcon,
-	SearchIcon,
 	ShieldCheckIcon,
 	Trash2Icon,
 } from "lucide-react";
@@ -92,7 +92,6 @@ export function AccountApiKeysPage() {
 	const [latestCreatedKey, setLatestCreatedKey] = React.useState<string | null>(
 		null,
 	);
-	const [providerSearch, setProviderSearch] = React.useState("");
 	const [editingKeyId, setEditingKeyId] = React.useState<string | null>(null);
 	const [providerId, setProviderId] =
 		React.useState<LlmProviderId>("anthropic");
@@ -240,11 +239,6 @@ export function AccountApiKeysPage() {
 	const routingDirty =
 		Boolean(routingSettings && savedRoutingSettings) &&
 		JSON.stringify(routingSettings) !== JSON.stringify(savedRoutingSettings);
-	const filteredProviders = providerCatalog.filter((provider) => {
-		const haystack = `${provider.label} ${provider.description}`.toLowerCase();
-		return haystack.includes(providerSearch.trim().toLowerCase());
-	});
-
 	const selectedProvider =
 		providerCatalog.find((provider) => provider.id === providerId) ??
 		providerCatalog[0] ??
@@ -260,6 +254,10 @@ export function AccountApiKeysPage() {
 			keywords: [selectedProvider?.label ?? "", ...modelId.split(/[/-]/)],
 		}),
 	);
+	const hasPreviewResult =
+		previewRouteQuery.isFetched ||
+		previewRouteQuery.isFetching ||
+		previewRouteQuery.isError;
 
 	return (
 		<main className="flex flex-col gap-6 pb-28">
@@ -579,11 +577,25 @@ export function AccountApiKeysPage() {
 										type="button"
 										variant="outline"
 										onClick={() => previewRouteQuery.refetch()}
+										disabled={
+											previewRouteQuery.isFetching || !routePreviewModel.trim()
+										}
 									>
-										Check route
+										{previewRouteQuery.isFetching
+											? "Checking..."
+											: "Check route"}
 									</Button>
 								</div>
-								{previewRouteQuery.data ? (
+								{previewRouteQuery.isFetching ? (
+									<div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+										<Skeleton className="h-5 w-2/3" />
+										<Skeleton className="h-4 w-1/2" />
+									</div>
+								) : previewRouteQuery.isError ? (
+									<div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive text-sm">
+										{previewRouteQuery.error.message}
+									</div>
+								) : previewRouteQuery.data ? (
 									<div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
 										<div className="flex items-center gap-2">
 											<CheckIcon className="size-4 text-emerald-600" />
@@ -609,6 +621,14 @@ export function AccountApiKeysPage() {
 											) : null}
 										</div>
 									</div>
+								) : hasPreviewResult ? (
+									<div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
+										<div className="font-medium">No route is available</div>
+										<p className="mt-1 text-muted-foreground">
+											This model does not match an enabled provider key or
+											configured fallback router.
+										</p>
+									</div>
 								) : (
 									<div className="rounded-2xl border border-border/60 border-dashed p-6 text-muted-foreground text-sm">
 										Enter a model ID and check the effective route.
@@ -618,359 +638,283 @@ export function AccountApiKeysPage() {
 						</Card>
 					</div>
 
-					<div className="grid gap-6 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+					<div className="space-y-6">
 						<Card>
 							<CardHeader>
-								<CardTitle>Provider catalog</CardTitle>
+								<CardTitle>
+									{editingKeyId ? "Edit provider key" : "Add provider key"}
+								</CardTitle>
 								<CardDescription>
-									Choose a provider, then store one or more keys in priority
-									order.
+									Store encrypted provider secrets and define how they should
+									match models.
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="space-y-4">
-								<div className="relative">
-									<SearchIcon className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+								<div className="space-y-2">
+									<div className="font-medium text-sm">Provider</div>
+									<Select
+										items={providerSelectItems}
+										value={providerId}
+										onValueChange={(value) => {
+											const nextProviderId =
+												(value as LlmProviderId) ?? providerId;
+											setProviderId(nextProviderId);
+											if (!editingKeyId) {
+												const nextProvider = providerCatalog.find(
+													(provider) => provider.id === nextProviderId,
+												);
+												setProviderKeyName(
+													nextProvider ? `${nextProvider.label} key` : "",
+												);
+												setProviderAllowedModels([]);
+											}
+										}}
+									>
+										<SelectTrigger className="w-full">
+											<SelectValue placeholder="Select provider" />
+										</SelectTrigger>
+										<SelectContent>
+											{providerCatalog.map((provider) => (
+												<SelectItem key={provider.id} value={provider.id}>
+													{provider.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+								<div className="grid gap-4 md:grid-cols-2">
+									<div className="space-y-2">
+										<div className="font-medium text-sm">Name</div>
+										<Input
+											value={providerKeyName}
+											onChange={(event) =>
+												setProviderKeyName(event.target.value)
+											}
+											placeholder={`${selectedProvider?.label ?? "Provider"} key`}
+										/>
+									</div>
+									<div className="space-y-2">
+										<div className="font-medium text-sm">Priority</div>
+										<Input
+											value={providerPriority}
+											onChange={(event) =>
+												setProviderPriority(event.target.value)
+											}
+											type="number"
+											min="1"
+											max="100"
+											inputMode="numeric"
+											placeholder="1"
+										/>
+									</div>
+								</div>
+								<div className="space-y-2">
+									<div className="font-medium text-sm">
+										API key{" "}
+										{editingKeyId ? "(leave blank to keep existing)" : ""}
+									</div>
 									<Input
-										value={providerSearch}
-										onChange={(event) => setProviderSearch(event.target.value)}
-										placeholder="Search providers..."
-										className="pl-9"
+										value={providerApiKey}
+										onChange={(event) => setProviderApiKey(event.target.value)}
+										type="password"
+										autoComplete="new-password"
+										placeholder={selectedProvider?.keyPlaceholder ?? "sk-..."}
 									/>
 								</div>
 								<div className="space-y-2">
-									{filteredProviders.map((provider) => {
-										const configuredCount = byokKeys.filter(
-											(key) => key.providerId === provider.id,
-										).length;
-										const isSelected = provider.id === providerId;
-
-										return (
-											<button
-												key={provider.id}
-												type="button"
-												className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card/70 px-4 py-3 text-left transition-colors hover:bg-muted/30 data-[active=true]:border-primary/40 data-[active=true]:bg-primary/5"
-												data-active={isSelected}
-												onClick={() => {
-													const isProviderChanging = provider.id !== providerId;
-													setProviderId(provider.id as LlmProviderId);
-													if (isProviderChanging) {
-														setProviderAllowedModels([]);
-													}
-													if (!editingKeyId) {
-														setProviderKeyName(`${provider.label} key`);
-													}
-												}}
-											>
-												<div className="min-w-0">
-													<div className="truncate font-medium">
-														{provider.label}
-													</div>
-													<div className="truncate text-muted-foreground text-sm">
-														{provider.description}
-													</div>
-												</div>
-												<Badge
-													variant={
-														isSelected || configuredCount > 0
-															? "secondary"
-															: "outline"
-													}
-												>
-													{isSelected
-														? "Selected"
-														: configuredCount > 0
-															? `${configuredCount} configured`
-															: "Available"}
-												</Badge>
-											</button>
-										);
-									})}
+									<div className="font-medium text-sm">Allowed models</div>
+									<MultiSelectField
+										value={providerAllowedModels}
+										onChange={setProviderAllowedModels}
+										options={providerModelOptions}
+										placeholder="No model restriction"
+										searchPlaceholder="Search provider models..."
+										description="Leave this empty to allow every model for this provider. Selecting models constrains routing to those exact IDs."
+									/>
+								</div>
+								<div className="grid gap-3 md:grid-cols-2">
+									<div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+										<div>
+											<div className="font-medium text-sm">Enabled</div>
+											<p className="text-muted-foreground text-xs">
+												Allow this key to be selected during routing.
+											</p>
+										</div>
+										<Switch
+											checked={providerEnabled}
+											onCheckedChange={setProviderEnabled}
+										/>
+									</div>
+									<div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+										<div>
+											<div className="font-medium text-sm">Force direct</div>
+											<p className="text-muted-foreground text-xs">
+												Do not prefer router-based fallbacks for matching
+												models.
+											</p>
+										</div>
+										<Switch
+											checked={providerForceDirect}
+											onCheckedChange={setProviderForceDirect}
+										/>
+									</div>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									<Button
+										type="button"
+										disabled={
+											saveByokKeyMutation.isPending ||
+											!providerKeyName.trim() ||
+											(!editingKeyId && !providerApiKey.trim())
+										}
+										onClick={() =>
+											saveByokKeyMutation.mutate({
+												...(editingKeyId ? { id: editingKeyId } : {}),
+												providerId,
+												name: providerKeyName.trim(),
+												...(providerApiKey.trim()
+													? { apiKey: providerApiKey.trim() }
+													: {}),
+												enabled: providerEnabled,
+												priority: Number(providerPriority) || 1,
+												forceDirect: providerForceDirect,
+												allowedModels: providerAllowedModels,
+											})
+										}
+									>
+										{saveByokKeyMutation.isPending
+											? "Saving..."
+											: editingKeyId
+												? "Update key"
+												: "Save key"}
+									</Button>
+									{editingKeyId ? (
+										<Button
+											type="button"
+											variant="outline"
+											onClick={() => {
+												setEditingKeyId(null);
+												setProviderApiKey("");
+												setProviderKeyName("");
+												setProviderAllowedModels([]);
+												setProviderPriority("1");
+												setProviderEnabled(true);
+												setProviderForceDirect(false);
+											}}
+										>
+											Cancel
+										</Button>
+									) : null}
 								</div>
 							</CardContent>
 						</Card>
 
-						<div className="space-y-6">
-							<Card>
-								<CardHeader>
-									<CardTitle>
-										{editingKeyId ? "Edit provider key" : "Add provider key"}
-									</CardTitle>
-									<CardDescription>
-										Store encrypted provider secrets and define how they should
-										match models.
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="space-y-4">
-									<div className="space-y-2">
-										<div className="font-medium text-sm">Provider</div>
-										<Select
-											items={providerSelectItems}
-											value={providerId}
-											onValueChange={(value) => {
-												const nextProviderId =
-													(value as LlmProviderId) ?? providerId;
-												setProviderId(nextProviderId);
-												if (!editingKeyId) {
-													const nextProvider = providerCatalog.find(
-														(provider) => provider.id === nextProviderId,
-													);
-													setProviderKeyName(
-														nextProvider ? `${nextProvider.label} key` : "",
-													);
-													setProviderAllowedModels([]);
-												}
-											}}
-										>
-											<SelectTrigger className="w-full">
-												<SelectValue placeholder="Select provider" />
-											</SelectTrigger>
-											<SelectContent>
-												{providerCatalog.map((provider) => (
-													<SelectItem key={provider.id} value={provider.id}>
-														{provider.label}
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-									</div>
-									<div className="grid gap-4 md:grid-cols-2">
-										<div className="space-y-2">
-											<div className="font-medium text-sm">Name</div>
-											<Input
-												value={providerKeyName}
-												onChange={(event) =>
-													setProviderKeyName(event.target.value)
-												}
-												placeholder={`${selectedProvider?.label ?? "Provider"} key`}
-											/>
-										</div>
-										<div className="space-y-2">
-											<div className="font-medium text-sm">Priority</div>
-											<Input
-												value={providerPriority}
-												onChange={(event) =>
-													setProviderPriority(event.target.value)
-												}
-												type="number"
-												min="1"
-												max="100"
-												inputMode="numeric"
-												placeholder="1"
-											/>
-										</div>
-									</div>
-									<div className="space-y-2">
-										<div className="font-medium text-sm">
-											API key{" "}
-											{editingKeyId ? "(leave blank to keep existing)" : ""}
-										</div>
-										<Input
-											value={providerApiKey}
-											onChange={(event) =>
-												setProviderApiKey(event.target.value)
-											}
-											type="password"
-											autoComplete="new-password"
-											placeholder={selectedProvider?.keyPlaceholder ?? "sk-..."}
-										/>
-									</div>
-									<div className="space-y-2">
-										<div className="font-medium text-sm">Allowed models</div>
-										<MultiSelectField
-											value={providerAllowedModels}
-											onChange={setProviderAllowedModels}
-											options={providerModelOptions}
-											placeholder="No model restriction"
-											searchPlaceholder="Search provider models..."
-											description="Leave this empty to allow every model for this provider. Selecting models constrains routing to those exact IDs."
-										/>
-									</div>
-									<div className="grid gap-3 md:grid-cols-2">
-										<div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
-											<div>
-												<div className="font-medium text-sm">Enabled</div>
-												<p className="text-muted-foreground text-xs">
-													Allow this key to be selected during routing.
-												</p>
-											</div>
-											<Switch
-												checked={providerEnabled}
-												onCheckedChange={setProviderEnabled}
-											/>
-										</div>
-										<div className="flex items-center justify-between rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
-											<div>
-												<div className="font-medium text-sm">Force direct</div>
-												<p className="text-muted-foreground text-xs">
-													Do not prefer router-based fallbacks for matching
-													models.
-												</p>
-											</div>
-											<Switch
-												checked={providerForceDirect}
-												onCheckedChange={setProviderForceDirect}
-											/>
-										</div>
-									</div>
-									<div className="flex flex-wrap gap-2">
-										<Button
-											type="button"
-											disabled={
-												saveByokKeyMutation.isPending ||
-												!providerKeyName.trim() ||
-												(!editingKeyId && !providerApiKey.trim())
-											}
-											onClick={() =>
-												saveByokKeyMutation.mutate({
-													...(editingKeyId ? { id: editingKeyId } : {}),
-													providerId,
-													name: providerKeyName.trim(),
-													...(providerApiKey.trim()
-														? { apiKey: providerApiKey.trim() }
-														: {}),
-													enabled: providerEnabled,
-													priority: Number(providerPriority) || 1,
-													forceDirect: providerForceDirect,
-													allowedModels: providerAllowedModels,
-												})
-											}
-										>
-											{saveByokKeyMutation.isPending
-												? "Saving..."
-												: editingKeyId
-													? "Update key"
-													: "Save key"}
-										</Button>
-										{editingKeyId ? (
-											<Button
-												type="button"
-												variant="outline"
-												onClick={() => {
-													setEditingKeyId(null);
-													setProviderApiKey("");
-													setProviderKeyName("");
-													setProviderAllowedModels([]);
-													setProviderPriority("1");
-													setProviderEnabled(true);
-													setProviderForceDirect(false);
-												}}
+						<Card>
+							<CardHeader>
+								<CardTitle>Stored provider keys</CardTitle>
+								<CardDescription>
+									Enabled direct keys bypass wallet billing when they match the
+									requested model.
+								</CardDescription>
+							</CardHeader>
+							<CardContent>
+								{byokKeys.length ? (
+									<div className="space-y-3">
+										{byokKeys.map((key) => (
+											<div
+												key={key.id}
+												className="rounded-2xl border border-border/60 bg-card/70 p-4"
 											>
-												Cancel
-											</Button>
-										) : null}
-									</div>
-								</CardContent>
-							</Card>
-
-							<Card>
-								<CardHeader>
-									<CardTitle>Stored provider keys</CardTitle>
-									<CardDescription>
-										Enabled direct keys bypass wallet billing when they match
-										the requested model.
-									</CardDescription>
-								</CardHeader>
-								<CardContent>
-									{byokKeys.length ? (
-										<div className="space-y-3">
-											{byokKeys.map((key) => (
-												<div
-													key={key.id}
-													className="rounded-2xl border border-border/60 bg-card/70 p-4"
-												>
-													<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-														<div className="min-w-0">
-															<div className="flex flex-wrap items-center gap-2">
-																<div className="font-medium">{key.name}</div>
-																<Badge variant="secondary">
-																	{key.providerLabel}
-																</Badge>
-																<Badge variant="outline">
-																	Priority {key.priority}
-																</Badge>
-															</div>
-															<div className="mt-1 flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
-																<span>{key.keyPreview}</span>
-																<span>
-																	{key.allowedModels.length
-																		? `${key.allowedModels.length} scoped models`
-																		: "All provider models"}
-																</span>
-																<span>
-																	{key.enabled ? "Enabled" : "Disabled"}
-																</span>
-															</div>
-														</div>
+												<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+													<div className="min-w-0">
 														<div className="flex flex-wrap items-center gap-2">
-															<Switch
-																checked={key.enabled}
-																disabled={saveByokKeyMutation.isPending}
-																onCheckedChange={(enabled) =>
-																	saveByokKeyMutation.mutate({
-																		id: key.id,
-																		providerId: key.providerId as LlmProviderId,
-																		name: key.name,
-																		enabled,
-																		priority: key.priority,
-																		forceDirect: key.forceDirect,
-																		allowedModels: key.allowedModels,
-																	})
-																}
-															/>
-															<Button
-																type="button"
-																variant="outline"
-																onClick={() => {
-																	setEditingKeyId(key.id);
-																	setProviderId(
-																		key.providerId as LlmProviderId,
-																	);
-																	setProviderKeyName(key.name);
-																	setProviderApiKey("");
-																	setProviderPriority(String(key.priority));
-																	setProviderEnabled(key.enabled);
-																	setProviderForceDirect(key.forceDirect);
-																	setProviderAllowedModels(key.allowedModels);
-																}}
-															>
-																Edit
-															</Button>
-															<Button
-																type="button"
-																variant="ghost"
-																size="icon-sm"
-																aria-label={`Delete ${key.name}`}
-																disabled={deleteByokKeyMutation.isPending}
-																onClick={() =>
-																	deleteByokKeyMutation.mutate({
-																		keyId: key.id,
-																	})
-																}
-															>
-																<Trash2Icon />
-															</Button>
+															<div className="font-medium">{key.name}</div>
+															<Badge variant="secondary">
+																{key.providerLabel}
+															</Badge>
+															<Badge variant="outline">
+																Priority {key.priority}
+															</Badge>
+														</div>
+														<div className="mt-1 flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
+															<span>{key.keyPreview}</span>
+															<span>
+																{key.allowedModels.length
+																	? `${key.allowedModels.length} scoped models`
+																	: "All provider models"}
+															</span>
+															<span>
+																{key.enabled ? "Enabled" : "Disabled"}
+															</span>
 														</div>
 													</div>
+													<div className="flex flex-wrap items-center gap-2">
+														<Switch
+															checked={key.enabled}
+															disabled={saveByokKeyMutation.isPending}
+															onCheckedChange={(enabled) =>
+																saveByokKeyMutation.mutate({
+																	id: key.id,
+																	providerId: key.providerId as LlmProviderId,
+																	name: key.name,
+																	enabled,
+																	priority: key.priority,
+																	forceDirect: key.forceDirect,
+																	allowedModels: key.allowedModels,
+																})
+															}
+														/>
+														<Button
+															type="button"
+															variant="outline"
+															onClick={() => {
+																setEditingKeyId(key.id);
+																setProviderId(key.providerId as LlmProviderId);
+																setProviderKeyName(key.name);
+																setProviderApiKey("");
+																setProviderPriority(String(key.priority));
+																setProviderEnabled(key.enabled);
+																setProviderForceDirect(key.forceDirect);
+																setProviderAllowedModels(key.allowedModels);
+															}}
+														>
+															Edit
+														</Button>
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon-sm"
+															aria-label={`Delete ${key.name}`}
+															disabled={deleteByokKeyMutation.isPending}
+															onClick={() =>
+																deleteByokKeyMutation.mutate({
+																	keyId: key.id,
+																})
+															}
+														>
+															<Trash2Icon />
+														</Button>
+													</div>
 												</div>
-											))}
-										</div>
-									) : (
-										<Empty className="min-h-72">
-											<EmptyHeader>
-												<EmptyMedia variant="icon">
-													<ShieldCheckIcon />
-												</EmptyMedia>
-												<EmptyTitle>No provider keys stored</EmptyTitle>
-												<EmptyDescription>
-													Add a provider key to route compatible models directly
-													and avoid wallet spend for those calls.
-												</EmptyDescription>
-											</EmptyHeader>
-										</Empty>
-									)}
-								</CardContent>
-							</Card>
-						</div>
+											</div>
+										))}
+									</div>
+								) : (
+									<Empty className="min-h-72">
+										<EmptyHeader>
+											<EmptyMedia variant="icon">
+												<ShieldCheckIcon />
+											</EmptyMedia>
+											<EmptyTitle>No provider keys stored</EmptyTitle>
+											<EmptyDescription>
+												Add a provider key to route compatible models directly
+												and avoid wallet spend for those calls.
+											</EmptyDescription>
+										</EmptyHeader>
+									</Empty>
+								)}
+							</CardContent>
+						</Card>
 					</div>
 				</TabsContent>
 			</Tabs>

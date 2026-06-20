@@ -7,6 +7,7 @@ import {
 	markAllNotificationsReadForUser,
 	markNotificationsReadForUser,
 	notificationCategoryOptions,
+	notificationChannelProviders,
 	notificationSeverityOptions,
 	setNotificationChannelEnabledForUser,
 	testNotificationChannelForUser,
@@ -49,7 +50,7 @@ const notificationChannelIdSchema = z.object({
 
 const notificationChannelSaveSchema = z.object({
 	channelId: z.string().min(1).optional(),
-	provider: z.literal("telegram"),
+	provider: z.enum(notificationChannelProviders),
 	label: z.string().trim().min(1).max(80),
 	enabled: z.boolean().default(true),
 	settings: notificationChannelSettingsSchema,
@@ -57,6 +58,45 @@ const notificationChannelSaveSchema = z.object({
 		.object({
 			botToken: z.string().trim().min(1).max(512).optional(),
 			chatId: z.string().trim().min(1).max(128).optional(),
+			webhookSecretToken: z.string().trim().min(1).max(512).optional(),
+			botUsername: z.string().trim().min(1).max(128).optional(),
+		})
+		.optional(),
+	slack: z
+		.object({
+			botToken: z.string().trim().min(1).max(1024).optional(),
+			channelId: z.string().trim().min(1).max(256).optional(),
+			signingSecret: z.string().trim().min(1).max(512).optional(),
+			botUsername: z.string().trim().min(1).max(128).optional(),
+		})
+		.optional(),
+	teams: z
+		.object({
+			appId: z.string().trim().min(1).max(256).optional(),
+			appPassword: z.string().trim().min(1).max(1024).optional(),
+			appTenantId: z.string().trim().min(1).max(256).optional(),
+			conversationId: z.string().trim().min(1).max(1024).optional(),
+			serviceUrl: z.string().trim().url().max(1024).optional(),
+			appType: z.enum(["MultiTenant", "SingleTenant"]).optional(),
+			botUsername: z.string().trim().min(1).max(128).optional(),
+		})
+		.optional(),
+	linear: z
+		.object({
+			apiKey: z.string().trim().min(1).max(1024).optional(),
+			accessToken: z.string().trim().min(1).max(1024).optional(),
+			issueId: z.string().trim().min(1).max(256).optional(),
+			webhookSecret: z.string().trim().min(1).max(512).optional(),
+			botUsername: z.string().trim().min(1).max(128).optional(),
+		})
+		.optional(),
+	resend: z
+		.object({
+			apiKey: z.string().trim().min(1).max(1024).optional(),
+			fromAddress: z.string().trim().email().max(320).optional(),
+			fromName: z.string().trim().min(1).max(128).optional(),
+			toEmail: z.string().trim().email().max(320).optional(),
+			webhookSecret: z.string().trim().min(1).max(512).optional(),
 		})
 		.optional(),
 });

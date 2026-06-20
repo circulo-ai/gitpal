@@ -1,5 +1,10 @@
 "use client";
 
+import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@gitpal/ui/components/avatar";
 import { Badge } from "@gitpal/ui/components/badge";
 import { Button, buttonVariants } from "@gitpal/ui/components/button";
 import {
@@ -16,16 +21,36 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@gitpal/ui/components/empty";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@gitpal/ui/components/select";
+import { Skeleton } from "@gitpal/ui/components/skeleton";
+import { Switch } from "@gitpal/ui/components/switch";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@gitpal/ui/components/table";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
 import {
 	Building2Icon,
 	ExternalLinkIcon,
 	RefreshCcwIcon,
 	ShieldCheckIcon,
+	UserCheckIcon,
+	UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { trpc } from "@/utils/trpc";
+import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
 import { formatWorkspaceScope } from "./workspace-scope";
@@ -41,10 +66,95 @@ function getScopeBuckets(
 	};
 }
 
+type WorkspaceRoleValue = "none" | "owner" | "admin" | "member";
+
+type TeamMember = {
+	id: string;
+	providerMemberId: string;
+	providerId: string;
+	providerType: string;
+	login: string | null;
+	name: string | null;
+	email: string | null;
+	avatarUrl: string | null;
+	htmlUrl: string | null;
+	providerRole: string;
+	registered: boolean;
+	registeredUser: {
+		id: string;
+		name: string;
+		email: string;
+		image: string | null;
+	} | null;
+	appMemberId: string | null;
+	workspaceRole: string | null;
+	repositoryAccessEnabled: number;
+	repositoryAccessTotal: number;
+	lastSyncedAt: string;
+};
+
+const workspaceRoleOptions = [
+	{ value: "none", label: "No access" },
+	{ value: "owner", label: "Owner" },
+	{ value: "admin", label: "Admin" },
+	{ value: "member", label: "Member" },
+] as const;
+
+function getInitials(name: string | null | undefined) {
+	const value = name?.trim();
+	if (!value) {
+		return "GP";
+	}
+
+	return value
+		.split(/\s+/)
+		.slice(0, 2)
+		.map((part) => part[0]?.toUpperCase())
+		.join("");
+}
+
+function roleLabel(value: string | null | undefined) {
+	if (!value) {
+		return "No access";
+	}
+
+	return value
+		.split(/[-_\s]+/)
+		.filter(Boolean)
+		.map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+		.join(" ");
+}
+
+function TeamMembersSkeleton() {
+	return (
+		<div className="space-y-3">
+			{Array.from({ length: 5 }).map((_, index) => (
+				<div
+					key={index}
+					className="flex items-center gap-4 rounded-lg border border-border/60 p-4"
+				>
+					<Skeleton className="size-10 rounded-full" />
+					<div className="flex-1 space-y-2">
+						<Skeleton className="h-4 w-48" />
+						<Skeleton className="h-3 w-64" />
+					</div>
+					<Skeleton className="h-9 w-32" />
+				</div>
+			))}
+		</div>
+	);
+}
+
 export function TeamManagementPage() {
 	const { activeWorkspace, activeWorkspaceId, switchWorkspace, workspaces } =
 		useActiveWorkspace();
 	const providersQuery = useQuery(trpc.repositories.providers.queryOptions());
+	const teamMembersQuery = useQuery({
+		...trpc.teamManagement.members.queryOptions({
+			organizationId: activeWorkspaceId ?? undefined,
+		}),
+		enabled: Boolean(activeWorkspaceId),
+	});
 	const syncMutation = useMutation(
 		trpc.repositories.sync.mutationOptions({
 			onSuccess: async (result) => {
@@ -68,9 +178,49 @@ export function TeamManagementPage() {
 			},
 		}),
 	);
+	const syncMembersMutation = useMutation(
+		trpc.teamManagement.syncMembers.mutationOptions({
+			onSuccess: async (result) => {
+				await queryClient.invalidateQueries({
+					queryKey: trpc.teamManagement.members.queryKey(),
+				});
+
+				if (result.error) {
+					toast.warning(`Team sync finished with a warning: ${result.error}`);
+					return;
+				}
+
+				toast.success(`Synced ${result.count} provider members.`);
+			},
+			onError: (error) => {
+				toast.error(error.message);
+			},
+		}),
+	);
+	const updateMemberMutation = useMutation(
+		trpc.teamManagement.updateMember.mutationOptions({
+			onSuccess: async () => {
+				await queryClient.invalidateQueries({
+					queryKey: trpc.teamManagement.members.queryKey(),
+				});
+				toast.success("Team member access updated.");
+			},
+			onError: (error) => {
+				toast.error(error.message);
+			},
+		}),
+	);
 
 	const providers = providersQuery.data ?? [];
 	const buckets = getScopeBuckets(workspaces);
+	const teamData = teamMembersQuery.data;
+	const teamMembers = (teamData?.members ?? []) as TeamMember[];
+	const teamPermissions = teamData?.permissions ?? {
+		canManageMembers: false,
+		canManageRepositoryAccess: false,
+		canSyncMembers: false,
+	};
+	const repositoryCount = teamData?.summary.repositoryCount ?? 0;
 
 	return (
 		<main className="flex flex-col gap-6">
@@ -99,7 +249,7 @@ export function TeamManagementPage() {
 				</div>
 			</div>
 
-			<div className="grid gap-3 md:grid-cols-3">
+			<div className="grid gap-3 md:grid-cols-4">
 				<Card size="sm">
 					<CardHeader>
 						<CardDescription>Total workspaces</CardDescription>
@@ -124,7 +274,263 @@ export function TeamManagementPage() {
 						</CardTitle>
 					</CardHeader>
 				</Card>
+				<Card size="sm">
+					<CardHeader>
+						<CardDescription>Registered members</CardDescription>
+						<CardTitle className="text-3xl tabular-nums">
+							{teamData?.summary.registeredMembers ?? 0}
+						</CardTitle>
+					</CardHeader>
+				</Card>
 			</div>
+
+			<Card>
+				<CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
+					<div className="space-y-1">
+						<CardTitle>Team members</CardTitle>
+						<CardDescription>
+							Provider members synced from{" "}
+							{activeWorkspace?.providerName ?? "your Git provider"}. Registered
+							users can be granted GitPal workspace and repository access.
+						</CardDescription>
+					</div>
+					<div className="flex flex-wrap items-center gap-2">
+						{teamData?.lastSyncedAt ? (
+							<Badge variant="outline">
+								Synced{" "}
+								{formatDistanceToNow(new Date(teamData.lastSyncedAt), {
+									addSuffix: true,
+								})}
+							</Badge>
+						) : null}
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							disabled={
+								!activeWorkspaceId ||
+								!teamPermissions.canSyncMembers ||
+								syncMembersMutation.isPending
+							}
+							onClick={() => {
+								if (!activeWorkspaceId) {
+									return;
+								}
+
+								syncMembersMutation.mutate({
+									organizationId: activeWorkspaceId,
+								});
+							}}
+						>
+							<RefreshCcwIcon data-icon="inline-start" />
+							Sync members
+						</Button>
+					</div>
+				</CardHeader>
+				<CardContent>
+					{teamData?.sync?.error ? (
+						<div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-700 text-sm dark:text-amber-300">
+							{teamData.sync.error}
+						</div>
+					) : null}
+
+					{!activeWorkspaceId ? (
+						<Empty className="min-h-64">
+							<EmptyHeader>
+								<EmptyMedia variant="icon">
+									<UsersIcon />
+								</EmptyMedia>
+								<EmptyTitle>Select a workspace</EmptyTitle>
+								<EmptyDescription>
+									Choose a synced workspace to view provider members and manage
+									GitPal access.
+								</EmptyDescription>
+							</EmptyHeader>
+						</Empty>
+					) : teamMembersQuery.isLoading ? (
+						<TeamMembersSkeleton />
+					) : teamMembers.length === 0 ? (
+						<Empty className="min-h-64">
+							<EmptyHeader>
+								<EmptyMedia variant="icon">
+									<UserCheckIcon />
+								</EmptyMedia>
+								<EmptyTitle>No provider members synced</EmptyTitle>
+								<EmptyDescription>
+									Sync members from the provider, or check that the connected
+									provider account can read organization or group membership.
+								</EmptyDescription>
+							</EmptyHeader>
+						</Empty>
+					) : (
+						<div className="overflow-x-auto">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Member</TableHead>
+										<TableHead>Provider role</TableHead>
+										<TableHead>GitPal status</TableHead>
+										<TableHead>Workspace role</TableHead>
+										<TableHead>Repository access</TableHead>
+										<TableHead>Last synced</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{teamMembers.map((member) => {
+										const displayName =
+											member.registeredUser?.name ??
+											member.name ??
+											member.login ??
+											"Provider member";
+										const targetUserId = member.registeredUser?.id;
+										const repositoryAccessChecked =
+											member.repositoryAccessEnabled > 0;
+										const canManageRepositoryAccess =
+											Boolean(targetUserId) &&
+											Boolean(member.workspaceRole) &&
+											teamPermissions.canManageRepositoryAccess &&
+											repositoryCount > 0;
+
+										return (
+											<TableRow key={member.id}>
+												<TableCell className="min-w-64">
+													<div className="flex items-center gap-3">
+														<Avatar className="size-10">
+															<AvatarImage
+																src={
+																	member.registeredUser?.image ??
+																	member.avatarUrl ??
+																	undefined
+																}
+																alt={displayName}
+															/>
+															<AvatarFallback>
+																{getInitials(displayName)}
+															</AvatarFallback>
+														</Avatar>
+														<div className="min-w-0">
+															<div className="truncate font-medium">
+																{displayName}
+															</div>
+															<div className="truncate text-muted-foreground text-sm">
+																{member.login
+																	? `@${member.login}`
+																	: (member.email ?? member.providerMemberId)}
+															</div>
+														</div>
+														{member.htmlUrl ? (
+															<a
+																href={member.htmlUrl}
+																target="_blank"
+																rel="noreferrer noopener"
+																aria-label={`Open ${displayName} in provider`}
+																className={buttonVariants({
+																	variant: "ghost",
+																	size: "icon-sm",
+																})}
+															>
+																<ExternalLinkIcon />
+															</a>
+														) : null}
+													</div>
+												</TableCell>
+												<TableCell>
+													<Badge variant="outline">
+														{roleLabel(member.providerRole)}
+													</Badge>
+												</TableCell>
+												<TableCell>
+													<Badge
+														variant={
+															member.registered ? "secondary" : "outline"
+														}
+													>
+														{member.registered
+															? "Registered"
+															: "Not registered"}
+													</Badge>
+												</TableCell>
+												<TableCell className="min-w-40">
+													<Select
+														items={workspaceRoleOptions}
+														value={
+															(member.workspaceRole as WorkspaceRoleValue | null) ??
+															"none"
+														}
+														onValueChange={(value) => {
+															if (!targetUserId || !activeWorkspaceId) {
+																return;
+															}
+
+															updateMemberMutation.mutate({
+																organizationId: activeWorkspaceId,
+																targetUserId,
+																workspaceRole: value as WorkspaceRoleValue,
+															});
+														}}
+													>
+														<SelectTrigger
+															className="w-36"
+															disabled={
+																!targetUserId ||
+																!teamPermissions.canManageMembers ||
+																updateMemberMutation.isPending
+															}
+														>
+															<SelectValue placeholder="Role" />
+														</SelectTrigger>
+														<SelectContent>
+															{workspaceRoleOptions.map((option) => (
+																<SelectItem
+																	key={option.value}
+																	value={option.value}
+																>
+																	{option.label}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												</TableCell>
+												<TableCell className="min-w-48">
+													<div className="flex items-center gap-3">
+														<Switch
+															checked={repositoryAccessChecked}
+															disabled={
+																!canManageRepositoryAccess ||
+																updateMemberMutation.isPending
+															}
+															onCheckedChange={(enabled) => {
+																if (!targetUserId || !activeWorkspaceId) {
+																	return;
+																}
+
+																updateMemberMutation.mutate({
+																	organizationId: activeWorkspaceId,
+																	targetUserId,
+																	repositoryAccessEnabled: enabled,
+																});
+															}}
+															aria-label={`Toggle repository access for ${displayName}`}
+														/>
+														<span className="text-muted-foreground text-sm">
+															{member.repositoryAccessEnabled}/{repositoryCount}
+														</span>
+													</div>
+												</TableCell>
+												<TableCell className="text-muted-foreground text-sm">
+													{formatDistanceToNow(new Date(member.lastSyncedAt), {
+														addSuffix: true,
+													})}
+												</TableCell>
+											</TableRow>
+										);
+									})}
+								</TableBody>
+							</Table>
+						</div>
+					)}
+				</CardContent>
+			</Card>
 
 			<div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
 				<Card>

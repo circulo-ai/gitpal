@@ -86,6 +86,46 @@ export const repositoryAccess = pgTable(
 	],
 );
 
+export const providerWorkspaceMember = pgTable(
+	"provider_workspace_member",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		providerId: text("provider_id").notNull(),
+		providerType: text("provider_type").notNull(),
+		providerMemberId: text("provider_member_id").notNull(),
+		login: text("login"),
+		name: text("name"),
+		email: text("email"),
+		avatarUrl: text("avatar_url"),
+		htmlUrl: text("html_url"),
+		role: text("role").default("member").notNull(),
+		lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("provider_workspace_member_org_provider_member_idx").on(
+			table.organizationId,
+			table.providerId,
+			table.providerMemberId,
+		),
+		index("provider_workspace_member_organization_id_idx").on(
+			table.organizationId,
+		),
+		index("provider_workspace_member_provider_login_idx").on(
+			table.providerId,
+			table.login,
+		),
+		index("provider_workspace_member_role_idx").on(table.role),
+	],
+);
+
 export const pullRequest = pgTable(
 	"pull_request",
 	{

@@ -36,6 +36,13 @@ import {
 	FieldTitle,
 } from "@gitpal/ui/components/field";
 import { Input } from "@gitpal/ui/components/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@gitpal/ui/components/select";
 import { Skeleton } from "@gitpal/ui/components/skeleton";
 import { Switch } from "@gitpal/ui/components/switch";
 import {
@@ -65,6 +72,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
+import { MultiSelectField } from "./multi-select-field";
 
 const statusFilters = [
 	{ label: "Active", value: "active" },
@@ -95,17 +103,56 @@ const severityOptions = [
 	{ label: "Error", value: "error" },
 ] as const;
 
-const telegramLogoUrl = "https://cdn.simpleicons.org/telegram";
+const notificationProviderOptions = [
+	{
+		label: "Resend",
+		value: "resend",
+		logoUrl: "https://www.google.com/s2/favicons?domain=resend.com&sz=64",
+		defaultLabel: "Resend email",
+		description: "Send notifications to an email inbox.",
+	},
+	{
+		label: "Telegram",
+		value: "telegram",
+		logoUrl: "https://cdn.simpleicons.org/telegram",
+		defaultLabel: "Telegram",
+		description: "Send notifications to a Telegram chat.",
+	},
+	{
+		label: "Linear",
+		value: "linear",
+		logoUrl: "https://cdn.simpleicons.org/linear",
+		defaultLabel: "Linear issue",
+		description: "Post notifications into a Linear issue thread.",
+	},
+	{
+		label: "Microsoft Teams",
+		value: "teams",
+		logoUrl: "https://cdn.simpleicons.org/microsoftteams",
+		defaultLabel: "Teams channel",
+		description: "Send notifications to a Teams conversation.",
+	},
+	{
+		label: "Slack",
+		value: "slack",
+		logoUrl: "https://cdn.simpleicons.org/slack",
+		defaultLabel: "Slack channel",
+		description: "Send notifications to a Slack channel.",
+	},
+] as const;
 
 type StatusFilter = (typeof statusFilters)[number]["value"];
 type CategoryFilter = (typeof categoryOptions)[number]["value"];
 type SeverityFilter = (typeof severityOptions)[number]["value"];
+type NotificationChannelProvider =
+	(typeof notificationProviderOptions)[number]["value"];
 type NotificationPageTab = "inbox" | "channels";
 
 type NotificationChannel = {
 	id: string;
-	provider: "telegram";
+	provider: NotificationChannelProvider;
 	label: string;
+	targetId: string | null;
 	targetPreview: string | null;
 	credentialPreview: string | null;
 	settings: {
@@ -125,16 +172,51 @@ type ChannelDialogState = {
 };
 
 type ChannelFormState = {
+	provider: NotificationChannelProvider;
 	label: string;
-	botToken: string;
-	chatId: string;
 	enabled: boolean;
 	categories: CategoryFilter[];
 	severities: SeverityFilter[];
+	telegramBotToken: string;
+	telegramChatId: string;
+	telegramWebhookSecretToken: string;
+	telegramBotUsername: string;
+	slackBotToken: string;
+	slackChannelId: string;
+	slackSigningSecret: string;
+	slackBotUsername: string;
+	teamsAppId: string;
+	teamsAppPassword: string;
+	teamsAppTenantId: string;
+	teamsConversationId: string;
+	teamsServiceUrl: string;
+	teamsAppType: "MultiTenant" | "SingleTenant";
+	teamsBotUsername: string;
+	linearApiKey: string;
+	linearAccessToken: string;
+	linearIssueId: string;
+	linearWebhookSecret: string;
+	linearBotUsername: string;
+	resendApiKey: string;
+	resendFromAddress: string;
+	resendFromName: string;
+	resendToEmail: string;
+	resendWebhookSecret: string;
 };
 
 function isCategoryFilter(value: string): value is CategoryFilter {
 	return categoryOptions.some((category) => category.value === value);
+}
+
+function isSeverityFilter(value: string): value is SeverityFilter {
+	return severityOptions.some((severity) => severity.value === value);
+}
+
+function getProviderOption(provider: NotificationChannelProvider) {
+	return (
+		notificationProviderOptions.find((option) => option.value === provider) ??
+		notificationProviderOptions[1]
+	);
 }
 
 function buildDefaultChannelForm(
@@ -142,18 +224,46 @@ function buildDefaultChannelForm(
 ): ChannelFormState {
 	const channelCategories =
 		channel?.settings.categories.filter(isCategoryFilter) ?? [];
+	const channelSeverities =
+		channel?.settings.severities.filter(isSeverityFilter) ?? [];
+	const provider = channel?.provider ?? "telegram";
+	const providerOption = getProviderOption(provider);
 
 	return {
-		label: channel?.label ?? "Telegram",
-		botToken: "",
-		chatId: "",
+		provider,
+		label: channel?.label ?? providerOption.defaultLabel,
 		enabled: channel?.enabled ?? true,
 		categories: channelCategories.length
 			? channelCategories
 			: [...categoryOptions.map((category) => category.value)],
-		severities: channel?.settings.severities.length
-			? channel.settings.severities
+		severities: channelSeverities.length
+			? channelSeverities
 			: ["success", "warning", "error"],
+		telegramBotToken: "",
+		telegramChatId: "",
+		telegramWebhookSecretToken: "",
+		telegramBotUsername: "",
+		slackBotToken: "",
+		slackChannelId: "",
+		slackSigningSecret: "",
+		slackBotUsername: "",
+		teamsAppId: "",
+		teamsAppPassword: "",
+		teamsAppTenantId: "",
+		teamsConversationId: "",
+		teamsServiceUrl: "",
+		teamsAppType: "MultiTenant",
+		teamsBotUsername: "",
+		linearApiKey: "",
+		linearAccessToken: "",
+		linearIssueId: "",
+		linearWebhookSecret: "",
+		linearBotUsername: "",
+		resendApiKey: "",
+		resendFromAddress: "",
+		resendFromName: "",
+		resendToEmail: "",
+		resendWebhookSecret: "",
 	};
 }
 
@@ -220,11 +330,17 @@ function NotificationSkeleton() {
 	);
 }
 
-function TelegramLogo() {
+function ChannelProviderLogo({
+	provider,
+}: {
+	provider: NotificationChannelProvider;
+}) {
+	const providerOption = getProviderOption(provider);
+
 	return (
-		// biome-ignore lint/performance/noImgElement: Telegram's official logo is loaded from a fixed third-party URL without expanding Next image domains.
+		// biome-ignore lint/performance/noImgElement: Provider logos are loaded from fixed third-party URLs without expanding Next image domains.
 		<img
-			src={telegramLogoUrl}
+			src={providerOption.logoUrl}
 			alt=""
 			className="size-6"
 			loading="lazy"
@@ -373,18 +489,87 @@ export function NotificationsPage() {
 			return;
 		}
 
-		saveChannelMutation.mutate({
+		const basePayload = {
 			channelId: channelDialog.channel?.id,
-			provider: "telegram",
+			provider: channelForm.provider,
 			label: channelForm.label,
 			enabled: channelForm.enabled,
 			settings: {
 				categories: channelForm.categories,
 				severities: channelForm.severities,
 			},
-			telegram: {
-				botToken: channelForm.botToken.trim() || undefined,
-				chatId: channelForm.chatId.trim() || undefined,
+		};
+
+		if (channelForm.provider === "telegram") {
+			saveChannelMutation.mutate({
+				...basePayload,
+				provider: "telegram",
+				telegram: {
+					botToken: channelForm.telegramBotToken.trim() || undefined,
+					chatId: channelForm.telegramChatId.trim() || undefined,
+					webhookSecretToken:
+						channelForm.telegramWebhookSecretToken.trim() || undefined,
+					botUsername: channelForm.telegramBotUsername.trim() || undefined,
+				},
+			});
+			return;
+		}
+
+		if (channelForm.provider === "slack") {
+			saveChannelMutation.mutate({
+				...basePayload,
+				provider: "slack",
+				slack: {
+					botToken: channelForm.slackBotToken.trim() || undefined,
+					channelId: channelForm.slackChannelId.trim() || undefined,
+					signingSecret: channelForm.slackSigningSecret.trim() || undefined,
+					botUsername: channelForm.slackBotUsername.trim() || undefined,
+				},
+			});
+			return;
+		}
+
+		if (channelForm.provider === "teams") {
+			saveChannelMutation.mutate({
+				...basePayload,
+				provider: "teams",
+				teams: {
+					appId: channelForm.teamsAppId.trim() || undefined,
+					appPassword: channelForm.teamsAppPassword.trim() || undefined,
+					appTenantId: channelForm.teamsAppTenantId.trim() || undefined,
+					conversationId: channelForm.teamsConversationId.trim() || undefined,
+					serviceUrl: channelForm.teamsServiceUrl.trim() || undefined,
+					appType: channelForm.teamsAppType,
+					botUsername: channelForm.teamsBotUsername.trim() || undefined,
+				},
+			});
+			return;
+		}
+
+		if (channelForm.provider === "linear") {
+			saveChannelMutation.mutate({
+				...basePayload,
+				provider: "linear",
+				linear: {
+					apiKey: channelForm.linearApiKey.trim() || undefined,
+					accessToken: channelForm.linearAccessToken.trim() || undefined,
+					issueId: channelForm.linearIssueId.trim() || undefined,
+					webhookSecret: channelForm.linearWebhookSecret.trim() || undefined,
+					botUsername: channelForm.linearBotUsername.trim() || undefined,
+				},
+			});
+			return;
+		}
+
+		saveChannelMutation.mutate({
+			...basePayload,
+			provider: "resend",
+			resend: {
+				apiKey: channelForm.resendApiKey.trim() || undefined,
+				fromAddress: channelForm.resendFromAddress.trim() || undefined,
+				fromName: channelForm.resendFromName.trim() || undefined,
+				toEmail: channelForm.resendToEmail.trim() || undefined,
+				webhookSecret: channelForm.resendWebhookSecret.trim() || undefined,
 			},
 		});
 	}
@@ -605,7 +790,7 @@ export function NotificationsPage() {
 							onClick={() => setChannelDialog({ channel: null })}
 						>
 							<PlusCircleIcon data-icon="inline-start" />
-							Add Telegram
+							Add channel
 						</Button>
 					</div>
 
@@ -621,14 +806,15 @@ export function NotificationsPage() {
 									<CardHeader>
 										<div className="flex min-w-0 items-center gap-3">
 											<div className="flex size-11 shrink-0 items-center justify-center rounded-lg border bg-background">
-												<TelegramLogo />
+												<ChannelProviderLogo provider={channel.provider} />
 											</div>
 											<div className="flex min-w-0 flex-col gap-1">
 												<CardTitle className="truncate">
 													{channel.label}
 												</CardTitle>
 												<CardDescription className="truncate">
-													{channel.targetPreview ?? "Telegram chat configured"}
+													{channel.targetPreview ??
+														`${getProviderOption(channel.provider).label} target configured`}
 												</CardDescription>
 											</div>
 										</div>
@@ -716,8 +902,8 @@ export function NotificationsPage() {
 										</EmptyMedia>
 										<EmptyTitle>No channels connected</EmptyTitle>
 										<EmptyDescription>
-											Add Telegram to receive selected GitPal notifications
-											outside the app.
+											Add a delivery channel to receive selected GitPal
+											notifications outside the app.
 										</EmptyDescription>
 									</EmptyHeader>
 								</Empty>
@@ -740,16 +926,57 @@ export function NotificationsPage() {
 						<form className="flex flex-col gap-6" onSubmit={handleSaveChannel}>
 							<DialogHeader>
 								<DialogTitle>
-									{channelDialog.channel ? "Manage" : "Add"} Telegram
+									{channelDialog.channel ? "Manage" : "Add"}{" "}
+									{getProviderOption(channelForm.provider).label}
 								</DialogTitle>
 								<DialogDescription>
-									Connect a Telegram bot and pick the events this channel should
-									receive.
+									{getProviderOption(channelForm.provider).description} Pick the
+									events this channel should receive.
 								</DialogDescription>
 							</DialogHeader>
 
 							<FieldGroup>
 								<div className="grid gap-4 md:grid-cols-2">
+									<Field>
+										<FieldLabel htmlFor="notification-channel-provider">
+											Provider
+										</FieldLabel>
+										<Select
+											items={notificationProviderOptions}
+											value={channelForm.provider}
+											onValueChange={(value) => {
+												if (!value || channelDialog.channel) {
+													return;
+												}
+
+												const nextProvider =
+													value as NotificationChannelProvider;
+												setChannelForm({
+													...channelForm,
+													provider: nextProvider,
+													label: getProviderOption(nextProvider).defaultLabel,
+												});
+											}}
+										>
+											<SelectTrigger
+												id="notification-channel-provider"
+												className="w-full"
+												disabled={Boolean(channelDialog.channel)}
+											>
+												<SelectValue placeholder="Select provider" />
+											</SelectTrigger>
+											<SelectContent>
+												{notificationProviderOptions.map((provider) => (
+													<SelectItem
+														key={provider.value}
+														value={provider.value}
+													>
+														{provider.label}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</Field>
 									<Field>
 										<FieldLabel htmlFor="notification-channel-label">
 											Label
@@ -777,56 +1004,514 @@ export function NotificationsPage() {
 										<FieldContent>
 											<FieldLabel>Enabled</FieldLabel>
 											<FieldDescription>
-												Send matching notifications through Telegram.
+												Send matching notifications through this channel.
 											</FieldDescription>
 										</FieldContent>
 									</Field>
 								</div>
 
-								<div className="grid gap-4 md:grid-cols-2">
-									<Field>
-										<FieldLabel htmlFor="notification-bot-token">
-											Bot token
-										</FieldLabel>
-										<Input
-											id="notification-bot-token"
-											type="password"
-											autoComplete="new-password"
-											value={channelForm.botToken}
-											onChange={(event) =>
-												setChannelForm({
-													...channelForm,
-													botToken: event.target.value,
-												})
-											}
-											placeholder={
-												channelDialog.channel?.credentialPreview ??
-												"Telegram bot token"
-											}
-											required={!channelDialog.channel?.credentialPreview}
-										/>
-									</Field>
-									<Field>
-										<FieldLabel htmlFor="notification-chat-id">
-											Chat ID
-										</FieldLabel>
-										<Input
-											id="notification-chat-id"
-											value={channelForm.chatId}
-											onChange={(event) =>
-												setChannelForm({
-													...channelForm,
-													chatId: event.target.value,
-												})
-											}
-											placeholder={
-												channelDialog.channel?.targetPreview ??
-												"Telegram chat ID"
-											}
-											required={!channelDialog.channel?.targetPreview}
-										/>
-									</Field>
-								</div>
+								{channelForm.provider === "telegram" ? (
+									<div className="grid gap-4 md:grid-cols-2">
+										<Field>
+											<FieldLabel htmlFor="notification-telegram-token">
+												Bot token
+											</FieldLabel>
+											<Input
+												id="notification-telegram-token"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.telegramBotToken}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														telegramBotToken: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.credentialPreview ??
+													"Telegram bot token"
+												}
+												required={!channelDialog.channel?.credentialPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-telegram-chat">
+												Chat ID
+											</FieldLabel>
+											<Input
+												id="notification-telegram-chat"
+												value={channelForm.telegramChatId}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														telegramChatId: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.targetPreview ??
+													"Telegram chat ID"
+												}
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-telegram-secret">
+												Webhook secret token
+											</FieldLabel>
+											<Input
+												id="notification-telegram-secret"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.telegramWebhookSecretToken}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														telegramWebhookSecretToken: event.target.value,
+													})
+												}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-telegram-username">
+												Bot username
+											</FieldLabel>
+											<Input
+												id="notification-telegram-username"
+												value={channelForm.telegramBotUsername}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														telegramBotUsername: event.target.value,
+													})
+												}
+												placeholder="@gitpal_bot"
+											/>
+										</Field>
+									</div>
+								) : null}
+
+								{channelForm.provider === "slack" ? (
+									<div className="grid gap-4 md:grid-cols-2">
+										<Field>
+											<FieldLabel htmlFor="notification-slack-token">
+												Bot token
+											</FieldLabel>
+											<Input
+												id="notification-slack-token"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.slackBotToken}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														slackBotToken: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.credentialPreview ?? "xoxb-..."
+												}
+												required={!channelDialog.channel?.credentialPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-slack-channel">
+												Channel ID
+											</FieldLabel>
+											<Input
+												id="notification-slack-channel"
+												value={channelForm.slackChannelId}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														slackChannelId: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.targetPreview ?? "C0123456789"
+												}
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-slack-secret">
+												Signing secret
+											</FieldLabel>
+											<Input
+												id="notification-slack-secret"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.slackSigningSecret}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														slackSigningSecret: event.target.value,
+													})
+												}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-slack-username">
+												Bot username
+											</FieldLabel>
+											<Input
+												id="notification-slack-username"
+												value={channelForm.slackBotUsername}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														slackBotUsername: event.target.value,
+													})
+												}
+												placeholder="gitpal"
+											/>
+										</Field>
+									</div>
+								) : null}
+
+								{channelForm.provider === "teams" ? (
+									<div className="grid gap-4 md:grid-cols-2">
+										<Field>
+											<FieldLabel htmlFor="notification-teams-app-id">
+												App ID
+											</FieldLabel>
+											<Input
+												id="notification-teams-app-id"
+												value={channelForm.teamsAppId}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														teamsAppId: event.target.value,
+													})
+												}
+												required={!channelDialog.channel?.credentialPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-teams-password">
+												App password
+											</FieldLabel>
+											<Input
+												id="notification-teams-password"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.teamsAppPassword}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														teamsAppPassword: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.credentialPreview ??
+													"Teams app password"
+												}
+												required={!channelDialog.channel?.credentialPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-teams-tenant">
+												Tenant ID
+											</FieldLabel>
+											<Input
+												id="notification-teams-tenant"
+												value={channelForm.teamsAppTenantId}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														teamsAppTenantId: event.target.value,
+													})
+												}
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-teams-type">
+												App type
+											</FieldLabel>
+											<Select
+												items={[
+													{ label: "Multi tenant", value: "MultiTenant" },
+													{ label: "Single tenant", value: "SingleTenant" },
+												]}
+												value={channelForm.teamsAppType}
+												onValueChange={(value) =>
+													setChannelForm({
+														...channelForm,
+														teamsAppType:
+															value === "SingleTenant"
+																? "SingleTenant"
+																: "MultiTenant",
+													})
+												}
+											>
+												<SelectTrigger
+													id="notification-teams-type"
+													className="w-full"
+												>
+													<SelectValue placeholder="Select app type" />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="MultiTenant">
+														Multi tenant
+													</SelectItem>
+													<SelectItem value="SingleTenant">
+														Single tenant
+													</SelectItem>
+												</SelectContent>
+											</Select>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-teams-conversation">
+												Conversation ID
+											</FieldLabel>
+											<Input
+												id="notification-teams-conversation"
+												value={channelForm.teamsConversationId}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														teamsConversationId: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.targetPreview ?? "19:..."
+												}
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-teams-service-url">
+												Service URL
+											</FieldLabel>
+											<Input
+												id="notification-teams-service-url"
+												type="url"
+												value={channelForm.teamsServiceUrl}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														teamsServiceUrl: event.target.value,
+													})
+												}
+												placeholder="https://smba.trafficmanager.net/..."
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-teams-username">
+												Bot username
+											</FieldLabel>
+											<Input
+												id="notification-teams-username"
+												value={channelForm.teamsBotUsername}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														teamsBotUsername: event.target.value,
+													})
+												}
+												placeholder="GitPal"
+											/>
+										</Field>
+									</div>
+								) : null}
+
+								{channelForm.provider === "linear" ? (
+									<div className="grid gap-4 md:grid-cols-2">
+										<Field>
+											<FieldLabel htmlFor="notification-linear-api-key">
+												API key
+											</FieldLabel>
+											<Input
+												id="notification-linear-api-key"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.linearApiKey}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														linearApiKey: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.credentialPreview ??
+													"lin_api_..."
+												}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-linear-token">
+												Access token
+											</FieldLabel>
+											<Input
+												id="notification-linear-token"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.linearAccessToken}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														linearAccessToken: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.credentialPreview ??
+													"OAuth access token"
+												}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-linear-issue">
+												Issue ID
+											</FieldLabel>
+											<Input
+												id="notification-linear-issue"
+												value={channelForm.linearIssueId}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														linearIssueId: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.targetPreview ?? "ENG-123"
+												}
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-linear-webhook">
+												Webhook secret
+											</FieldLabel>
+											<Input
+												id="notification-linear-webhook"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.linearWebhookSecret}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														linearWebhookSecret: event.target.value,
+													})
+												}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-linear-username">
+												Bot username
+											</FieldLabel>
+											<Input
+												id="notification-linear-username"
+												value={channelForm.linearBotUsername}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														linearBotUsername: event.target.value,
+													})
+												}
+												placeholder="gitpal"
+											/>
+										</Field>
+									</div>
+								) : null}
+
+								{channelForm.provider === "resend" ? (
+									<div className="grid gap-4 md:grid-cols-2">
+										<Field>
+											<FieldLabel htmlFor="notification-resend-api-key">
+												API key
+											</FieldLabel>
+											<Input
+												id="notification-resend-api-key"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.resendApiKey}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														resendApiKey: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.credentialPreview ?? "re_..."
+												}
+												required={!channelDialog.channel?.credentialPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-resend-to">
+												Recipient email
+											</FieldLabel>
+											<Input
+												id="notification-resend-to"
+												type="email"
+												value={channelForm.resendToEmail}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														resendToEmail: event.target.value,
+													})
+												}
+												placeholder={
+													channelDialog.channel?.targetPreview ??
+													"alerts@example.com"
+												}
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-resend-from">
+												From address
+											</FieldLabel>
+											<Input
+												id="notification-resend-from"
+												type="email"
+												value={channelForm.resendFromAddress}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														resendFromAddress: event.target.value,
+													})
+												}
+												placeholder="GitPal <notifications@example.com>"
+												required={!channelDialog.channel?.targetPreview}
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-resend-from-name">
+												From name
+											</FieldLabel>
+											<Input
+												id="notification-resend-from-name"
+												value={channelForm.resendFromName}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														resendFromName: event.target.value,
+													})
+												}
+												placeholder="GitPal"
+											/>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor="notification-resend-webhook">
+												Webhook secret
+											</FieldLabel>
+											<Input
+												id="notification-resend-webhook"
+												type="password"
+												autoComplete="new-password"
+												value={channelForm.resendWebhookSecret}
+												onChange={(event) =>
+													setChannelForm({
+														...channelForm,
+														resendWebhookSecret: event.target.value,
+													})
+												}
+											/>
+										</Field>
+									</div>
+								) : null}
 
 								<FieldSet>
 									<FieldLegend>Notification filters</FieldLegend>
@@ -836,51 +1521,33 @@ export function NotificationsPage() {
 											The channel receives notifications from selected product
 											areas.
 										</FieldDescription>
-										<ToggleGroup
+										<MultiSelectField
 											value={channelForm.categories}
-											onValueChange={(value) =>
+											onChange={(value) =>
 												setChannelForm({
 													...channelForm,
-													categories: value as CategoryFilter[],
+													categories: value.filter(isCategoryFilter),
 												})
 											}
-											variant="outline"
-											size="sm"
-											className="max-w-full flex-wrap justify-start"
-										>
-											{categoryOptions.map((category) => (
-												<ToggleGroupItem
-													key={category.value}
-													value={category.value}
-												>
-													{category.label}
-												</ToggleGroupItem>
-											))}
-										</ToggleGroup>
+											options={[...categoryOptions]}
+											placeholder="Select categories"
+											searchPlaceholder="Search categories..."
+										/>
 									</Field>
 									<Field>
 										<FieldTitle>Severities</FieldTitle>
-										<ToggleGroup
+										<MultiSelectField
 											value={channelForm.severities}
-											onValueChange={(value) =>
+											onChange={(value) =>
 												setChannelForm({
 													...channelForm,
-													severities: value as SeverityFilter[],
+													severities: value.filter(isSeverityFilter),
 												})
 											}
-											variant="outline"
-											size="sm"
-											className="max-w-full flex-wrap justify-start"
-										>
-											{severityOptions.map((severity) => (
-												<ToggleGroupItem
-													key={severity.value}
-													value={severity.value}
-												>
-													{severity.label}
-												</ToggleGroupItem>
-											))}
-										</ToggleGroup>
+											options={[...severityOptions]}
+											placeholder="Select severities"
+											searchPlaceholder="Search severities..."
+										/>
 									</Field>
 								</FieldSet>
 							</FieldGroup>

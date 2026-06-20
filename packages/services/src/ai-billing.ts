@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
+import { db, runTransactionWithRetry } from "@gitpal/db";
 import * as aiSchema from "@gitpal/db/schema/ai";
 import { env } from "@gitpal/env/server";
 import {
@@ -781,7 +781,7 @@ export async function runTrackedAiGeneration<TResult>({
 		});
 		walletDebitCents =
 			routePreview.billedBy === "wallet" ? (actualCostCents ?? 0) : 0;
-		const settledWalletBalance = await db.transaction(async (tx) => {
+		const settledWalletBalance = await runTransactionWithRetry(async (tx) => {
 			let settledWalletBalanceAfterCents: number | null = null;
 
 			if (routePreview.billedBy === "wallet") {

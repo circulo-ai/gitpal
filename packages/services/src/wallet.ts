@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { db } from "@gitpal/db";
+import { db, runTransactionWithRetry } from "@gitpal/db";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import { env } from "@gitpal/env/server";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
@@ -291,7 +291,7 @@ export async function applyWalletUsageDebit({
 	sourceType?: string;
 	metadata?: Record<string, unknown>;
 }) {
-	return db.transaction((tx) =>
+	return runTransactionWithRetry((tx) =>
 		applyWalletUsageDebitInTransaction(tx, {
 			userId,
 			amountCents,
@@ -454,7 +454,15 @@ export async function handleNowPaymentsWebhook(
 		};
 	}
 
-	await db.transaction(async (tx) => {
+	let credited = false;
+	const now = new Date();
+	const revenueAmountCents = Math.round(
+		existingTopup.priceAmountUsdCents *
+			(env.GITPAL_WALLET_REVENUE_SHARE_PERCENT / 100),
+	);
+	const netAmountCents = existingTopup.priceAmountUsdCents - revenueAmountCents;
+
+	await runTransactionWithRetry(async (tx) => {
 		await tx
 			.update(billingSchema.walletTopup)
 			.set({
@@ -500,7 +508,7 @@ export async function handleNowPaymentsWebhook(
 					? `NOWPayments marked this top-up as ${status}.`
 					: existingTopup.errorMessage,
 				metadata: payment as unknown as Record<string, unknown>,
-				updatedAt: new Date(),
+				updatedAt: now,
 			})
 			.where(eq(billingSchema.walletTopup.id, existingTopup.id));
 
@@ -511,18 +519,10 @@ export async function handleNowPaymentsWebhook(
 		const [creditableTopup] = await tx
 			.update(billingSchema.walletTopup)
 			.set({
-				creditedAt: new Date(),
-				revenueAmountCents: Math.round(
-					existingTopup.priceAmountUsdCents *
-						(env.GITPAL_WALLET_REVENUE_SHARE_PERCENT / 100),
-				),
-				creditedAmountCents:
-					existingTopup.priceAmountUsdCents -
-					Math.round(
-						existingTopup.priceAmountUsdCents *
-							(env.GITPAL_WALLET_REVENUE_SHARE_PERCENT / 100),
-					),
-				updatedAt: new Date(),
+				creditedAt: now,
+				revenueAmountCents,
+				creditedAmountCents: netAmountCents,
+				updatedAt: now,
 			})
 			.where(
 				and(
@@ -536,72 +536,87 @@ export async function handleNowPaymentsWebhook(
 			return;
 		}
 
-		const [wallet] = await tx
-			.select()
-			.from(billingSchema.wallet)
+		const [updatedWallet] = await tx
+			.update(billingSchema.wallet)
+			.set({
+				availableBalanceCents: sql`${billingSchema.wallet.availableBalanceCents} + ${creditableTopup.creditedAmountCents}`,
+				totalDepositedCents: sql`${billingSchema.wallet.totalDepositedCents} + ${creditableTopup.priceAmountUsdCents}`,
+				totalCreditedCents: sql`${billingSchema.wallet.totalCreditedCents} + ${creditableTopup.creditedAmountCents}`,
+				totalRevenueCents: sql`${billingSchema.wallet.totalRevenueCents} + ${creditableTopup.revenueAmountCents}`,
+				updatedAt: now,
+			})
 			.where(eq(billingSchema.wallet.id, creditableTopup.walletId))
-			.limit(1);
+			.returning({
+				id: billingSchema.wallet.id,
+				userId: billingSchema.wallet.userId,
+				availableBalanceCents: billingSchema.wallet.availableBalanceCents,
+			});
 
-		if (!wallet) {
+		if (!updatedWallet) {
 			throw new Error("Wallet not found.");
 		}
 
-		const revenueAmountCents = creditableTopup.revenueAmountCents;
-		const netAmountCents = creditableTopup.creditedAmountCents;
-		const grossBalance =
-			wallet.availableBalanceCents + creditableTopup.priceAmountUsdCents;
-		const netBalance = grossBalance - revenueAmountCents;
+		const netBalance = updatedWallet.availableBalanceCents;
+		const grossBalance = netBalance + creditableTopup.revenueAmountCents;
 
 		await tx
-			.update(billingSchema.wallet)
-			.set({
-				availableBalanceCents: netBalance,
-				totalDepositedCents:
-					wallet.totalDepositedCents + creditableTopup.priceAmountUsdCents,
-				totalCreditedCents: wallet.totalCreditedCents + netAmountCents,
-				totalRevenueCents: wallet.totalRevenueCents + revenueAmountCents,
-				updatedAt: new Date(),
-			})
-			.where(eq(billingSchema.wallet.id, wallet.id));
-
-		await tx.insert(billingSchema.walletLedgerEntry).values({
-			id: getLedgerId("wallet-topup", creditableTopup.id, "topup-credit"),
-			walletId: wallet.id,
-			userId: wallet.userId,
-			type: "topup-credit",
-			amountCents: creditableTopup.priceAmountUsdCents,
-			balanceAfterCents: grossBalance,
-			currency: "USD",
-			description: "Wallet top-up received",
-			sourceType: "wallet-topup",
-			sourceId: creditableTopup.id,
-			metadata: {
-				provider: "nowpayments",
-				paymentId: providerPaymentId,
-				invoiceId: providerInvoiceId,
-			},
-			createdAt: new Date(),
-		});
-
-		if (revenueAmountCents > 0) {
-			await tx.insert(billingSchema.walletLedgerEntry).values({
-				id: getLedgerId("wallet-topup", creditableTopup.id, "topup-fee"),
-				walletId: wallet.id,
-				userId: wallet.userId,
-				type: "topup-fee",
-				amountCents: revenueAmountCents * -1,
-				balanceAfterCents: netBalance,
+			.insert(billingSchema.walletLedgerEntry)
+			.values({
+				id: getLedgerId("wallet-topup", creditableTopup.id, "topup-credit"),
+				walletId: updatedWallet.id,
+				userId: updatedWallet.userId,
+				type: "topup-credit",
+				amountCents: creditableTopup.priceAmountUsdCents,
+				balanceAfterCents: grossBalance,
 				currency: "USD",
-				description: "Platform top-up fee",
+				description: "Wallet top-up received",
 				sourceType: "wallet-topup",
 				sourceId: creditableTopup.id,
 				metadata: {
 					provider: "nowpayments",
-					feePercent: env.GITPAL_WALLET_REVENUE_SHARE_PERCENT,
+					paymentId: providerPaymentId,
+					invoiceId: providerInvoiceId,
 				},
-				createdAt: new Date(),
+				createdAt: now,
+			})
+			.onConflictDoNothing({
+				target: [
+					billingSchema.walletLedgerEntry.sourceType,
+					billingSchema.walletLedgerEntry.sourceId,
+					billingSchema.walletLedgerEntry.type,
+				],
 			});
+
+		if (revenueAmountCents > 0) {
+			await tx
+				.insert(billingSchema.walletLedgerEntry)
+				.values({
+					id: getLedgerId("wallet-topup", creditableTopup.id, "topup-fee"),
+					walletId: updatedWallet.id,
+					userId: updatedWallet.userId,
+					type: "topup-fee",
+					amountCents: revenueAmountCents * -1,
+					balanceAfterCents: netBalance,
+					currency: "USD",
+					description: "Platform top-up fee",
+					sourceType: "wallet-topup",
+					sourceId: creditableTopup.id,
+					metadata: {
+						provider: "nowpayments",
+						feePercent: env.GITPAL_WALLET_REVENUE_SHARE_PERCENT,
+					},
+					createdAt: now,
+				})
+				.onConflictDoNothing({
+					target: [
+						billingSchema.walletLedgerEntry.sourceType,
+						billingSchema.walletLedgerEntry.sourceId,
+						billingSchema.walletLedgerEntry.type,
+					],
+				});
 		}
+
+		credited = true;
 	});
 
 	await recordObservabilityEvent({
@@ -662,6 +677,6 @@ export async function handleNowPaymentsWebhook(
 
 	return {
 		updated: true,
-		credited: TOPUP_FINAL_STATUSES.has(status),
+		credited,
 	};
 }

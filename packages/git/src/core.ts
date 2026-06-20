@@ -56,6 +56,16 @@ export type GitWorkspaceRef = {
 	scope: GitWorkspaceScope;
 };
 
+export type GitWorkspaceMember = {
+	id: string;
+	login: string | null;
+	name: string | null;
+	email: string | null;
+	avatarUrl: string | null;
+	htmlUrl: string | null;
+	role: string;
+};
+
 export type GitRepository = {
 	providerId: GitProviderId;
 	repositoryPath: string;
@@ -320,6 +330,7 @@ export interface GitProviderAdapter {
 
 	getCurrentUser(): Promise<GitActor>;
 	listRepositories(): Promise<GitRepository[]>;
+	listWorkspaceMembers(input: GitWorkspaceRef): Promise<GitWorkspaceMember[]>;
 	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
 	listPullRequests(
 		input: GitRepositoryRef & { state?: GitPullRequestState },

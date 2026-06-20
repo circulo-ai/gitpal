@@ -1,4 +1,4 @@
-import { db } from "@gitpal/db";
+import { type db, runTransactionWithRetry } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import { eq } from "drizzle-orm";
 
@@ -53,7 +53,7 @@ export async function consumeAppRateLimit({
 	key: string;
 	rule: AppRateLimitRule;
 }): Promise<AppRateLimitDecision> {
-	return db.transaction(async (transaction) => {
+	return runTransactionWithRetry(async (transaction) => {
 		const now = Date.now();
 		const windowMs = rule.window * 1000;
 		const existing = await readRateLimitRow(transaction, key);

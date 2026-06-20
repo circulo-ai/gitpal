@@ -3,8 +3,18 @@ import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import {
+	getNotificationChannelCredentialPreview,
+	getNotificationChannelTargetId,
+	getNotificationChannelTargetPreview,
+	type NotificationChannelProvider,
+	notificationChannelCredentialSchema,
+	notificationChannelProviderSchema,
+	notificationChannelProviders,
+	sendNotificationViaChatSdk,
+} from "./notification-chat";
 import { recordObservabilityEvent } from "./observability";
 import {
 	decryptSecretEnvelope,
@@ -14,12 +24,13 @@ import {
 type NotificationDbExecutor = Pick<typeof db, "insert">;
 
 export type NotificationSeverity = "info" | "success" | "warning" | "error";
-export type NotificationChannelProvider = "telegram";
 export type NotificationChannelStatus =
 	| "configured"
 	| "connected"
 	| "disabled"
 	| "error";
+
+export { notificationChannelProviders };
 
 export const notificationCategoryOptions = [
 	"review",
@@ -42,7 +53,6 @@ export const notificationSeverityOptions = [
 	"error",
 ] as const;
 
-const notificationChannelProviderSchema = z.enum(["telegram"]);
 const notificationChannelSettingsSchema = z.object({
 	categories: z
 		.array(z.string().min(1))
@@ -51,13 +61,14 @@ const notificationChannelSettingsSchema = z.object({
 		.array(z.enum(notificationSeverityOptions))
 		.default(["success", "warning", "error"]),
 });
-const telegramCredentialSchema = z.object({
-	botToken: z.string().min(1),
-	chatId: z.string().min(1),
-});
-const notificationChannelCredentialSchema = z.object({
-	telegram: telegramCredentialSchema.optional(),
-});
+
+const notificationChannelProviderLabels = {
+	resend: "Resend",
+	telegram: "Telegram",
+	linear: "Linear",
+	teams: "Microsoft Teams",
+	slack: "Slack",
+} satisfies Record<NotificationChannelProvider, string>;
 
 export type NotificationChannelSettings = z.infer<
 	typeof notificationChannelSettingsSchema
@@ -72,6 +83,37 @@ export type NotificationChannelUpsertInput = {
 	telegram?: {
 		botToken?: string;
 		chatId?: string;
+		webhookSecretToken?: string;
+		botUsername?: string;
+	};
+	slack?: {
+		botToken?: string;
+		channelId?: string;
+		signingSecret?: string;
+		botUsername?: string;
+	};
+	teams?: {
+		appId?: string;
+		appPassword?: string;
+		appTenantId?: string;
+		conversationId?: string;
+		serviceUrl?: string;
+		appType?: "MultiTenant" | "SingleTenant";
+		botUsername?: string;
+	};
+	linear?: {
+		apiKey?: string;
+		accessToken?: string;
+		issueId?: string;
+		webhookSecret?: string;
+		botUsername?: string;
+	};
+	resend?: {
+		apiKey?: string;
+		fromAddress?: string;
+		fromName?: string;
+		toEmail?: string;
+		webhookSecret?: string;
 	};
 };
 
@@ -111,18 +153,6 @@ function buildNotificationDedupeKey(input: SendUserNotificationInput) {
 	return input.dedupeKey ?? null;
 }
 
-function redactSecret(value: string | null | undefined) {
-	if (!value) {
-		return null;
-	}
-
-	if (value.length <= 8) {
-		return "****";
-	}
-
-	return `${value.slice(0, 4)}****${value.slice(-4)}`;
-}
-
 function getErrorMessage(error: unknown) {
 	return error instanceof Error ? error.message : "Unknown notification error.";
 }
@@ -158,8 +188,9 @@ function serializeNotificationChannel(
 		organizationId: row.organizationId,
 		provider: notificationChannelProviderSchema.parse(row.provider),
 		label: row.label,
+		targetId: row.targetId,
 		targetPreview: row.targetPreview,
-		credentialPreview: redactSecret(credentials?.telegram?.botToken),
+		credentialPreview: getNotificationChannelCredentialPreview(credentials),
 		settings: parseChannelSettings(row.settings),
 		status: parseChannelStatus(row.status),
 		enabled: row.enabled,
@@ -188,47 +219,6 @@ function shouldDeliverToChannel({
 	);
 }
 
-function buildTelegramMessage(
-	notification: typeof observabilitySchema.notification.$inferSelect,
-) {
-	return [
-		`GitPal: ${notification.title}`,
-		notification.body ? `\n${notification.body}` : null,
-		notification.actionHref ? `\nOpen: ${notification.actionHref}` : null,
-		`\nCategory: ${notification.category}`,
-		`Severity: ${notification.severity}`,
-	]
-		.filter(Boolean)
-		.join("\n");
-}
-
-async function sendTelegramNotification({
-	credential,
-	notification,
-}: {
-	credential: z.infer<typeof telegramCredentialSchema>;
-	notification: typeof observabilitySchema.notification.$inferSelect;
-}) {
-	const response = await fetch(
-		`https://api.telegram.org/bot${credential.botToken}/sendMessage`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				chat_id: credential.chatId,
-				text: buildTelegramMessage(notification),
-				disable_web_page_preview: true,
-			}),
-		},
-	);
-
-	if (!response.ok) {
-		throw new Error(`Telegram returned ${response.status}.`);
-	}
-}
-
 async function recordNotificationDelivery({
 	channel,
 	notification,
@@ -240,21 +230,41 @@ async function recordNotificationDelivery({
 	status: "delivered" | "failed" | "skipped";
 	error?: string | null;
 }) {
-	await db.insert(observabilitySchema.notificationDelivery).values({
-		id: notificationDeliveryId(),
-		notificationId: notification.id,
-		channelId: channel.id,
-		provider: channel.provider,
-		status,
-		attemptCount: 1,
-		error: error ?? null,
-		metadata: {
-			notificationType: notification.type,
-			notificationCategory: notification.category,
-			notificationSeverity: notification.severity,
-		},
-		deliveredAt: status === "delivered" ? new Date() : null,
-	});
+	await db
+		.insert(observabilitySchema.notificationDelivery)
+		.values({
+			id: notificationDeliveryId(),
+			notificationId: notification.id,
+			channelId: channel.id,
+			provider: channel.provider,
+			status,
+			attemptCount: 1,
+			error: error ?? null,
+			metadata: {
+				notificationType: notification.type,
+				notificationCategory: notification.category,
+				notificationSeverity: notification.severity,
+			},
+			deliveredAt: status === "delivered" ? new Date() : null,
+		})
+		.onConflictDoUpdate({
+			target: [
+				observabilitySchema.notificationDelivery.notificationId,
+				observabilitySchema.notificationDelivery.channelId,
+			],
+			set: {
+				provider: channel.provider,
+				status,
+				attemptCount: sql`${observabilitySchema.notificationDelivery.attemptCount} + 1`,
+				error: error ?? null,
+				metadata: {
+					notificationType: notification.type,
+					notificationCategory: notification.category,
+					notificationSeverity: notification.severity,
+				},
+				deliveredAt: status === "delivered" ? new Date() : null,
+			},
+		});
 }
 
 async function deliverNotificationToChannel({
@@ -281,14 +291,18 @@ async function deliverNotificationToChannel({
 	);
 
 	try {
-		if (channel.provider === "telegram" && credential?.telegram) {
-			await sendTelegramNotification({
-				credential: credential.telegram,
-				notification,
-			});
-		} else {
+		if (!credential) {
 			throw new Error("Notification channel credentials are incomplete.");
 		}
+
+		const provider = notificationChannelProviderSchema.parse(channel.provider);
+		await sendNotificationViaChatSdk({
+			channelId: channel.id,
+			provider,
+			targetId: channel.targetId,
+			credential,
+			notification,
+		});
 
 		await recordNotificationDelivery({
 			channel,
@@ -405,6 +419,38 @@ async function getNotificationChannelForUser({
 	return row ?? null;
 }
 
+function mergeSecretValue(
+	nextValue: string | null | undefined,
+	existingValue: string | null | undefined,
+) {
+	return nextValue?.trim() || existingValue || undefined;
+}
+
+function requireCredentialValue(value: string | undefined, message: string) {
+	if (!value) {
+		throw new Error(message);
+	}
+
+	return value;
+}
+
+function buildCredentialResult({
+	provider,
+	credential,
+}: {
+	provider: NotificationChannelProvider;
+	credential: z.infer<typeof notificationChannelCredentialSchema>;
+}) {
+	return {
+		credential,
+		targetId: getNotificationChannelTargetId({ provider, credential }),
+		targetPreview: getNotificationChannelTargetPreview({
+			provider,
+			credential,
+		}),
+	};
+}
+
 function buildChannelCredential({
 	input,
 	existingEnvelope,
@@ -417,19 +463,168 @@ function buildChannelCredential({
 		notificationChannelCredentialSchema,
 	);
 
-	if (input.provider === "telegram") {
-		const botToken =
-			input.telegram?.botToken?.trim() || existing?.telegram?.botToken;
-		const chatId = input.telegram?.chatId?.trim() || existing?.telegram?.chatId;
+	switch (input.provider) {
+		case "telegram": {
+			const credential = notificationChannelCredentialSchema.parse({
+				telegram: {
+					botToken: requireCredentialValue(
+						mergeSecretValue(
+							input.telegram?.botToken,
+							existing?.telegram?.botToken,
+						),
+						"Telegram bot token is required.",
+					),
+					chatId: requireCredentialValue(
+						mergeSecretValue(
+							input.telegram?.chatId,
+							existing?.telegram?.chatId,
+						),
+						"Telegram chat ID is required.",
+					),
+					webhookSecretToken: mergeSecretValue(
+						input.telegram?.webhookSecretToken,
+						existing?.telegram?.webhookSecretToken,
+					),
+					botUsername: mergeSecretValue(
+						input.telegram?.botUsername,
+						existing?.telegram?.botUsername,
+					),
+				},
+			});
 
-		if (!botToken || !chatId) {
-			throw new Error("Telegram bot token and chat ID are required.");
+			return buildCredentialResult({ provider: input.provider, credential });
 		}
+		case "slack": {
+			const credential = notificationChannelCredentialSchema.parse({
+				slack: {
+					botToken: requireCredentialValue(
+						mergeSecretValue(input.slack?.botToken, existing?.slack?.botToken),
+						"Slack bot token is required.",
+					),
+					channelId: requireCredentialValue(
+						mergeSecretValue(
+							input.slack?.channelId,
+							existing?.slack?.channelId,
+						),
+						"Slack channel ID is required.",
+					),
+					signingSecret: mergeSecretValue(
+						input.slack?.signingSecret,
+						existing?.slack?.signingSecret,
+					),
+					botUsername: mergeSecretValue(
+						input.slack?.botUsername,
+						existing?.slack?.botUsername,
+					),
+				},
+			});
 
-		return {
-			credential: { telegram: { botToken, chatId } },
-			targetPreview: `Telegram chat ${redactSecret(chatId) ?? "configured"}`,
-		};
+			return buildCredentialResult({ provider: input.provider, credential });
+		}
+		case "teams": {
+			const credential = notificationChannelCredentialSchema.parse({
+				teams: {
+					appId: requireCredentialValue(
+						mergeSecretValue(input.teams?.appId, existing?.teams?.appId),
+						"Teams app ID is required.",
+					),
+					appPassword: requireCredentialValue(
+						mergeSecretValue(
+							input.teams?.appPassword,
+							existing?.teams?.appPassword,
+						),
+						"Teams app password is required.",
+					),
+					appTenantId: requireCredentialValue(
+						mergeSecretValue(
+							input.teams?.appTenantId,
+							existing?.teams?.appTenantId,
+						),
+						"Teams tenant ID is required.",
+					),
+					conversationId: requireCredentialValue(
+						mergeSecretValue(
+							input.teams?.conversationId,
+							existing?.teams?.conversationId,
+						),
+						"Teams conversation ID is required.",
+					),
+					serviceUrl: requireCredentialValue(
+						mergeSecretValue(
+							input.teams?.serviceUrl,
+							existing?.teams?.serviceUrl,
+						),
+						"Teams service URL is required.",
+					),
+					appType: input.teams?.appType ?? existing?.teams?.appType,
+					botUsername: mergeSecretValue(
+						input.teams?.botUsername,
+						existing?.teams?.botUsername,
+					),
+				},
+			});
+
+			return buildCredentialResult({ provider: input.provider, credential });
+		}
+		case "linear": {
+			const credential = notificationChannelCredentialSchema.parse({
+				linear: {
+					apiKey: mergeSecretValue(
+						input.linear?.apiKey,
+						existing?.linear?.apiKey,
+					),
+					accessToken: mergeSecretValue(
+						input.linear?.accessToken,
+						existing?.linear?.accessToken,
+					),
+					issueId: requireCredentialValue(
+						mergeSecretValue(input.linear?.issueId, existing?.linear?.issueId),
+						"Linear issue ID is required.",
+					),
+					webhookSecret: mergeSecretValue(
+						input.linear?.webhookSecret,
+						existing?.linear?.webhookSecret,
+					),
+					botUsername: mergeSecretValue(
+						input.linear?.botUsername,
+						existing?.linear?.botUsername,
+					),
+				},
+			});
+
+			return buildCredentialResult({ provider: input.provider, credential });
+		}
+		case "resend": {
+			const credential = notificationChannelCredentialSchema.parse({
+				resend: {
+					apiKey: requireCredentialValue(
+						mergeSecretValue(input.resend?.apiKey, existing?.resend?.apiKey),
+						"Resend API key is required.",
+					),
+					fromAddress: requireCredentialValue(
+						mergeSecretValue(
+							input.resend?.fromAddress,
+							existing?.resend?.fromAddress,
+						),
+						"Resend from address is required.",
+					),
+					fromName: mergeSecretValue(
+						input.resend?.fromName,
+						existing?.resend?.fromName,
+					),
+					toEmail: requireCredentialValue(
+						mergeSecretValue(input.resend?.toEmail, existing?.resend?.toEmail),
+						"Resend recipient email is required.",
+					),
+					webhookSecret: mergeSecretValue(
+						input.resend?.webhookSecret,
+						existing?.resend?.webhookSecret,
+					),
+				},
+			});
+
+			return buildCredentialResult({ provider: input.provider, credential });
+		}
 	}
 
 	throw new Error("Unsupported notification channel provider.");
@@ -450,7 +645,7 @@ export async function upsertNotificationChannelForUser({
 				channelId: input.channelId,
 			})
 		: null;
-	const { credential, targetPreview } = buildChannelCredential({
+	const { credential, targetId, targetPreview } = buildChannelCredential({
 		input: {
 			...input,
 			provider,
@@ -469,7 +664,8 @@ export async function upsertNotificationChannelForUser({
 		userId,
 		organizationId: existing?.organizationId ?? null,
 		provider,
-		label: input.label.trim() || "Telegram",
+		label: input.label.trim() || notificationChannelProviderLabels[provider],
+		targetId,
 		targetPreview,
 		credentialEnvelope,
 		settings,
@@ -485,6 +681,7 @@ export async function upsertNotificationChannelForUser({
 			.update(observabilitySchema.notificationChannel)
 			.set({
 				label: values.label,
+				targetId: values.targetId,
 				targetPreview: values.targetPreview,
 				credentialEnvelope: values.credentialEnvelope,
 				settings: values.settings,
@@ -518,6 +715,7 @@ export async function upsertNotificationChannelForUser({
 				observabilitySchema.notificationChannel.label,
 			],
 			set: {
+				targetId: values.targetId,
 				targetPreview: values.targetPreview,
 				credentialEnvelope: values.credentialEnvelope,
 				settings: values.settings,
@@ -616,7 +814,7 @@ export async function testNotificationChannelForUser({
 		category: "ai",
 		severity: "success",
 		status: "unread",
-		title: "Telegram notifications are connected",
+		title: `${notificationChannelProviderLabels[notificationChannelProviderSchema.parse(channel.provider)]} notifications are connected`,
 		body: "GitPal can now deliver the selected notifications to this channel.",
 		actionHref: null,
 		sourceType: "notification_channel",

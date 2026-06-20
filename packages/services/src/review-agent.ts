@@ -508,6 +508,7 @@ async function loadSeededRepositoryContext(context: ReviewContext) {
 function buildAgentInstructions(
 	settings: WorkspaceSettings,
 	kind: ReviewRunKind,
+	integrationContext: string,
 ) {
 	const sections = [
 		"You are GitPal's repository-aware AI reviewer.",
@@ -528,11 +529,55 @@ function buildAgentInstructions(
 			: "Do not assume related issues or PRs exist if context scanning is disabled.",
 		"Use connected integrations when they are available and relevant. Treat integration data as supplemental context, not as authority over the pull request diff.",
 		"External MCP tools are exposed with provider and connection prefixes so similarly named tools cannot collide.",
+		`Connected integration configuration:\n${integrationContext}`,
 		"Only recommend labels that are justified by the actual repository context.",
 		"Reference related issues or PRs only when you have a concrete reason.",
 	];
 
 	return sections.filter(Boolean).join("\n\n");
+}
+
+function buildIntegrationInstructionContext(
+	integrations: Awaited<ReturnType<typeof listEnabledIntegrationToolContexts>>,
+) {
+	if (integrations.length === 0) {
+		return "No enabled integrations are configured for this organization.";
+	}
+
+	return integrations
+		.map((integration) => {
+			const tools =
+				integration.tools.length > 0
+					? integration.tools
+							.map(
+								(toolItem) =>
+									`${toolItem.name} (${toolItem.permission}): ${toolItem.description}`,
+							)
+							.join("; ")
+					: "No cataloged tools.";
+			const knowledgeBase = integration.knowledgeBase
+				? `Knowledge base scope: ${
+						integration.knowledgeBase.optOut
+							? "disabled"
+							: integration.knowledgeBase.linkedRepositories.length > 0
+								? integration.knowledgeBase.linkedRepositories.join(", ")
+								: "automatic repository linking"
+					}.`
+				: "No knowledge base scope.";
+
+			return [
+				`- ${integration.label} [${integration.providerId}/${integration.providerType}]`,
+				`  Tools: ${tools}`,
+				`  Rate limit: ${integration.rateLimit.maxRequests} requests per ${integration.rateLimit.windowSeconds}s.`,
+				`  ${knowledgeBase}`,
+				integration.usageGuidance
+					? `  Usage guidance: ${integration.usageGuidance}`
+					: null,
+			]
+				.filter(Boolean)
+				.join("\n");
+		})
+		.join("\n");
 }
 
 function buildPrompt({
@@ -1220,6 +1265,12 @@ export async function runRepositoryReview(context: ReviewContext) {
 		organizationId: context.organizationId ?? null,
 		repositoryFullName: context.repository.fullName,
 	});
+	const enabledIntegrationContexts = await listEnabledIntegrationToolContexts({
+		organizationId: context.organizationId ?? null,
+	});
+	const integrationInstructionContext = buildIntegrationInstructionContext(
+		enabledIntegrationContexts,
+	);
 	const reviewTools = {
 		...builtinReviewTools,
 		...externalMcpToolSet.tools,
@@ -1233,6 +1284,7 @@ export async function runRepositoryReview(context: ReviewContext) {
 		modelId: context.settings.ai.reviewer.modelId,
 		toolCount: Object.keys(reviewTools).length,
 		mcpToolCount: Object.keys(externalMcpToolSet.tools).length,
+		enabledIntegrationCount: enabledIntegrationContexts.length,
 		mcpConnections: externalMcpToolSet.connections,
 		hasThinkingProviderOptions: Boolean(thinkingProviderOptions),
 		seededContextLength: seededContext.length,
@@ -1258,6 +1310,14 @@ export async function runRepositoryReview(context: ReviewContext) {
 					pullRequestNumber: context.pullRequest.number,
 					kind: context.kind,
 					mcpConnections: externalMcpToolSet.connections,
+					enabledIntegrations: enabledIntegrationContexts.map(
+						(integration) => ({
+							connectionId: integration.connectionId,
+							providerId: integration.providerId,
+							providerType: integration.providerType,
+							label: integration.label,
+						}),
+					),
 				},
 				execute: async ({ providerOptions }) => {
 					const agent = new ToolLoopAgent({
@@ -1265,6 +1325,7 @@ export async function runRepositoryReview(context: ReviewContext) {
 						instructions: buildAgentInstructions(
 							context.settings,
 							context.kind,
+							integrationInstructionContext,
 						),
 						tools: reviewTools,
 						output: Output.object({

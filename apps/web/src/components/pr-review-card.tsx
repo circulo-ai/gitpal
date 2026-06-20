@@ -216,7 +216,7 @@ export function PrReviewCard() {
 							reviewing ? "flex" : "hidden",
 						)}
 					>
-						<div className="z-10 flex size-7 items-center justify-center rounded-full bg-white text-[#1f2328] ring-4 ring-white">
+						<div className="z-10 flex size-10 items-center justify-center rounded-full bg-white text-[#1f2328] ring-4 ring-white">
 							<GitPalMark />
 						</div>
 						<div className="flex items-center gap-2 text-[#59636e] text-[0.8rem]">

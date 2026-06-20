@@ -1,6 +1,6 @@
 # GitPal
 
-GitPal is a TypeScript monorepo for repository intelligence: provider webhooks, pull request analytics, durable AI reviews, repository syncing, and account-level API key management.
+GitPal is your AI-powered co-pilot for frictionless development. Get instant, accurate feedback and smart code suggestions directly on your pull requests, while automated labeling keeps your repository issues perfectly organized. When a build breaks, GitPal diagnoses your CI/CD failures and delivers immediate, actionable solutions—so you can spend less time debugging and more time shipping.
 
 The stack is Next.js, Hono, tRPC, Drizzle, PostgreSQL, Redis, Better Auth, Inngest self-hosted, Tailwind CSS, shadcn/ui, Bun, Biome, and Turborepo.
 
@@ -30,73 +30,73 @@ The web app runs at [http://localhost:3001](http://localhost:3001). The API runs
 
 Core server variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string used by `@gitpal/db`. |
-| `BETTER_AUTH_SECRET` | Better Auth secret, at least 32 characters. |
-| `BETTER_AUTH_URL` | Public auth/server URL. |
-| `CORS_ORIGIN` | Allowed web origin for the API. |
+| Variable                 | Purpose                                                       |
+| ------------------------ | ------------------------------------------------------------- |
+| `DATABASE_URL`           | PostgreSQL connection string used by `@gitpal/db`.            |
+| `BETTER_AUTH_SECRET`     | Better Auth secret, at least 32 characters.                   |
+| `BETTER_AUTH_URL`        | Public auth/server URL.                                       |
+| `CORS_ORIGIN`            | Allowed web origin for the API.                               |
 | `NEXT_PUBLIC_SERVER_URL` | Public API URL used by the web app and baked into web builds. |
-| `REDIS_URL` | GitPal Redis URL for queues and cache helpers. |
-| `LOG_LEVEL` | `fatal`, `error`, `warn`, `info`, `debug`, or `trace`. |
-| `TRUST_PROXY_HEADERS` | Enable when the server is behind a trusted reverse proxy. |
+| `REDIS_URL`              | GitPal Redis URL for queues and cache helpers.                |
+| `LOG_LEVEL`              | `fatal`, `error`, `warn`, `info`, `debug`, or `trace`.        |
+| `TRUST_PROXY_HEADERS`    | Enable when the server is behind a trusted reverse proxy.     |
 
 Database pool variables:
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `GITPAL_DB_POOL_MAX` | `10` | Maximum connections in the shared Postgres pool. |
-| `GITPAL_DB_POOL_IDLE_TIMEOUT_MS` | `30000` | Idle connection timeout. |
-| `GITPAL_DB_POOL_CONNECTION_TIMEOUT_MS` | `10000` | Connection acquisition timeout. |
+| Variable                               | Default | Purpose                                          |
+| -------------------------------------- | ------- | ------------------------------------------------ |
+| `GITPAL_DB_POOL_MAX`                   | `10`    | Maximum connections in the shared Postgres pool. |
+| `GITPAL_DB_POOL_IDLE_TIMEOUT_MS`       | `30000` | Idle connection timeout.                         |
+| `GITPAL_DB_POOL_CONNECTION_TIMEOUT_MS` | `10000` | Connection acquisition timeout.                  |
 
 Provider and webhook variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub OAuth app credentials. |
-| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` | Optional GitHub App credentials for app-level access. |
-| `GITHUB_WEBHOOK_SECRET` | GitHub webhook signature secret. |
-| `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` | GitLab OAuth app credentials. |
-| `GITLAB_WEBHOOK_SECRET`, `GITLAB_WEBHOOK_SIGNING_SECRET` | GitLab webhook verification secrets. |
-| `GITPAL_WEBHOOK_BASE_URL` | Optional public base URL for provider webhook registration. |
+| Variable                                                 | Purpose                                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------- |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`               | GitHub OAuth app credentials.                               |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`                | Optional GitHub App credentials for app-level access.       |
+| `GITHUB_WEBHOOK_SECRET`                                  | GitHub webhook signature secret.                            |
+| `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET`               | GitLab OAuth app credentials.                               |
+| `GITLAB_WEBHOOK_SECRET`, `GITLAB_WEBHOOK_SIGNING_SECRET` | GitLab webhook verification secrets.                        |
+| `GITPAL_WEBHOOK_BASE_URL`                                | Optional public base URL for provider webhook registration. |
 
 AI routing variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `AI_GATEWAY_API_KEY` | Vercel AI Gateway key. |
-| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | OpenRouter credentials and endpoint. |
-| `OLLAMA_API_KEY`, `OLLAMA_BASE_URL` | Ollama-compatible provider settings. |
-| `GITPAL_AI_MODEL` | Default model id used by AI workflows. |
+| Variable                                    | Purpose                                |
+| ------------------------------------------- | -------------------------------------- |
+| `AI_GATEWAY_API_KEY`                        | Vercel AI Gateway key.                 |
+| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | OpenRouter credentials and endpoint.   |
+| `OLLAMA_API_KEY`, `OLLAMA_BASE_URL`         | Ollama-compatible provider settings.   |
+| `GITPAL_AI_MODEL`                           | Default model id used by AI workflows. |
 
 Inngest self-hosted variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `INNGEST_EVENT_KEY` | Event key shared by the GitPal server and self-hosted Inngest. |
-| `INNGEST_SIGNING_KEY` | Signing key used by the SDK route and Inngest. |
-| `INNGEST_BASE_URL` | Internal URL used by the GitPal server, `http://inngest:8288` in Compose. |
-| `INNGEST_POSTGRES_URI`, `INNGEST_REDIS_URI` | Storage backends for the self-hosted Inngest service. |
-| `INNGEST_POLL_INTERVAL` | SDK polling interval; defaults to `15` seconds in Compose. |
-| `INNGEST_QUEUE_WORKERS`, `INNGEST_RETRY_INTERVAL`, `INNGEST_TICK` | Inngest runtime tuning. |
-| `INNGEST_DASHBOARD_TRAEFIK_ENABLE` | Set to `true` only when intentionally exposing the dashboard through Traefik. |
-| `INNGEST_DASHBOARD_HOST` | Hostname for the optional protected dashboard route. |
-| `INNGEST_DASHBOARD_BASIC_AUTH_USERS` | Traefik BasicAuth users, generated with `htpasswd`. |
+| Variable                                                          | Purpose                                                                       |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `INNGEST_EVENT_KEY`                                               | Event key shared by the GitPal server and self-hosted Inngest.                |
+| `INNGEST_SIGNING_KEY`                                             | Signing key used by the SDK route and Inngest.                                |
+| `INNGEST_BASE_URL`                                                | Internal URL used by the GitPal server, `http://inngest:8288` in Compose.     |
+| `INNGEST_POSTGRES_URI`, `INNGEST_REDIS_URI`                       | Storage backends for the self-hosted Inngest service.                         |
+| `INNGEST_POLL_INTERVAL`                                           | SDK polling interval; defaults to `15` seconds in Compose.                    |
+| `INNGEST_QUEUE_WORKERS`, `INNGEST_RETRY_INTERVAL`, `INNGEST_TICK` | Inngest runtime tuning.                                                       |
+| `INNGEST_DASHBOARD_TRAEFIK_ENABLE`                                | Set to `true` only when intentionally exposing the dashboard through Traefik. |
+| `INNGEST_DASHBOARD_HOST`                                          | Hostname for the optional protected dashboard route.                          |
+| `INNGEST_DASHBOARD_BASIC_AUTH_USERS`                              | Traefik BasicAuth users, generated with `htpasswd`.                           |
 
 Background flow-control variables:
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY` | `4` | Account-wide repo sync concurrency. |
-| `GITPAL_REPO_SYNC_USER_CONCURRENCY` | `1` | Per-user repo sync concurrency. |
-| `GITPAL_REPO_SYNC_THROTTLE_LIMIT` | `20` | Repo sync burst limit. |
-| `GITPAL_REPO_SYNC_THROTTLE_PERIOD_SECONDS` | `60` | Repo sync throttle window. |
-| `GITPAL_REPO_SYNC_RATE_LIMIT` | `120` | Repo sync hourly limit. |
-| `GITPAL_REPO_SYNC_RATE_LIMIT_PERIOD_SECONDS` | `3600` | Repo sync rate-limit window. |
-| `GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY` | `4` | Account-wide durable AI workflow concurrency. |
-| `GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY` | `1` | Per-repository AI workflow concurrency. |
-| `GITPAL_AI_WORKFLOW_THROTTLE_LIMIT` | `30` | AI workflow burst limit. |
-| `GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS` | `60` | AI workflow throttle window. |
+| Variable                                     | Default | Purpose                                       |
+| -------------------------------------------- | ------- | --------------------------------------------- |
+| `GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY`       | `4`     | Account-wide repo sync concurrency.           |
+| `GITPAL_REPO_SYNC_USER_CONCURRENCY`          | `1`     | Per-user repo sync concurrency.               |
+| `GITPAL_REPO_SYNC_THROTTLE_LIMIT`            | `20`    | Repo sync burst limit.                        |
+| `GITPAL_REPO_SYNC_THROTTLE_PERIOD_SECONDS`   | `60`    | Repo sync throttle window.                    |
+| `GITPAL_REPO_SYNC_RATE_LIMIT`                | `120`   | Repo sync hourly limit.                       |
+| `GITPAL_REPO_SYNC_RATE_LIMIT_PERIOD_SECONDS` | `3600`  | Repo sync rate-limit window.                  |
+| `GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY`     | `4`     | Account-wide durable AI workflow concurrency. |
+| `GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY`  | `1`     | Per-repository AI workflow concurrency.       |
+| `GITPAL_AI_WORKFLOW_THROTTLE_LIMIT`          | `30`    | AI workflow burst limit.                      |
+| `GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS` | `60`    | AI workflow throttle window.                  |
 
 ## Production Deployment
 

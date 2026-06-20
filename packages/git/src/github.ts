@@ -8,6 +8,7 @@ import {
 	type GitCommentInput,
 	type GitCommitStatusInput,
 	type GitIssue,
+	type GitIssueState,
 	type GitMergeMethod,
 	type GitProviderAdapter,
 	type GitProviderAuth,
@@ -236,6 +237,47 @@ function mapPullRequest(
 			typeof pullRequest.merge_commit_sha === "string"
 				? pullRequest.merge_commit_sha
 				: null,
+	};
+}
+
+function mapIssue(
+	item: Record<string, unknown>,
+	providerId: string,
+	repositoryPath: string,
+): GitIssue {
+	const labels = Array.isArray(item.labels)
+		? item.labels.flatMap((label) => {
+				if (typeof label === "string") return [label];
+				if (
+					typeof label === "object" &&
+					label !== null &&
+					"name" in label &&
+					typeof label.name === "string"
+				) {
+					return [label.name];
+				}
+				return [];
+			})
+		: [];
+
+	return {
+		providerId,
+		repositoryPath,
+		number: Number(item.number ?? 0),
+		id: String(item.id ?? item.node_id ?? item.number),
+		title: String(item.title ?? ""),
+		body: typeof item.body === "string" ? item.body : null,
+		state: typeof item.state === "string" ? item.state : "open",
+		htmlUrl: typeof item.html_url === "string" ? item.html_url : "",
+		author: mapActor(
+			typeof item.user === "object" && item.user !== null
+				? (item.user as Record<string, unknown>)
+				: null,
+		),
+		labels,
+		createdAt: String(item.created_at ?? new Date().toISOString()),
+		updatedAt: String(item.updated_at ?? new Date().toISOString()),
+		closedAt: typeof item.closed_at === "string" ? item.closed_at : null,
 	};
 }
 
@@ -699,6 +741,28 @@ export function createGitHubAdapter({
 		);
 	}
 
+	async function listIssues(
+		input: GitRepositoryRef & { state?: GitIssueState },
+	): Promise<GitIssue[]> {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const response = await octokit.paginate(octokit.rest.issues.listForRepo, {
+			owner,
+			repo,
+			state: input.state ?? "open",
+			per_page: 100,
+		});
+
+		return response
+			.filter((item) => !("pull_request" in item))
+			.map((item) =>
+				mapIssue(
+					item as unknown as Record<string, unknown>,
+					providerId,
+					input.repositoryPath,
+				),
+			);
+	}
+
 	async function getIssue(
 		input: GitRepositoryRef & { issueNumber: number },
 	): Promise<GitIssue> {
@@ -709,40 +773,7 @@ export function createGitHubAdapter({
 			issue_number: input.issueNumber,
 		});
 		const item = response.data as unknown as Record<string, unknown>;
-		const labels = Array.isArray(item.labels)
-			? item.labels.flatMap((label) => {
-					if (typeof label === "string") return [label];
-					if (
-						typeof label === "object" &&
-						label !== null &&
-						"name" in label &&
-						typeof label.name === "string"
-					) {
-						return [label.name];
-					}
-					return [];
-				})
-			: [];
-
-		return {
-			providerId,
-			repositoryPath: input.repositoryPath,
-			number: Number(item.number ?? input.issueNumber),
-			id: String(item.id ?? item.node_id ?? input.issueNumber),
-			title: String(item.title ?? ""),
-			body: typeof item.body === "string" ? item.body : null,
-			state: typeof item.state === "string" ? item.state : "open",
-			htmlUrl: typeof item.html_url === "string" ? item.html_url : "",
-			author: mapActor(
-				typeof item.user === "object" && item.user !== null
-					? (item.user as Record<string, unknown>)
-					: null,
-			),
-			labels,
-			createdAt: String(item.created_at ?? new Date().toISOString()),
-			updatedAt: String(item.updated_at ?? new Date().toISOString()),
-			closedAt: typeof item.closed_at === "string" ? item.closed_at : null,
-		};
+		return mapIssue(item, providerId, input.repositoryPath);
 	}
 
 	async function listPullRequestFiles(
@@ -1248,6 +1279,7 @@ export function createGitHubAdapter({
 		getRepository,
 		listPullRequests,
 		getPullRequest,
+		listIssues,
 		getIssue,
 		listPullRequestFiles,
 		listPullRequestComments,

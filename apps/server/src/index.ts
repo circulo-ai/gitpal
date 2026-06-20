@@ -5,6 +5,7 @@ import { type Database, db } from "@gitpal/db";
 import { env } from "@gitpal/env/server";
 import { createFunctions, inngest } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
+import { expireStaleDurableState } from "@gitpal/services/durable-maintenance";
 import { completeIntegrationOAuthCallback } from "@gitpal/services/integrations";
 import {
 	isNowPaymentsWebhookEnabled,
@@ -13,16 +14,19 @@ import {
 } from "@gitpal/services/nowpayments";
 import {
 	dispatchPullRequestReconcile,
+	markPullRequestReconcileFailed,
 	reconcilePullRequestsForRepository,
 } from "@gitpal/services/pr-reconcile";
 import { processRepositorySyncJob } from "@gitpal/services/repository-sync";
 import { processRepositoryWebhookSyncJob } from "@gitpal/services/repository-webhook-sync";
 import {
+	processProviderWebhookFailure,
 	processProviderWebhookReceiptJob,
 	processRepositoryLabelerRunJob,
 	processRepositoryReviewRunJob,
 	receiveProviderWebhook,
 } from "@gitpal/services/repository-webhooks";
+import { failActiveReviewRun } from "@gitpal/services/review-runs";
 import { handleNowPaymentsWebhook } from "@gitpal/services/wallet";
 import { trpcServer } from "@hono/trpc-server";
 import { type Context, Hono } from "hono";
@@ -41,12 +45,21 @@ const app = new Hono<ServerEnv>();
 const log = createLogger("server");
 const functions = createFunctions({
 	processProviderWebhookReceiptJob,
+	processProviderWebhookFailure,
 	processRepositoryWebhookSyncJob,
 	processRepositorySyncJob,
 	processRepositoryReviewRunJob,
 	processRepositoryLabelerRunJob,
+	processRepositoryRunFailure: ({ runId, errorMessage }) =>
+		failActiveReviewRun({
+			runId,
+			reason: "inngest_function_failed",
+			errorMessage,
+		}),
+	expireStaleDurableState,
 	dispatchPullRequestReconcile,
 	reconcilePullRequestsForRepository,
+	markPullRequestReconcileFailed,
 });
 
 async function handleProviderWebhook(

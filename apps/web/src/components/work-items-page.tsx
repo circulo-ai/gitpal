@@ -41,7 +41,12 @@ import {
 } from "@gitpal/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { CircleDotIcon, GitPullRequestIcon, SearchIcon } from "lucide-react";
+import {
+	AlertCircleIcon,
+	CircleDotIcon,
+	GitPullRequestIcon,
+	SearchIcon,
+} from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -243,6 +248,16 @@ export function WorkItemsPage({
 
 					{query.isLoading ? (
 						<WorkItemsSkeleton />
+					) : query.isError ? (
+						<Empty className="min-h-80">
+							<EmptyHeader>
+								<EmptyMedia variant="icon">
+									<AlertCircleIcon />
+								</EmptyMedia>
+								<EmptyTitle>{title} could not be loaded</EmptyTitle>
+								<EmptyDescription>{query.error.message}</EmptyDescription>
+							</EmptyHeader>
+						</Empty>
 					) : query.data?.items.length ? (
 						<>
 							<div className="flex flex-col gap-3 md:hidden">

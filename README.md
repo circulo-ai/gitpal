@@ -81,6 +81,7 @@ Inngest self-hosted variables:
 
 | Variable                                                          | Purpose                                                                       |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `INNGEST_IMAGE`                                                   | Pinned self-hosted Inngest image; override only for an intentional upgrade.   |
 | `INNGEST_EVENT_KEY`                                               | Event key shared by the GitPal server and self-hosted Inngest.                |
 | `INNGEST_SIGNING_KEY`                                             | Signing key used by the SDK route and Inngest.                                |
 | `INNGEST_BASE_URL`                                                | Internal URL used by the GitPal server, `http://inngest:8288` in Compose.     |

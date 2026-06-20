@@ -1265,9 +1265,19 @@ export async function runRepositoryReview(context: ReviewContext) {
 		organizationId: context.organizationId ?? null,
 		repositoryFullName: context.repository.fullName,
 	});
-	const enabledIntegrationContexts = await listEnabledIntegrationToolContexts({
-		organizationId: context.organizationId ?? null,
-	});
+	let enabledIntegrationContexts: Awaited<
+		ReturnType<typeof listEnabledIntegrationToolContexts>
+	>;
+	let seededContext: string;
+	try {
+		enabledIntegrationContexts = await listEnabledIntegrationToolContexts({
+			organizationId: context.organizationId ?? null,
+		});
+		seededContext = await loadSeededRepositoryContext(context);
+	} catch (error) {
+		await externalMcpToolSet.close();
+		throw error;
+	}
 	const integrationInstructionContext = buildIntegrationInstructionContext(
 		enabledIntegrationContexts,
 	);
@@ -1276,7 +1286,6 @@ export async function runRepositoryReview(context: ReviewContext) {
 		...externalMcpToolSet.tools,
 	};
 	const thinkingProviderOptions = mapThinkingProviderOptions(context.settings);
-	const seededContext = await loadSeededRepositoryContext(context);
 	log.debug("Starting repository review generation.", {
 		repository: context.repository.fullName,
 		pullRequestNumber: context.pullRequest.number,

@@ -33,6 +33,7 @@ export type GitRepositoryRef = {
 };
 
 export type GitPullRequestState = "all" | "open" | "closed" | "merged";
+export type GitIssueState = "all" | "open" | "closed";
 export type GitMergeMethod = "merge" | "squash" | "rebase";
 
 export type GitActor = {
@@ -354,6 +355,9 @@ export interface GitProviderAdapter {
 	getPullRequest(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	): Promise<GitPullRequest>;
+	listIssues(
+		input: GitRepositoryRef & { state?: GitIssueState },
+	): Promise<GitIssue[]>;
 	getIssue(
 		input: GitRepositoryRef & { issueNumber: number },
 	): Promise<GitIssue>;

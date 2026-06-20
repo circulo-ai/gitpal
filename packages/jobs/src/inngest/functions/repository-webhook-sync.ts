@@ -38,7 +38,9 @@ export function createRepositoryWebhookSyncFunction(
 		{
 			id: "repository-webhook-sync",
 			triggers: [repoWebhookSyncEvent],
+			retries: 3,
 			concurrency: 1,
+			timeouts: { start: "15m", finish: "1h" },
 		},
 		async ({ event, step }) => {
 			const data = repositoryWebhookSyncJobSchema.parse(event.data);

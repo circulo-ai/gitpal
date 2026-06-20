@@ -17,6 +17,7 @@ import { summarizeHumanReviews } from "./pull-request-reviews";
 import { sanitizeDiagnosticText } from "./safe-diagnostics";
 
 const log = createLogger("pull-request-reconcile");
+const SCHEDULED_RECONCILE_INTERVAL_MS = 15 * 60 * 1_000;
 
 function getErrorMessage(error: unknown) {
 	return error instanceof Error
@@ -33,6 +34,16 @@ async function markReconcileFailed(repositoryId: string, error: string) {
 			lastReconcileError: sanitizeDiagnosticText(error).slice(0, 2_000),
 		})
 		.where(eq(dashboardSchema.repository.id, repositoryId));
+}
+
+export async function markPullRequestReconcileFailed({
+	repositoryId,
+	errorMessage,
+}: {
+	repositoryId: string;
+	errorMessage: string;
+}) {
+	await markReconcileFailed(repositoryId, errorMessage);
 }
 
 /**
@@ -56,14 +67,14 @@ export async function reconcilePullRequestsForRepository({
 	repositoryId,
 }: {
 	repositoryId: string;
-}): Promise<{ projected: number }> {
+}): Promise<{ projected: number; issuesProjected: number }> {
 	const [repository] = await db
 		.select()
 		.from(dashboardSchema.repository)
 		.where(eq(dashboardSchema.repository.id, repositoryId))
 		.limit(1);
 	if (!repository) {
-		return { projected: 0 };
+		return { projected: 0, issuesProjected: 0 };
 	}
 	const reconcileStartedAt = new Date();
 	await db
@@ -88,10 +99,10 @@ export async function reconcilePullRequestsForRepository({
 			repository.id,
 			"No provider credentials are available for reconciliation.",
 		);
-		return { projected: 0 };
+		return { projected: 0, issuesProjected: 0 };
 	}
 
-	const issueProjected = await reconcileKnownIssueSnapshots({
+	const issueResult = await reconcileIssueSnapshots({
 		adapter: automationActor.adapter,
 		repositoryId: repository.id,
 		repositoryPath: repository.repositoryPath,
@@ -109,7 +120,7 @@ export async function reconcilePullRequestsForRepository({
 			"Reconcile failed — listPullRequests error.",
 		);
 		await markReconcileFailed(repository.id, getErrorMessage(error));
-		return { projected: 0 };
+		return { projected: 0, issuesProjected: issueResult.projected };
 	}
 
 	const projectedRows = await mapWithConcurrency(
@@ -150,11 +161,18 @@ export async function reconcilePullRequestsForRepository({
 		0,
 	);
 	const failed = pullRequests.length - projected;
-	if (failed > 0) {
-		await markReconcileFailed(
-			repository.id,
-			`${failed} of ${pullRequests.length} pull requests could not be reconciled.`,
-		);
+	const issueFailed = issueResult.total - issueResult.projected;
+	const reconcileErrors = [
+		issueResult.error,
+		failed > 0
+			? `${failed} of ${pullRequests.length} pull requests could not be reconciled.`
+			: null,
+		issueFailed > 0
+			? `${issueFailed} of ${issueResult.total} issues could not be reconciled.`
+			: null,
+	].filter((error): error is string => Boolean(error));
+	if (reconcileErrors.length > 0) {
+		await markReconcileFailed(repository.id, reconcileErrors.join(" "));
 	} else {
 		await db
 			.update(dashboardSchema.repository)
@@ -169,15 +187,16 @@ export async function reconcilePullRequestsForRepository({
 		{
 			repositoryId,
 			projected,
-			issueProjected,
+			issueProjected: issueResult.projected,
+			issueTotal: issueResult.total,
 			total: pullRequests.length,
 		},
 		"Pull request reconcile complete.",
 	);
-	return { projected };
+	return { projected, issuesProjected: issueResult.projected };
 }
 
-async function reconcileKnownIssueSnapshots({
+async function reconcileIssueSnapshots({
 	adapter,
 	repositoryId,
 	repositoryPath,
@@ -186,31 +205,33 @@ async function reconcileKnownIssueSnapshots({
 	repositoryId: string;
 	repositoryPath: string;
 }) {
-	const knownIssues = await db
-		.select({ number: dashboardSchema.issue.number })
-		.from(dashboardSchema.issue)
-		.where(eq(dashboardSchema.issue.repositoryId, repositoryId));
-	const results = await mapWithConcurrency(
-		knownIssues,
-		3,
-		async ({ number }) => {
-			try {
-				const issue = await adapter.getIssue({
-					repositoryPath,
-					issueNumber: number,
-				});
-				await projectIssueSnapshot({ repositoryId, issue });
-				return 1;
-			} catch (error) {
-				log.warn(
-					{ err: error, repositoryId, issueNumber: number },
-					"Reconcile skipped - issue projection failed.",
-				);
-				return 0;
-			}
-		},
-	);
-	return results.reduce<number>((total, value) => total + value, 0);
+	let issues: Awaited<ReturnType<GitProviderAdapter["listIssues"]>>;
+	try {
+		issues = await adapter.listIssues({ repositoryPath, state: "all" });
+	} catch (error) {
+		log.warn(
+			{ err: error, repositoryId },
+			"Reconcile failed - listIssues error.",
+		);
+		return { projected: 0, total: 0, error: getErrorMessage(error) };
+	}
+	const results = await mapWithConcurrency(issues, 3, async (issue) => {
+		try {
+			await projectIssueSnapshot({ repositoryId, issue });
+			return 1;
+		} catch (error) {
+			log.warn(
+				{ err: error, repositoryId, issueNumber: issue.number },
+				"Reconcile skipped - issue projection failed.",
+			);
+			return 0;
+		}
+	});
+	return {
+		projected: results.reduce<number>((total, value) => total + value, 0),
+		total: issues.length,
+		error: null,
+	};
 }
 
 /**
@@ -257,6 +278,9 @@ export async function dispatchPullRequestReconcile(): Promise<{
 		})
 		.from(dashboardSchema.repositoryAccess)
 		.where(eq(dashboardSchema.repositoryAccess.enabled, true));
+	const scheduleWindow = Math.floor(
+		Date.now() / SCHEDULED_RECONCILE_INTERVAL_MS,
+	);
 	const results = await mapWithConcurrency(
 		rows,
 		10,
@@ -265,6 +289,7 @@ export async function dispatchPullRequestReconcile(): Promise<{
 				const value = await enqueuePullRequestSyncJob({
 					repositoryId,
 					reason: "scheduled",
+					requestId: `scheduled_${scheduleWindow}`,
 				});
 				return { status: "fulfilled" as const, value };
 			} catch (reason) {

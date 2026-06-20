@@ -2,6 +2,10 @@ import "dotenv/config";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+export const skipEnvValidation = ["1", "true"].includes(
+	process.env.SKIP_ENV_VALIDATION?.trim().toLowerCase() ?? "",
+);
+
 export const env = createEnv({
 	server: {
 		DATABASE_URL: z.string().min(1),
@@ -20,7 +24,7 @@ export const env = createEnv({
 			.int()
 			.positive()
 			.default(5 * 1024 * 1024),
-		TRUST_PROXY_HEADERS: z.coerce.boolean().default(false),
+		TRUST_PROXY_HEADERS: z.stringbool().default(false),
 		GITPAL_DB_POOL_MAX: z.coerce.number().int().positive().default(10),
 		GITPAL_DB_POOL_IDLE_TIMEOUT_MS: z.coerce
 			.number()
@@ -55,15 +59,18 @@ export const env = createEnv({
 		GITPAL_QUEUE_REMOVE_ON_FAIL: z.coerce.number().int().min(0).default(5_000),
 		GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY: z.coerce
 			.number()
+			.int()
 			.min(1)
 			.default(5),
 		GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX: z.coerce
 			.number()
+			.int()
 			.min(0)
 			.default(0),
 		GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS: z.coerce
 			.number()
-			.min(0)
+			.int()
+			.min(1_000)
 			.default(1000),
 		GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY: z.coerce
 			.number()
@@ -162,10 +169,10 @@ export const env = createEnv({
 			.enum(["development", "production", "test"])
 			.default("development"),
 		INNGEST_BASE_URL: z.url().optional(),
-		INNGEST_EVENT_KEY: z.string().min(32).optional(),
-		INNGEST_SIGNING_KEY: z.string().min(32).optional(),
+		INNGEST_EVENT_KEY: z.string().trim().min(32).optional(),
+		INNGEST_SIGNING_KEY: z.string().trim().min(32).optional(),
 	},
 	runtimeEnv: process.env,
-	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+	skipValidation: skipEnvValidation,
 	emptyStringAsUndefined: true,
 });

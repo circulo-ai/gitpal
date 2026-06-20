@@ -6,6 +6,7 @@ import {
 	type GitCommentInput,
 	type GitCommitStatusInput,
 	type GitIssue,
+	type GitIssueState,
 	type GitMergeMethod,
 	type GitProviderAdapter,
 	type GitProviderAuth,
@@ -572,6 +573,28 @@ function mapPullRequest(
 		mergedAt,
 		closedAt: mergeRequest.closed_at ?? null,
 		mergeCommitSha: mergeRequest.merge_commit_sha ?? null,
+	};
+}
+
+function mapIssue(
+	item: GitLabIssue,
+	providerId: string,
+	repositoryPath: string,
+): GitIssue {
+	return {
+		providerId,
+		repositoryPath,
+		number: item.iid,
+		id: String(item.id),
+		title: item.title,
+		body: item.description ?? null,
+		state: item.state,
+		htmlUrl: item.web_url,
+		author: mapActor(item.author ?? undefined),
+		labels: item.labels ?? [],
+		createdAt: item.created_at,
+		updatedAt: item.updated_at,
+		closedAt: item.closed_at ?? null,
 	};
 }
 
@@ -1156,6 +1179,31 @@ export function createGitLabAdapter({
 		return mapPullRequest(mergeRequest, providerId, input.repositoryPath);
 	}
 
+	async function listIssues(
+		input: GitRepositoryRef & { state?: GitIssueState },
+	): Promise<GitIssue[]> {
+		const stateQuery =
+			input.state && input.state !== "all"
+				? `?state=${input.state === "open" ? "opened" : "closed"}`
+				: "";
+		const response = await requestJsonPages<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/issues${stateQuery}`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(auth),
+				},
+			},
+			providerId,
+		);
+		const items = z.array(gitlabIssueSchema).parse(response);
+		return items.map((item) =>
+			mapIssue(item, providerId, input.repositoryPath),
+		);
+	}
+
 	async function getIssue(
 		input: GitRepositoryRef & { issueNumber: number },
 	): Promise<GitIssue> {
@@ -1173,21 +1221,7 @@ export function createGitLabAdapter({
 		);
 		const item = gitlabIssueSchema.parse(response);
 
-		return {
-			providerId,
-			repositoryPath: input.repositoryPath,
-			number: item.iid,
-			id: String(item.id),
-			title: item.title,
-			body: item.description ?? null,
-			state: item.state,
-			htmlUrl: item.web_url,
-			author: mapActor(item.author ?? undefined),
-			labels: item.labels ?? [],
-			createdAt: item.created_at,
-			updatedAt: item.updated_at,
-			closedAt: item.closed_at ?? null,
-		};
+		return mapIssue(item, providerId, input.repositoryPath);
 	}
 
 	async function listPullRequestFiles(
@@ -1943,6 +1977,7 @@ export function createGitLabAdapter({
 		getRepository,
 		listPullRequests,
 		getPullRequest,
+		listIssues,
 		getIssue,
 		listPullRequestFiles,
 		listPullRequestComments,

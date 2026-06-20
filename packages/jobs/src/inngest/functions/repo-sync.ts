@@ -3,6 +3,7 @@ import { eventType, NonRetriableError, staticSchema } from "inngest";
 import { z } from "zod";
 import { buildEventId } from "../../idempotency";
 import { inngest } from "../client";
+import { readIntegerConfig, secondsConfig } from "../config";
 
 export const repositorySyncJobSchema = z.object({
 	userId: z.string().min(1),
@@ -50,11 +51,17 @@ const repositorySyncConcurrency: [
 	{
 		scope: "account",
 		key: `"repo-sync"`,
-		limit: env.GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY,
+		limit: readIntegerConfig(
+			env.GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY,
+			"GITPAL_REPO_SYNC_ACCOUNT_CONCURRENCY",
+		),
 	},
 	{
 		key: "event.data.userId",
-		limit: env.GITPAL_REPO_SYNC_USER_CONCURRENCY,
+		limit: readIntegerConfig(
+			env.GITPAL_REPO_SYNC_USER_CONCURRENCY,
+			"GITPAL_REPO_SYNC_USER_CONCURRENCY",
+		),
 	},
 ];
 
@@ -68,17 +75,28 @@ export function createRepositorySyncFunction(
 			retries: 3 as const,
 			concurrency: repositorySyncConcurrency,
 			throttle: {
-				limit: env.GITPAL_REPO_SYNC_THROTTLE_LIMIT,
-				period:
-					`${env.GITPAL_REPO_SYNC_THROTTLE_PERIOD_SECONDS}s` as `${number}s`,
+				limit: readIntegerConfig(
+					env.GITPAL_REPO_SYNC_THROTTLE_LIMIT,
+					"GITPAL_REPO_SYNC_THROTTLE_LIMIT",
+				),
+				period: secondsConfig(
+					env.GITPAL_REPO_SYNC_THROTTLE_PERIOD_SECONDS,
+					"GITPAL_REPO_SYNC_THROTTLE_PERIOD_SECONDS",
+				),
 				key: "event.data.userId",
 			},
 			rateLimit: {
-				limit: env.GITPAL_REPO_SYNC_RATE_LIMIT,
-				period:
-					`${env.GITPAL_REPO_SYNC_RATE_LIMIT_PERIOD_SECONDS}s` as `${number}s`,
+				limit: readIntegerConfig(
+					env.GITPAL_REPO_SYNC_RATE_LIMIT,
+					"GITPAL_REPO_SYNC_RATE_LIMIT",
+				),
+				period: secondsConfig(
+					env.GITPAL_REPO_SYNC_RATE_LIMIT_PERIOD_SECONDS,
+					"GITPAL_REPO_SYNC_RATE_LIMIT_PERIOD_SECONDS",
+				),
 				key: "event.data.userId",
 			},
+			timeouts: { start: "15m", finish: "1h" },
 		},
 		async ({ event, step }) => {
 			const data = parseRepositorySyncEvent(event.data);

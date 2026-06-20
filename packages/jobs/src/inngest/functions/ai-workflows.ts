@@ -4,6 +4,7 @@ import { eventType, NonRetriableError, staticSchema } from "inngest";
 import { z } from "zod";
 import { buildEventId } from "../../idempotency";
 import { inngest } from "../client";
+import { readIntegerConfig, secondsConfig } from "../config";
 
 const aiRunJobBaseSchema = z.object({
 	source: z.enum(["webhook", "manual"]).default("webhook"),
@@ -11,6 +12,7 @@ const aiRunJobBaseSchema = z.object({
 	repositoryId: z.string().min(1),
 	providerType: z.enum(["github", "gitlab"]),
 	targetNumber: z.number().int().positive().optional(),
+	targetKind: z.enum(["issue", "pull_request"]).optional(),
 	requestedByUserId: z.string().min(1).optional(),
 	retryOfRunId: z.string().min(1).optional(),
 	runId: z.string().min(1).optional(),
@@ -75,6 +77,11 @@ export type RepositoryLabelerRunProcessor = (
 	input: RepositoryLabelerRunJobData,
 ) => Promise<unknown>;
 
+export type RepositoryRunFailureProcessor = (input: {
+	runId: string;
+	errorMessage: string;
+}) => Promise<unknown>;
+
 function parseJob<T>(schema: z.ZodSchema<T>, data: unknown, eventName: string) {
 	const result = schema.safeParse(data);
 	if (result.success) {
@@ -93,11 +100,17 @@ const aiWorkflowConcurrency: [
 	{
 		scope: "account",
 		key: `"ai-workflows"`,
-		limit: Number(env.GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY),
+		limit: readIntegerConfig(
+			env.GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY,
+			"GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY",
+		),
 	},
 	{
 		key: "event.data.repositoryId",
-		limit: Number(env.GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY),
+		limit: readIntegerConfig(
+			env.GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY,
+			"GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY",
+		),
 	},
 ];
 
@@ -105,21 +118,41 @@ const aiWorkflowFlowControl = {
 	retries: 3 as const,
 	concurrency: aiWorkflowConcurrency,
 	throttle: {
-		limit: Number(env.GITPAL_AI_WORKFLOW_THROTTLE_LIMIT),
-		period:
-			`${Number(env.GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS)}s` as `${number}s`,
+		limit: readIntegerConfig(
+			env.GITPAL_AI_WORKFLOW_THROTTLE_LIMIT,
+			"GITPAL_AI_WORKFLOW_THROTTLE_LIMIT",
+		),
+		period: secondsConfig(
+			env.GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS,
+			"GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS",
+		),
 		key: `"ai-provider"`,
+	},
+	timeouts: {
+		start: "30m" as const,
+		finish: "2h" as const,
 	},
 };
 
 export function createRepositoryReviewRunFunction(
 	processRepositoryReviewRunJob: RepositoryReviewRunProcessor,
+	processRepositoryRunFailure: RepositoryRunFailureProcessor,
 ) {
 	return inngest.createFunction(
 		{
 			id: "repository-review-workflow",
 			triggers: [repositoryReviewRunRequestedEvent],
 			...aiWorkflowFlowControl,
+			onFailure: async ({ event, error, step }) => {
+				const runId = event.data.event.data.runId;
+				if (!runId) return;
+				await step.run("finalize-failed-manual-run", () =>
+					processRepositoryRunFailure({
+						runId,
+						errorMessage: error.message,
+					}),
+				);
+			},
 		},
 		async ({ event, step }) => {
 			const data = parseJob(
@@ -137,12 +170,23 @@ export function createRepositoryReviewRunFunction(
 
 export function createRepositoryLabelerRunFunction(
 	processRepositoryLabelerRunJob: RepositoryLabelerRunProcessor,
+	processRepositoryRunFailure: RepositoryRunFailureProcessor,
 ) {
 	return inngest.createFunction(
 		{
 			id: "repository-labeler-workflow",
 			triggers: [repositoryLabelerRunRequestedEvent],
 			...aiWorkflowFlowControl,
+			onFailure: async ({ event, error, step }) => {
+				const runId = event.data.event.data.runId;
+				if (!runId) return;
+				await step.run("finalize-failed-manual-run", () =>
+					processRepositoryRunFailure({
+						runId,
+						errorMessage: error.message,
+					}),
+				);
+			},
 		},
 		async ({ event, step }) => {
 			const data = parseJob(
@@ -170,6 +214,7 @@ export async function enqueueRepositoryReviewRunJob(
 			"ai-review-run",
 			data.receiptId ?? data.idempotencyKey ?? randomUUID(),
 			data.repositoryId,
+			data.targetKind,
 		]),
 	});
 }
@@ -186,6 +231,7 @@ export async function enqueueRepositoryLabelerRunJob(
 			"ai-labeler-run",
 			data.receiptId ?? data.idempotencyKey ?? randomUUID(),
 			data.repositoryId,
+			data.targetKind,
 		]),
 	});
 }

@@ -3,6 +3,7 @@ import { eventType, NonRetriableError, staticSchema } from "inngest";
 import { z } from "zod";
 import { buildEventId } from "../../idempotency";
 import { inngest } from "../client";
+import { readIntegerConfig, secondsConfig } from "../config";
 
 export const providerWebhookJobSchema = z.object({
 	receiptId: z.string().min(1),
@@ -18,6 +19,9 @@ export const providerWebhookEvent = eventType("webhook/provider.process", {
 export type ProviderWebhookReceiptProcessor = (
 	input: ProviderWebhookJobData,
 ) => Promise<unknown>;
+export type ProviderWebhookFailureProcessor = (
+	input: ProviderWebhookJobData & { errorMessage: string },
+) => Promise<unknown>;
 
 function parseProviderWebhookJob(data: unknown) {
 	const result = providerWebhookJobSchema.safeParse(data);
@@ -32,19 +36,48 @@ function parseProviderWebhookJob(data: unknown) {
 
 export function createProcessProviderWebhookFunction(
 	processProviderWebhookReceiptJob: ProviderWebhookReceiptProcessor,
+	processProviderWebhookFailure: ProviderWebhookFailureProcessor,
 ) {
 	return inngest.createFunction(
 		{
 			id: "process-provider-webhook",
 			triggers: [providerWebhookEvent],
-			concurrency: Number(env.GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY ?? 5),
+			retries: 3,
+			concurrency: readIntegerConfig(
+				env.GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY,
+				"GITPAL_PROVIDER_WEBHOOK_WORKER_CONCURRENCY",
+			),
 			throttle:
-				(env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX ?? 0) > 0
+				readIntegerConfig(
+					env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX,
+					"GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX",
+					0,
+				) > 0
 					? {
-							limit: env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX,
-							period: `${Math.floor(env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS / 1000)}s`,
+							limit: readIntegerConfig(
+								env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX,
+								"GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_MAX",
+							),
+							period: secondsConfig(
+								Math.floor(
+									Number(
+										env.GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS,
+									) / 1000,
+								),
+								"GITPAL_PROVIDER_WEBHOOK_QUEUE_RATE_LIMIT_DURATION_MS",
+							),
 						}
 					: undefined,
+			timeouts: { start: "5m", finish: "15m" },
+			onFailure: async ({ event, error, step }) => {
+				const data = parseProviderWebhookJob(event.data.event.data);
+				await step.run("finalize-failed-receipt", () =>
+					processProviderWebhookFailure({
+						...data,
+						errorMessage: error.message,
+					}),
+				);
+			},
 		},
 		async ({ event, step }) => {
 			const data = parseProviderWebhookJob(event.data);

@@ -423,6 +423,7 @@ export async function enqueueManualWorkItemRun(input: {
 		repositoryId: input.repositoryId,
 		providerType,
 		targetNumber: input.number,
+		targetKind: input.kind,
 		requestedByUserId: input.userId,
 		retryOfRunId: input.retryOfRunId,
 		idempotencyKey: deliveryId,

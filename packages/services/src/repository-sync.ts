@@ -854,8 +854,44 @@ export async function queueRepositorySyncForUser(
 		...input,
 		requestId:
 			input.requestId ??
-			(input.force ? `repo_sync_${randomUUID()}` : undefined),
+			(input.force
+				? `repo_sync_${randomUUID()}`
+				: input.reason === "auto"
+					? `repo_sync_auto_${Math.floor(Date.now() / DEFAULT_REPOSITORY_SYNC_TTL_MS)}`
+					: undefined),
 	});
+	if (data.reason === "auto" && !data.force) {
+		const accounts = await db
+			.select({ providerId: authSchema.account.providerId })
+			.from(authSchema.account)
+			.where(eq(authSchema.account.userId, data.userId));
+		const latestSyncs = await Promise.all(
+			accounts.map((account) =>
+				getLatestSyncAt({
+					userId: data.userId,
+					providerId: account.providerId,
+				}),
+			),
+		);
+		if (
+			accounts.length === 0 ||
+			latestSyncs.every(
+				(lastSyncedAt) =>
+					!shouldRefreshRepositorySync(
+						lastSyncedAt,
+						DEFAULT_REPOSITORY_SYNC_TTL_MS,
+					),
+			)
+		) {
+			return {
+				queued: false,
+				jobId: null,
+				reason: data.reason,
+				force: data.force,
+				error: null,
+			};
+		}
+	}
 
 	try {
 		const job = await enqueueRepositorySyncJob(data);

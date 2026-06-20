@@ -5,6 +5,9 @@ import { z } from "zod";
 const nodeEnvSchema = z
 	.enum(["development", "production", "test"])
 	.default("development");
+const skipEnvValidation = ["1", "true"].includes(
+	process.env.SKIP_ENV_VALIDATION?.trim().toLowerCase() ?? "",
+);
 
 export const env = createEnv({
 	server: {
@@ -17,6 +20,6 @@ export const env = createEnv({
 		NODE_ENV: nodeEnvSchema,
 	},
 	runtimeEnv: process.env,
-	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+	skipValidation: skipEnvValidation,
 	emptyStringAsUndefined: true,
 });

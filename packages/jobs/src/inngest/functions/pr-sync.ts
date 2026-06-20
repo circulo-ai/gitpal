@@ -24,13 +24,19 @@ export type PullRequestReconcileProcessor = (input: {
 }) => Promise<unknown>;
 
 export type PullRequestDispatchProcessor = () => Promise<unknown>;
+export type PullRequestReconcileFailureProcessor = (input: {
+	repositoryId: string;
+	errorMessage: string;
+}) => Promise<unknown>;
 
 export function createPullRequestSyncFunction({
 	dispatchPullRequestReconcile,
 	reconcilePullRequestsForRepository,
+	markPullRequestReconcileFailed,
 }: {
 	dispatchPullRequestReconcile: PullRequestDispatchProcessor;
 	reconcilePullRequestsForRepository: PullRequestReconcileProcessor;
+	markPullRequestReconcileFailed: PullRequestReconcileFailureProcessor;
 }) {
 	return inngest.createFunction(
 		{
@@ -39,7 +45,19 @@ export function createPullRequestSyncFunction({
 				{ cron: "*/15 * * * *" }, // Replaces scheduled sweep
 				prSyncDispatchEvent,
 			],
+			retries: 3,
 			concurrency: PULL_REQUEST_SYNC_CONCURRENCY,
+			timeouts: { start: "15m", finish: "1h" },
+			onFailure: async ({ event, error, step }) => {
+				const repositoryId = event.data.event.data.repositoryId;
+				if (!repositoryId) return;
+				await step.run("mark-reconcile-failed", () =>
+					markPullRequestReconcileFailed({
+						repositoryId,
+						errorMessage: error.message,
+					}),
+				);
+			},
 		},
 		async ({ event, step }) => {
 			const data = pullRequestSyncJobSchema.parse(event.data ?? {});

@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
 
   inngest:
-    image: inngest/inngest
+    image: ${INNGEST_IMAGE:-inngest/inngest:v1.31.0}
     command: "inngest start --sdk-url http://host.docker.internal:3000/api/inngest --poll-interval ${INNGEST_POLL_INTERVAL:-15}"
     environment:
       INNGEST_PORT: 8288

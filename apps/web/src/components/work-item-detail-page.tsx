@@ -501,7 +501,7 @@ export function WorkItemDetailPage({
 	const { activeWorkspaceId } = useActiveWorkspace();
 	const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
 	const [confirmAction, setConfirmAction] = React.useState<ConfirmAction>(null);
-	const awaitingRunAt = React.useRef<number | null>(null);
+	const awaitingRunId = React.useRef<string | null>(null);
 	const queryInput = {
 		organizationId: activeWorkspaceId ?? undefined,
 		kind,
@@ -513,7 +513,7 @@ export function WorkItemDetailPage({
 		enabled: Boolean(activeWorkspaceId),
 		refetchInterval: (query) => {
 			const data = query.state.data as Detail | undefined;
-			return awaitingRunAt.current ||
+			return awaitingRunId.current ||
 				data?.runs.some((run) => ACTIVE_STATUSES.has(run.status))
 				? 2500
 				: false;
@@ -533,11 +533,11 @@ export function WorkItemDetailPage({
 	React.useEffect(() => {
 		if (!selectedRunId && detail?.runs[0]) setSelectedRunId(detail.runs[0].id);
 		if (
-			awaitingRunAt.current &&
-			detail?.runs[0] &&
-			new Date(detail.runs[0].createdAt).getTime() >= awaitingRunAt.current
-		)
-			awaitingRunAt.current = null;
+			awaitingRunId.current &&
+			detail?.runs.some((run) => run.id === awaitingRunId.current)
+		) {
+			awaitingRunId.current = null;
+		}
 	}, [detail, selectedRunId]);
 
 	const invalidate = async () => {
@@ -561,8 +561,9 @@ export function WorkItemDetailPage({
 	);
 	const runMutation = useMutation(
 		trpc.workItems.run.mutationOptions({
-			onSuccess: async () => {
-				awaitingRunAt.current = Date.now();
+			onSuccess: async (result) => {
+				awaitingRunId.current = result.runId;
+				setSelectedRunId(result.runId);
 				await invalidate();
 				toast.success(
 					kind === "pull_request" ? "Review queued." : "Labeler run queued.",
@@ -573,8 +574,9 @@ export function WorkItemDetailPage({
 	);
 	const retryMutation = useMutation(
 		trpc.workItems.retry.mutationOptions({
-			onSuccess: async () => {
-				awaitingRunAt.current = Date.now();
+			onSuccess: async (result) => {
+				awaitingRunId.current = result.runId;
+				setSelectedRunId(result.runId);
 				await invalidate();
 				toast.success("Retry queued as a new run.");
 			},
@@ -884,7 +886,7 @@ export function WorkItemDetailPage({
 										<div>
 											<CardTitle>Execution trace</CardTitle>
 											<CardDescription>
-												Immutable step-by-step diagnostics for the selected run.
+												Step-by-step diagnostics for the selected run.
 											</CardDescription>
 										</div>
 										{detail.runs.length ? (
@@ -943,7 +945,8 @@ export function WorkItemDetailPage({
 								<CardHeader>
 									<CardTitle>Run history</CardTitle>
 									<CardDescription>
-										Every run remains independently addressable and immutable.
+										Every run remains independently addressable with its final
+										outcome.
 									</CardDescription>
 								</CardHeader>
 								<CardContent className="flex flex-col gap-3">

@@ -9,7 +9,6 @@ import {
 	createGitHubAdapter,
 	createGitLabAdapter,
 	type GitActor,
-	type GitIssue,
 	type GitProviderAdapter,
 	type GitPullRequest,
 	type GitRepository,
@@ -53,6 +52,7 @@ import {
 	type RepositoryReviewOutput,
 	runRepositoryReview,
 } from "./review-agent";
+import { failActiveReviewRun } from "./review-runs";
 import {
 	finishRunStep,
 	recordCompletedRunStep,
@@ -992,6 +992,20 @@ async function updateWebhookReceipt({
 			updatedAt: now,
 		})
 		.where(eq(dashboardSchema.webhookEventReceipt.id, receiptId));
+}
+
+export async function processProviderWebhookFailure({
+	receiptId,
+	errorMessage,
+}: {
+	receiptId: string;
+	errorMessage: string;
+}) {
+	log.error(
+		{ receiptId, error: sanitizeRunDetails({ message: errorMessage }) },
+		"Provider webhook processing exhausted its retries.",
+	);
+	await updateWebhookReceipt({ receiptId, status: "failed" });
 }
 // `upsertPullRequestSnapshot` and `recordHumanReviewSignal` now live in
 // `./pull-request-projection` so the webhook path, the scheduled reconcile
@@ -1977,7 +1991,7 @@ async function runWebhookLabeler({
 	repository,
 	envelope,
 	providerType,
-	forcedTarget = null,
+	forcedContext = null,
 	forcedDispatch = null,
 	requestedByUserId = null,
 	retryOfRunId = null,
@@ -1986,7 +2000,7 @@ async function runWebhookLabeler({
 	repository: RepositoryRow;
 	envelope: GitWebhookEnvelope;
 	providerType: ProviderType;
-	forcedTarget?: GitIssue | null;
+	forcedContext?: LabelEventContext | null;
 	forcedDispatch?: LabelDispatch | null;
 	requestedByUserId?: string | null;
 	retryOfRunId?: string | null;
@@ -2008,16 +2022,8 @@ async function runWebhookLabeler({
 		return "ignored" as const;
 	}
 	const settings = settingsResult.effectiveSettings;
-	const labelContext = forcedTarget
-		? {
-				kind: "issue" as const,
-				number: forcedTarget.number,
-				title: forcedTarget.title,
-				body: forcedTarget.body,
-				labels: forcedTarget.labels,
-				isDraft: false,
-			}
-		: extractLabelContext(providerType, envelope);
+	const labelContext =
+		forcedContext ?? extractLabelContext(providerType, envelope);
 	if (!labelContext?.number) {
 		return "ignored" as const;
 	}
@@ -2071,12 +2077,10 @@ async function runWebhookLabeler({
 			pullRequestNumber: labelContext.number,
 		});
 	} else {
-		const issue =
-			forcedTarget ??
-			(await automationActor.adapter.getIssue({
-				repositoryPath: repository.repositoryPath,
-				issueNumber: labelContext.number,
-			}));
+		const issue = await automationActor.adapter.getIssue({
+			repositoryPath: repository.repositoryPath,
+			issueNumber: labelContext.number,
+		});
 		issueRow = await projectIssueSnapshot({
 			repositoryId: repository.id,
 			issue,
@@ -2672,6 +2676,14 @@ export async function processRepositoryReviewRunJob(
 	const data = repositoryReviewRunJobSchema.parse(input);
 	if (data.source === "manual") {
 		try {
+			if (data.targetKind && data.targetKind !== "pull_request") {
+				await finalizeUnstartedManualRun({
+					reviewRunId: data.runId,
+					status: "failed",
+					reason: "invalid_target_kind",
+				});
+				return { status: "failed" };
+			}
 			const repository = await getRepositoryById(data.repositoryId);
 			if (!repository || !data.targetNumber) {
 				await finalizeUnstartedManualRun({
@@ -2721,12 +2733,14 @@ export async function processRepositoryReviewRunJob(
 			}
 			return result;
 		} catch (error) {
-			await finalizeUnstartedManualRun({
-				reviewRunId: data.runId,
-				status: "failed",
-				reason: "review_preflight_failed",
-			});
-			throw error;
+			if (data.runId) {
+				await failActiveReviewRun({
+					runId: data.runId,
+					reason: "review_preflight_failed",
+					errorMessage: error instanceof Error ? error.message : String(error),
+				});
+			}
+			return { status: "failed" };
 		}
 	}
 	if (!data.receiptId) return { status: "ignored" };
@@ -2777,22 +2791,34 @@ export async function processRepositoryLabelerRunJob(
 				});
 				return { status: "ignored" };
 			}
-			let forcedTarget: GitIssue | null = null;
-			let forcedKind: "issue" | "pull_request" = "issue";
-			try {
-				await automationActor.adapter.getPullRequest({
+			const forcedKind = data.targetKind ?? "issue";
+			let forcedContext: LabelEventContext;
+			if (forcedKind === "pull_request") {
+				const pullRequest = await automationActor.adapter.getPullRequest({
 					repositoryPath: repository.repositoryPath,
 					pullRequestNumber: data.targetNumber,
 				});
-				// It's a PR — forcedTarget stays null; runWebhookLabeler will re-fetch
-				// via getPullRequest itself in the pull_request dispatch branch.
-				forcedKind = "pull_request";
-			} catch {
-				forcedTarget = await automationActor.adapter.getIssue({
+				forcedContext = {
+					kind: "pull_request",
+					number: pullRequest.number,
+					title: pullRequest.title,
+					body: pullRequest.body,
+					labels: [],
+					isDraft: pullRequest.draft,
+				};
+			} else {
+				const issue = await automationActor.adapter.getIssue({
 					repositoryPath: repository.repositoryPath,
 					issueNumber: data.targetNumber,
 				});
-				forcedKind = "issue";
+				forcedContext = {
+					kind: "issue",
+					number: issue.number,
+					title: issue.title,
+					body: issue.body,
+					labels: issue.labels,
+					isDraft: false,
+				};
 			}
 			const result = await runWebhookLabeler({
 				repository,
@@ -2808,7 +2834,7 @@ export async function processRepositoryLabelerRunJob(
 					rawBody: "{}",
 				},
 				providerType: data.providerType,
-				forcedTarget,
+				forcedContext,
 				forcedDispatch: { kind: forcedKind, trigger: "manual", manual: true },
 				requestedByUserId: data.requestedByUserId ?? null,
 				retryOfRunId: data.retryOfRunId ?? null,
@@ -2823,12 +2849,14 @@ export async function processRepositoryLabelerRunJob(
 			}
 			return result;
 		} catch (error) {
-			await finalizeUnstartedManualRun({
-				reviewRunId: data.runId,
-				status: "failed",
-				reason: "labeler_preflight_failed",
-			});
-			throw error;
+			if (data.runId) {
+				await failActiveReviewRun({
+					runId: data.runId,
+					reason: "labeler_preflight_failed",
+					errorMessage: error instanceof Error ? error.message : String(error),
+				});
+			}
+			return { status: "failed" };
 		}
 	}
 	if (!data.receiptId) return { status: "ignored" };

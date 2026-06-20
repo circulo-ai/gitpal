@@ -1,55 +1,55 @@
 {
-  "version": "7",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1781720553197,
-      "tag": "0000_icy_legion",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1781788471171,
-      "tag": "0001_omniscient_skreet",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1781869308186,
-      "tag": "0002_polite_changeling",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1781901589796,
-      "tag": "0003_add_integrations_drop_sso",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1781906037173,
-      "tag": "0004_exotic_master_chief",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1781948584043,
-      "tag": "0005_absent_master_chief",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1781950005883,
-      "tag": "0006_icy_valkyrie",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "postgresql",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "7",
+			"when": 1781720553197,
+			"tag": "0000_icy_legion",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1781788471171,
+			"tag": "0001_omniscient_skreet",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1781869308186,
+			"tag": "0002_polite_changeling",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "7",
+			"when": 1781901589796,
+			"tag": "0003_add_integrations_drop_sso",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "7",
+			"when": 1781906037173,
+			"tag": "0004_exotic_master_chief",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "7",
+			"when": 1781948584043,
+			"tag": "0005_absent_master_chief",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1781950005883,
+			"tag": "0006_icy_valkyrie",
+			"breakpoints": true
+		}
+	]
 }

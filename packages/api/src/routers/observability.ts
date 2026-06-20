@@ -63,6 +63,12 @@ type TimelineEvent = {
 		title: string;
 		htmlUrl: string;
 	} | null;
+	issue?: {
+		id: string;
+		number: number;
+		title: string;
+		htmlUrl: string;
+	} | null;
 	metadata: Record<string, unknown>;
 };
 
@@ -204,6 +210,25 @@ function pullRequestPayload(
 	};
 }
 
+function issuePayload(
+	issue:
+		| Pick<
+				typeof dashboardSchema.issue.$inferSelect,
+				"id" | "number" | "title" | "htmlUrl"
+		  >
+		| null
+		| undefined,
+): TimelineEvent["issue"] {
+	return issue
+		? {
+				id: issue.id,
+				number: issue.number,
+				title: issue.title,
+				htmlUrl: issue.htmlUrl,
+			}
+		: null;
+}
+
 function buildStats(events: TimelineEvent[]) {
 	return {
 		totalEvents: events.length,
@@ -299,6 +324,7 @@ export const observabilityRouter = router({
 					event: observabilitySchema.observabilityEvent,
 					repository: dashboardSchema.repository,
 					pullRequest: dashboardSchema.pullRequest,
+					issue: dashboardSchema.issue,
 				})
 				.from(observabilitySchema.observabilityEvent)
 				.leftJoin(
@@ -313,6 +339,13 @@ export const observabilityRouter = router({
 					eq(
 						observabilitySchema.observabilityEvent.pullRequestId,
 						dashboardSchema.pullRequest.id,
+					),
+				)
+				.leftJoin(
+					dashboardSchema.issue,
+					eq(
+						observabilitySchema.observabilityEvent.issueId,
+						dashboardSchema.issue.id,
 					),
 				)
 				.where(
@@ -349,6 +382,7 @@ export const observabilityRouter = router({
 					costCents: row.event.costCents,
 					repository: repositoryPayload(row.repository),
 					pullRequest: pullRequestPayload(row.pullRequest),
+					issue: issuePayload(row.issue),
 					metadata: row.event.metadata ?? {},
 				});
 			}

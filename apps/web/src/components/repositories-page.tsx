@@ -40,8 +40,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
 	Building2Icon,
+	CircleDotIcon,
 	ExternalLinkIcon,
 	FolderGit2Icon,
+	GitPullRequestIcon,
 	RefreshCcwIcon,
 	SearchIcon,
 	Settings2Icon,
@@ -529,6 +531,28 @@ export function RepositoriesPage() {
 												{repository.private ? "Private" : "Public"}
 											</Badge>
 										</div>
+										<div className="mt-3 flex flex-wrap gap-2">
+											<Link
+												href={`/pull-requests?repositoryId=${encodeURIComponent(repository.id)}`}
+												className={buttonVariants({
+													variant: "outline",
+													size: "sm",
+												})}
+											>
+												<GitPullRequestIcon />
+												Pull requests
+											</Link>
+											<Link
+												href={`/issues?repositoryId=${encodeURIComponent(repository.id)}`}
+												className={buttonVariants({
+													variant: "outline",
+													size: "sm",
+												})}
+											>
+												<CircleDotIcon />
+												Issues
+											</Link>
+										</div>
 										<div className="mt-4 flex items-center justify-between gap-3">
 											<div className="text-muted-foreground text-sm">
 												{repository.enabled
@@ -617,6 +641,30 @@ export function RepositoriesPage() {
 												</TableCell>
 												<TableCell>
 													<div className="flex items-center justify-end gap-3">
+														<Link
+															href={`/pull-requests?repositoryId=${encodeURIComponent(repository.id)}`}
+															aria-label={`Open pull requests for ${repository.fullName}`}
+															className={cn(
+																buttonVariants({
+																	variant: "ghost",
+																	size: "icon-sm",
+																}),
+															)}
+														>
+															<GitPullRequestIcon />
+														</Link>
+														<Link
+															href={`/issues?repositoryId=${encodeURIComponent(repository.id)}`}
+															aria-label={`Open issues for ${repository.fullName}`}
+															className={cn(
+																buttonVariants({
+																	variant: "ghost",
+																	size: "icon-sm",
+																}),
+															)}
+														>
+															<CircleDotIcon />
+														</Link>
 														<Link
 															href={`/repositories/${repository.id}/settings`}
 															aria-label={`Open settings for ${repository.fullName}`}

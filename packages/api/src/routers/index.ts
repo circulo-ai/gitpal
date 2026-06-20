@@ -14,6 +14,7 @@ import { notificationsRouter } from "./notifications";
 import { observabilityRouter } from "./observability";
 import { repositoriesRouter } from "./repositories";
 import { teamManagementRouter } from "./team-management";
+import { workItemsRouter } from "./work-items";
 
 type EnterpriseGitProviderType = "github" | "gitlab";
 
@@ -97,6 +98,7 @@ export const appRouter = router({
 	observability: observabilityRouter,
 	repositories: repositoriesRouter,
 	teamManagement: teamManagementRouter,
+	workItems: workItemsRouter,
 	enterpriseGitProvider: router({
 		lookup: publicProcedure
 			.input(enterpriseGitProviderLookupSchema)

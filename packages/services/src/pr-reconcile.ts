@@ -5,6 +5,7 @@ import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-syn
 import { createLogger } from "@gitpal/logger";
 import { eq } from "drizzle-orm";
 import { getAutomationActorForRepository } from "./git-provider-access";
+import { projectIssueSnapshot } from "./issue-projection";
 import {
 	projectPullRequestSnapshot,
 	recordHumanReviewSignal,
@@ -56,6 +57,12 @@ export async function reconcilePullRequestsForRepository({
 		);
 		return { projected: 0 };
 	}
+
+	const issueProjected = await reconcileKnownIssueSnapshots({
+		adapter: automationActor.adapter,
+		repositoryId: repository.id,
+		repositoryPath: repository.repositoryPath,
+	});
 
 	let pullRequests: GitPullRequest[];
 	try {
@@ -111,11 +118,48 @@ export async function reconcilePullRequestsForRepository({
 		{
 			repositoryId,
 			projected,
+			issueProjected,
 			total: pullRequests.length,
 		},
 		"Pull request reconcile complete.",
 	);
 	return { projected };
+}
+
+async function reconcileKnownIssueSnapshots({
+	adapter,
+	repositoryId,
+	repositoryPath,
+}: {
+	adapter: GitProviderAdapter;
+	repositoryId: string;
+	repositoryPath: string;
+}) {
+	const knownIssues = await db
+		.select({ number: dashboardSchema.issue.number })
+		.from(dashboardSchema.issue)
+		.where(eq(dashboardSchema.issue.repositoryId, repositoryId));
+	const results = await runWithConcurrency(
+		knownIssues,
+		3,
+		async ({ number }) => {
+			try {
+				const issue = await adapter.getIssue({
+					repositoryPath,
+					issueNumber: number,
+				});
+				await projectIssueSnapshot({ repositoryId, issue });
+				return 1;
+			} catch (error) {
+				log.warn(
+					{ err: error, repositoryId, issueNumber: number },
+					"Reconcile skipped - issue projection failed.",
+				);
+				return 0;
+			}
+		},
+	);
+	return results.reduce<number>((total, value) => total + value, 0);
 }
 
 /**

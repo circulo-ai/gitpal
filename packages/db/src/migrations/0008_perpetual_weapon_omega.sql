@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "review_run_active_pull_request_kind_idx" ON "review_run" USING btree ("pull_request_id","review_kind") WHERE "review_run"."pull_request_id" is not null and "review_run"."status" in ('queued', 'running');--> statement-breakpoint
+CREATE UNIQUE INDEX "review_run_active_issue_kind_idx" ON "review_run" USING btree ("issue_id","review_kind") WHERE "review_run"."issue_id" is not null and "review_run"."status" in ('queued', 'running');

@@ -59,6 +59,8 @@ import {
 	DownloadIcon,
 	RefreshCcwIcon,
 } from "lucide-react";
+import type { Route } from "next";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import {
@@ -676,7 +678,17 @@ function DashboardTable({ table }: { table: TableBlock }) {
 													className="max-w-72 truncate"
 													title={String(row[col.key] ?? "")}
 												>
-													{String(row[col.key] ?? "–")}
+													{col.key === "number" &&
+													typeof row.href === "string" ? (
+														<Link
+															href={row.href as Route}
+															className="font-medium hover:underline"
+														>
+															#{String(row[col.key] ?? "–")}
+														</Link>
+													) : (
+														String(row[col.key] ?? "–")
+													)}
 												</TableCell>
 											))}
 										</TableRow>

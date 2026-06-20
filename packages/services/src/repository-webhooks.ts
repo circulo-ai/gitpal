@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { decryptSecret } from "@gitpal/auth";
 import { db } from "@gitpal/db";
+import * as aiSchema from "@gitpal/db/schema/ai";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
@@ -8,6 +9,7 @@ import {
 	createGitHubAdapter,
 	createGitLabAdapter,
 	type GitActor,
+	type GitIssue,
 	type GitProviderAdapter,
 	type GitPullRequest,
 	type GitRepository,
@@ -38,6 +40,7 @@ import {
 	getAutomationActorForRepository,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
+import { projectIssueSnapshot } from "./issue-projection";
 import { runRepositoryLabeler } from "./labeler";
 import { sendUserNotification } from "./notifications";
 import { recordObservabilityEvent } from "./observability";
@@ -50,6 +53,12 @@ import {
 	type RepositoryReviewOutput,
 	runRepositoryReview,
 } from "./review-agent";
+import {
+	finishRunStep,
+	recordCompletedRunStep,
+	startRunStep,
+} from "./run-trace";
+import { sanitizeRunDetails } from "./safe-diagnostics";
 import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 
 const log = createLogger("repository-webhooks");
@@ -81,6 +90,7 @@ const PULL_REQUEST_PUSH_ACTIONS = new Set([
 ]);
 type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
 type PullRequestRow = typeof dashboardSchema.pullRequest.$inferSelect;
+type IssueRow = typeof dashboardSchema.issue.$inferSelect;
 type WebhookEventReceiptRow =
 	typeof dashboardSchema.webhookEventReceipt.$inferSelect;
 type ReviewDispatchKind = "review" | "mention" | "pre-merge";
@@ -222,6 +232,12 @@ function resolveWebhookReceiptStatus({
 }
 function buildDeliveryUrl(target: ProviderWebhookTarget) {
 	return new URL(target.routePath, getWebhookBaseUrl()).toString();
+}
+function isGitHubDuplicateWebhookError(error: unknown) {
+	return (
+		error instanceof Error &&
+		error.message.includes("Hook already exists on this repository")
+	);
 }
 function createWebhookVerifier(target: ProviderWebhookTarget) {
 	const webhookSecrets = target.secret ? [target.secret] : [];
@@ -989,6 +1005,10 @@ async function createReviewRun({
 	trigger,
 	modelId,
 	thinkingEnabled,
+	issue = null,
+	requestedByUserId = null,
+	retryOfRunId = null,
+	precreatedRunId = null,
 }: {
 	repository: RepositoryRow;
 	pullRequest: PullRequestRow | null;
@@ -997,14 +1017,44 @@ async function createReviewRun({
 	trigger: string;
 	modelId: string;
 	thinkingEnabled: boolean;
+	issue?: IssueRow | null;
+	requestedByUserId?: string | null;
+	retryOfRunId?: string | null;
+	precreatedRunId?: string | null;
 }) {
 	const now = new Date();
+	const id = precreatedRunId ?? `review_run_${randomUUID()}`;
+	if (precreatedRunId) {
+		const [row] = await db
+			.update(dashboardSchema.reviewRun)
+			.set({
+				status: "running",
+				trigger,
+				modelId,
+				thinkingEnabled,
+				startedAt: now,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(dashboardSchema.reviewRun.id, precreatedRunId),
+					eq(dashboardSchema.reviewRun.status, "queued"),
+				),
+			)
+			.returning();
+		if (!row) throw new Error("Queued review run could not be started.");
+		return row;
+	}
 	const [row] = await db
 		.insert(dashboardSchema.reviewRun)
 		.values({
-			id: `review_run_${randomUUID()}`,
+			id,
 			repositoryId: repository.id,
 			pullRequestId: pullRequest?.id ?? null,
+			issueId: issue?.id ?? null,
+			requestedByUserId,
+			retryOfRunId,
+			traceId: id,
 			reviewKind,
 			trigger,
 			providerId: repository.providerId,
@@ -1023,6 +1073,33 @@ async function createReviewRun({
 		throw new Error("Review run could not be created.");
 	}
 	return row;
+}
+
+async function finalizeUnstartedManualRun({
+	reviewRunId,
+	status,
+	reason,
+}: {
+	reviewRunId: string | null | undefined;
+	status: "failed" | "ignored";
+	reason: string;
+}) {
+	if (!reviewRunId) return;
+	const now = new Date();
+	await db
+		.update(dashboardSchema.reviewRun)
+		.set({
+			status,
+			result: { reason },
+			completedAt: now,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(dashboardSchema.reviewRun.id, reviewRunId),
+				eq(dashboardSchema.reviewRun.status, "queued"),
+			),
+		);
 }
 async function finalizeReviewRun({
 	reviewRunId,
@@ -1044,7 +1121,7 @@ async function finalizeReviewRun({
 			status,
 			summary,
 			finalCommentBody,
-			result,
+			result: sanitizeRunDetails(result),
 			completedAt: now,
 			updatedAt: now,
 		})
@@ -1449,11 +1526,19 @@ async function runWebhookReview({
 	envelope,
 	providerType,
 	context,
+	forcedDispatch = null,
+	requestedByUserId = null,
+	retryOfRunId = null,
+	precreatedRunId = null,
 }: {
 	repository: RepositoryRow;
 	envelope: GitWebhookEnvelope;
 	providerType: ProviderType;
 	context: PullRequestEventContext;
+	forcedDispatch?: ReviewDispatch | null;
+	requestedByUserId?: string | null;
+	retryOfRunId?: string | null;
+	precreatedRunId?: string | null;
 }): Promise<WebhookProcessingResult> {
 	const automationActor = await getAutomationActorForRepository({
 		repositoryId: repository.id,
@@ -1485,13 +1570,15 @@ async function runWebhookReview({
 		repositoryPath: repository.repositoryPath,
 		pullRequestNumber: context.pullRequestNumber,
 	});
-	const dispatch = resolveReviewDispatch({
-		providerType,
-		envelope,
-		pullRequest,
-		settings,
-		context,
-	});
+	const dispatch =
+		forcedDispatch ??
+		resolveReviewDispatch({
+			providerType,
+			envelope,
+			pullRequest,
+			settings,
+			context,
+		});
 	if (!dispatch) {
 		return "ignored" as const;
 	}
@@ -1538,6 +1625,35 @@ async function runWebhookReview({
 		trigger: dispatch.trigger,
 		modelId: settings.ai.reviewer.modelId,
 		thinkingEnabled: settings.ai.thinking.enabled,
+		requestedByUserId,
+		retryOfRunId,
+		precreatedRunId,
+	});
+	await recordCompletedRunStep({
+		reviewRunId: reviewRun.id,
+		stepKey: "request-received",
+		position: 1,
+		title: forcedDispatch ? "Manual review requested" : "Received webhook",
+		summary: `${dispatch.trigger} trigger accepted`,
+		details: { providerEvent: envelope.event, providerAction: envelope.action },
+	});
+	await recordCompletedRunStep({
+		reviewRunId: reviewRun.id,
+		stepKey: "context-synced",
+		position: 2,
+		title: "Synced pull request context",
+		summary: `${pullRequest.sourceBranch} to ${pullRequest.targetBranch}`,
+		details: {
+			pullRequestNumber: pullRequest.number,
+			draft: pullRequest.draft,
+		},
+	});
+	await recordCompletedRunStep({
+		reviewRunId: reviewRun.id,
+		stepKey: "settings-loaded",
+		position: 3,
+		title: "Loaded review settings",
+		summary: `Using ${settings.ai.reviewer.modelId}`,
 	});
 	const reviewStartedAt = reviewRun.startedAt?.getTime() ?? Date.now();
 	await recordObservabilityEvent({
@@ -1564,6 +1680,12 @@ async function runWebhookReview({
 		},
 	});
 	try {
+		await startRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "context-inspected",
+			position: 4,
+			title: "Inspected changed files and discussion",
+		});
 		const [files, comments] = await Promise.all([
 			automationActor.adapter.listPullRequestFiles({
 				repositoryPath: repository.repositoryPath,
@@ -1574,9 +1696,22 @@ async function runWebhookReview({
 				pullRequestNumber: pullRequest.number,
 			}),
 		]);
+		await finishRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "context-inspected",
+			summary: `${files.length} files and ${comments.length} comments loaded`,
+			details: { fileCount: files.length, commentCount: comments.length },
+		});
 		const suggestedReviewers = await listSuggestedReviewersForRepository(
 			repository.id,
 		);
+		await startRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "ai-review",
+			position: 5,
+			title: "Ran AI review",
+			summary: `Calling ${settings.ai.reviewer.modelId}`,
+		});
 		const reviewResult = await runRepositoryReview({
 			userId: automationActor.userId,
 			adapter: automationActor.adapter,
@@ -1591,6 +1726,21 @@ async function runWebhookReview({
 			repositoryDbId: repository.id,
 			pullRequestDbId: pullRequestRow.id,
 			reviewRunId: reviewRun.id,
+		});
+		await finishRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "ai-review",
+			summary: `${reviewResult.output.findings.length} findings generated`,
+			details: {
+				findingCount: reviewResult.output.findings.length,
+				stepCount: reviewResult.steps.length,
+			},
+		});
+		await startRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "results-published",
+			position: 6,
+			title: "Published review results",
 		});
 		await maybePublishSummaryComment({
 			adapter: automationActor.adapter,
@@ -1616,6 +1766,11 @@ async function runWebhookReview({
 			pullRequest: pullRequestRow,
 			output: reviewResult.output,
 		});
+		await finishRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "results-published",
+			summary: `${reviewResult.output.findings.length} findings and ${reviewResult.output.preMergeChecks.length} checks stored`,
+		});
 		await finalizeReviewRun({
 			reviewRunId: reviewRun.id,
 			status: "completed",
@@ -1630,6 +1785,13 @@ async function runWebhookReview({
 				text: reviewResult.text,
 				stepCount: reviewResult.steps.length,
 			},
+		});
+		await recordCompletedRunStep({
+			reviewRunId: reviewRun.id,
+			stepKey: "completed",
+			position: 7,
+			title: "Completed",
+			summary: "Review run completed successfully",
 		});
 		await recordObservabilityEvent({
 			userId: automationActor.userId,
@@ -1665,7 +1827,7 @@ async function runWebhookReview({
 			severity: "success",
 			title: "AI review completed",
 			body: `${repository.fullName}#${pullRequest.number}: ${pullRequest.title}`,
-			actionHref: pullRequest.htmlUrl,
+			actionHref: `/repositories/${repository.id}/pull-requests/${pullRequest.number}`,
 			sourceType: "review-run",
 			sourceId: reviewRun.id,
 			dedupeKey: `review-run:${reviewRun.id}:notification:completed`,
@@ -1677,6 +1839,19 @@ async function runWebhookReview({
 		});
 		return "processed" as const;
 	} catch (error) {
+		for (const stepKey of [
+			"context-inspected",
+			"ai-review",
+			"results-published",
+		]) {
+			await finishRunStep({
+				reviewRunId: reviewRun.id,
+				stepKey,
+				status: "failed",
+				summary: error instanceof Error ? error.message : "Review failed",
+				errorCode: "review_failed",
+			});
+		}
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		const isCredentialError =
 			errorMessage.includes("Bad credentials") ||
@@ -1786,7 +1961,7 @@ async function runWebhookReview({
 				error instanceof Error
 					? `${repository.fullName}#${pullRequest.number}: ${error.message}`
 					: `${repository.fullName}#${pullRequest.number}: review failed.`,
-			actionHref: "/observability",
+			actionHref: `/repositories/${repository.id}/pull-requests/${pullRequest.number}`,
 			sourceType: "review-run",
 			sourceId: reviewRun.id,
 			dedupeKey: `review-run:${reviewRun.id}:notification:failed`,
@@ -1803,10 +1978,20 @@ async function runWebhookLabeler({
 	repository,
 	envelope,
 	providerType,
+	forcedTarget = null,
+	forcedDispatch = null,
+	requestedByUserId = null,
+	retryOfRunId = null,
+	precreatedRunId = null,
 }: {
 	repository: RepositoryRow;
 	envelope: GitWebhookEnvelope;
 	providerType: ProviderType;
+	forcedTarget?: GitIssue | null;
+	forcedDispatch?: LabelDispatch | null;
+	requestedByUserId?: string | null;
+	retryOfRunId?: string | null;
+	precreatedRunId?: string | null;
 }): Promise<WebhookProcessingResult> {
 	const automationActor = await getAutomationActorForRepository({
 		repositoryId: repository.id,
@@ -1824,16 +2009,27 @@ async function runWebhookLabeler({
 		return "ignored" as const;
 	}
 	const settings = settingsResult.effectiveSettings;
-	const labelContext = extractLabelContext(providerType, envelope);
+	const labelContext = forcedTarget
+		? {
+				kind: "issue" as const,
+				number: forcedTarget.number,
+				title: forcedTarget.title,
+				body: forcedTarget.body,
+				labels: forcedTarget.labels,
+				isDraft: false,
+			}
+		: extractLabelContext(providerType, envelope);
 	if (!labelContext?.number) {
 		return "ignored" as const;
 	}
-	const dispatch = resolveLabelDispatch({
-		providerType,
-		envelope,
-		settings,
-		context: labelContext,
-	});
+	const dispatch =
+		forcedDispatch ??
+		resolveLabelDispatch({
+			providerType,
+			envelope,
+			settings,
+			context: labelContext,
+		});
 	if (!dispatch) {
 		return "ignored" as const;
 	}
@@ -1858,6 +2054,7 @@ async function runWebhookLabeler({
 		return "ignored" as const;
 	}
 	let pullRequestRow: PullRequestRow | null = null;
+	let issueRow: IssueRow | null = null;
 	let labelFiles: Awaited<
 		ReturnType<typeof automationActor.adapter.listPullRequestFiles>
 	> = [];
@@ -1874,6 +2071,17 @@ async function runWebhookLabeler({
 			repositoryPath: repository.repositoryPath,
 			pullRequestNumber: labelContext.number,
 		});
+	} else {
+		const issue =
+			forcedTarget ??
+			(await automationActor.adapter.getIssue({
+				repositoryPath: repository.repositoryPath,
+				issueNumber: labelContext.number,
+			}));
+		issueRow = await projectIssueSnapshot({
+			repositoryId: repository.id,
+			issue,
+		});
 	}
 	const labelRun = await createReviewRun({
 		repository,
@@ -1883,6 +2091,38 @@ async function runWebhookLabeler({
 		trigger: dispatch.trigger,
 		modelId: settings.ai.labeler.modelId,
 		thinkingEnabled: false,
+		issue: issueRow,
+		requestedByUserId,
+		retryOfRunId,
+		precreatedRunId,
+	});
+	await recordCompletedRunStep({
+		reviewRunId: labelRun.id,
+		stepKey: "request-received",
+		position: 1,
+		title: forcedDispatch ? "Manual labeler run requested" : "Received webhook",
+		summary: `${dispatch.trigger} trigger accepted`,
+	});
+	await recordCompletedRunStep({
+		reviewRunId: labelRun.id,
+		stepKey: "context-synced",
+		position: 2,
+		title: `Synced ${dispatch.kind} context`,
+		summary: `${repository.fullName}#${labelContext.number}`,
+	});
+	await recordCompletedRunStep({
+		reviewRunId: labelRun.id,
+		stepKey: "labels-loaded",
+		position: 3,
+		title: "Loaded repository labels",
+		summary: `${repositoryLabels.length} labels available`,
+	});
+	await recordCompletedRunStep({
+		reviewRunId: labelRun.id,
+		stepKey: "rules-loaded",
+		position: 4,
+		title: "Loaded labeling rules",
+		summary: "Workspace and repository settings resolved",
 	});
 	const labelerStartedAt = labelRun.startedAt?.getTime() ?? Date.now();
 	await recordObservabilityEvent({
@@ -1890,6 +2130,7 @@ async function runWebhookLabeler({
 		organizationId: repository.organizationId,
 		repositoryId: repository.id,
 		pullRequestId: pullRequestRow?.id ?? null,
+		issueId: issueRow?.id ?? null,
 		reviewRunId: labelRun.id,
 		traceId: labelRun.id,
 		kind: "review",
@@ -1909,6 +2150,13 @@ async function runWebhookLabeler({
 		},
 	});
 	try {
+		await startRunStep({
+			reviewRunId: labelRun.id,
+			stepKey: "ai-labeler",
+			position: 5,
+			title: "Ran AI labeler",
+			summary: `Calling ${settings.ai.labeler.modelId}`,
+		});
 		const labelResult = await runRepositoryLabeler({
 			userId: automationActor.userId,
 			adapter: automationActor.adapter,
@@ -1931,6 +2179,12 @@ async function runWebhookLabeler({
 			reviewRunId: labelRun.id,
 		});
 		if (!labelResult) {
+			await finishRunStep({
+				reviewRunId: labelRun.id,
+				stepKey: "ai-labeler",
+				status: "skipped",
+				summary: "Labeler is disabled for this target",
+			});
 			await finalizeReviewRun({
 				reviewRunId: labelRun.id,
 				status: "ignored",
@@ -1943,6 +2197,7 @@ async function runWebhookLabeler({
 				organizationId: repository.organizationId,
 				repositoryId: repository.id,
 				pullRequestId: pullRequestRow?.id ?? null,
+				issueId: issueRow?.id ?? null,
 				reviewRunId: labelRun.id,
 				traceId: labelRun.id,
 				kind: "review",
@@ -1964,6 +2219,32 @@ async function runWebhookLabeler({
 			});
 			return "ignored" as const;
 		}
+		if (issueRow && labelResult.generationId) {
+			await db
+				.update(aiSchema.aiGeneration)
+				.set({ issueId: issueRow.id })
+				.where(eq(aiSchema.aiGeneration.id, labelResult.generationId));
+		}
+		await finishRunStep({
+			reviewRunId: labelRun.id,
+			stepKey: "ai-labeler",
+			summary: `${labelResult.suggestedLabels.length} labels suggested`,
+			details: {
+				suggestedLabels: labelResult.suggestedLabels,
+				appliedLabels: labelResult.appliedLabels,
+			},
+		});
+		await recordCompletedRunStep({
+			reviewRunId: labelRun.id,
+			stepKey: "labels-applied",
+			position: 6,
+			title: "Applied labels",
+			summary:
+				labelResult.appliedLabels.length > 0
+					? labelResult.appliedLabels.join(", ")
+					: "No provider label changes were required",
+			details: { appliedLabels: labelResult.appliedLabels },
+		});
 		await finalizeReviewRun({
 			reviewRunId: labelRun.id,
 			status: "completed",
@@ -1979,11 +2260,19 @@ async function runWebhookLabeler({
 				providerAction: envelope.action,
 			},
 		});
+		await recordCompletedRunStep({
+			reviewRunId: labelRun.id,
+			stepKey: "completed",
+			position: 7,
+			title: "Completed",
+			summary: "Labeler run completed successfully",
+		});
 		await recordObservabilityEvent({
 			userId: automationActor.userId,
 			organizationId: repository.organizationId,
 			repositoryId: repository.id,
 			pullRequestId: pullRequestRow?.id ?? null,
+			issueId: issueRow?.id ?? null,
 			reviewRunId: labelRun.id,
 			traceId: labelRun.id,
 			kind: "review",
@@ -2002,8 +2291,32 @@ async function runWebhookLabeler({
 				appliedLabels: labelResult.appliedLabels,
 			},
 		});
+		await sendUserNotification({
+			userId: automationActor.userId,
+			organizationId: repository.organizationId,
+			repositoryId: repository.id,
+			type: "labeler_completed",
+			category: "review",
+			severity: "success",
+			title: "AI labeler completed",
+			body: `${repository.fullName}#${labelContext.number}: ${labelResult.summary}`,
+			actionHref:
+				dispatch.kind === "issue"
+					? `/repositories/${repository.id}/issues/${labelContext.number}`
+					: `/repositories/${repository.id}/pull-requests/${labelContext.number}`,
+			sourceType: "review-run",
+			sourceId: labelRun.id,
+			dedupeKey: `review-run:${labelRun.id}:notification:labeler-completed`,
+		});
 		return "processed" as const;
 	} catch (error) {
+		await finishRunStep({
+			reviewRunId: labelRun.id,
+			stepKey: "ai-labeler",
+			status: "failed",
+			summary: error instanceof Error ? error.message : "Labeler failed",
+			errorCode: "labeler_failed",
+		});
 		await finalizeReviewRun({
 			reviewRunId: labelRun.id,
 			status: "failed",
@@ -2018,6 +2331,7 @@ async function runWebhookLabeler({
 			organizationId: repository.organizationId,
 			repositoryId: repository.id,
 			pullRequestId: pullRequestRow?.id ?? null,
+			issueId: issueRow?.id ?? null,
 			reviewRunId: labelRun.id,
 			traceId: labelRun.id,
 			kind: "review",
@@ -2048,7 +2362,10 @@ async function runWebhookLabeler({
 				error instanceof Error
 					? `${repository.fullName}#${labelContext.number}: ${error.message}`
 					: `${repository.fullName}#${labelContext.number}: labeler failed.`,
-			actionHref: "/observability",
+			actionHref:
+				dispatch.kind === "issue"
+					? `/repositories/${repository.id}/issues/${labelContext.number}`
+					: `/repositories/${repository.id}/pull-requests/${labelContext.number}`,
 			sourceType: "review-run",
 			sourceId: labelRun.id,
 			dedupeKey: `review-run:${labelRun.id}:notification:labeler-failed`,
@@ -2193,9 +2510,34 @@ async function processWebhookReceipt({
 
 		let queuedAiWork = false;
 		const labelContext = extractLabelContext(target.providerType, envelope);
+		if (labelContext?.kind === "issue" && labelContext.number) {
+			try {
+				const actor = await getAutomationActorForRepository({
+					repositoryId: repository.id,
+					providerId: repository.providerId,
+				});
+				if (actor) {
+					const issue = await actor.adapter.getIssue({
+						repositoryPath: repository.repositoryPath,
+						issueNumber: labelContext.number,
+					});
+					await projectIssueSnapshot({ repositoryId: repository.id, issue });
+				}
+			} catch (error) {
+				log.warn(
+					{
+						err: error,
+						repositoryId: repository.id,
+						issueNumber: labelContext.number,
+					},
+					"Issue lifecycle projection failed.",
+				);
+			}
+		}
 		if (labelContext?.number) {
 			try {
 				await enqueueRepositoryLabelerRunJob({
+					source: "webhook",
 					receiptId,
 					repositoryId: repository.id,
 					providerType: target.providerType,
@@ -2213,6 +2555,7 @@ async function processWebhookReceipt({
 		if (context.pullRequestNumber) {
 			try {
 				await enqueueRepositoryReviewRunJob({
+					source: "webhook",
 					receiptId,
 					repositoryId: repository.id,
 					providerType: target.providerType,
@@ -2328,7 +2671,71 @@ export async function processRepositoryReviewRunJob(
 	input: RepositoryReviewRunJobData,
 ) {
 	const data = repositoryReviewRunJobSchema.parse(input);
-	const context = await loadDurableAiWebhookContext(data);
+	if (data.source === "manual") {
+		try {
+			const repository = await getRepositoryById(data.repositoryId);
+			if (!repository || !data.targetNumber) {
+				await finalizeUnstartedManualRun({
+					reviewRunId: data.runId,
+					status: "ignored",
+					reason: "target_not_found",
+				});
+				return { status: "ignored" };
+			}
+			const result = await runWebhookReview({
+				repository,
+				envelope: {
+					providerId: repository.providerId,
+					event: "manual_review",
+					action: "requested",
+					deliveryId: data.idempotencyKey ?? null,
+					repository: null,
+					sender: null,
+					payload: {},
+					headers: {},
+					rawBody: "{}",
+				},
+				providerType: data.providerType,
+				context: {
+					pullRequestNumber: data.targetNumber,
+					labels: [],
+					commentBody: null,
+					commentAuthorType: null,
+					commentAuthorLogin: null,
+					reviewState: null,
+					reviewSubmittedAt: null,
+					headSha: null,
+					baseSha: null,
+					isPullRequestCommentEvent: false,
+				},
+				forcedDispatch: { kind: "review", trigger: "manual", manual: true },
+				requestedByUserId: data.requestedByUserId ?? null,
+				retryOfRunId: data.retryOfRunId ?? null,
+				precreatedRunId: data.runId ?? null,
+			});
+			if (result === "ignored") {
+				await finalizeUnstartedManualRun({
+					reviewRunId: data.runId,
+					status: "ignored",
+					reason: "review_not_started",
+				});
+			}
+			return result;
+		} catch (error) {
+			await finalizeUnstartedManualRun({
+				reviewRunId: data.runId,
+				status: "failed",
+				reason: "review_preflight_failed",
+			});
+			throw error;
+		}
+	}
+	if (!data.receiptId) return { status: "ignored" };
+	const context = await loadDurableAiWebhookContext({
+		receiptId: data.receiptId,
+		repositoryId: data.repositoryId,
+		providerType: data.providerType,
+	});
 	if (!context) {
 		return { status: "ignored" };
 	}
@@ -2348,7 +2755,76 @@ export async function processRepositoryLabelerRunJob(
 	input: RepositoryLabelerRunJobData,
 ) {
 	const data = repositoryLabelerRunJobSchema.parse(input);
-	const context = await loadDurableAiWebhookContext(data);
+	if (data.source === "manual") {
+		try {
+			const repository = await getRepositoryById(data.repositoryId);
+			if (!repository || !data.targetNumber) {
+				await finalizeUnstartedManualRun({
+					reviewRunId: data.runId,
+					status: "ignored",
+					reason: "target_not_found",
+				});
+				return { status: "ignored" };
+			}
+			const automationActor = await getAutomationActorForRepository({
+				repositoryId: repository.id,
+				providerId: repository.providerId,
+			});
+			if (!automationActor) {
+				await finalizeUnstartedManualRun({
+					reviewRunId: data.runId,
+					status: "ignored",
+					reason: "provider_credentials_unavailable",
+				});
+				return { status: "ignored" };
+			}
+			const target = await automationActor.adapter.getIssue({
+				repositoryPath: repository.repositoryPath,
+				issueNumber: data.targetNumber,
+			});
+			const result = await runWebhookLabeler({
+				repository,
+				envelope: {
+					providerId: repository.providerId,
+					event: "manual_labeler",
+					action: "requested",
+					deliveryId: data.idempotencyKey ?? null,
+					repository: null,
+					sender: null,
+					payload: {},
+					headers: {},
+					rawBody: "{}",
+				},
+				providerType: data.providerType,
+				forcedTarget: target,
+				forcedDispatch: { kind: "issue", trigger: "manual", manual: true },
+				requestedByUserId: data.requestedByUserId ?? null,
+				retryOfRunId: data.retryOfRunId ?? null,
+				precreatedRunId: data.runId ?? null,
+			});
+			if (result === "ignored") {
+				await finalizeUnstartedManualRun({
+					reviewRunId: data.runId,
+					status: "ignored",
+					reason: "labeler_not_started",
+				});
+			}
+			return result;
+		} catch (error) {
+			await finalizeUnstartedManualRun({
+				reviewRunId: data.runId,
+				status: "failed",
+				reason: "labeler_preflight_failed",
+			});
+			throw error;
+		}
+	}
+	if (!data.receiptId) return { status: "ignored" };
+	const context = await loadDurableAiWebhookContext({
+		receiptId: data.receiptId,
+		repositoryId: data.repositoryId,
+		providerType: data.providerType,
+	});
 	if (!context) {
 		return { status: "ignored" };
 	}
@@ -2421,13 +2897,18 @@ async function ensureRepositoryWebhookSubscription({
 	const existingWebhooks = await adapter.listWebhooks({
 		repositoryPath: repository.repositoryPath,
 	});
-	const matchingWebhook = existingWebhooks.find(
+	const matchingWebhooks = existingWebhooks.filter(
 		(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
 	);
 	const configuredSecretPreview = formatSecretPreview(webhookSecret);
-	const [recordedWebhook] = matchingWebhook
+	const matchingWebhookIds = matchingWebhooks.map((webhook) =>
+		String(webhook.id),
+	);
+	const recordedWebhooks = matchingWebhookIds.length
 		? await db
 				.select({
+					providerWebhookId:
+						dashboardSchema.repositoryWebhook.providerWebhookId,
 					secretPreview: dashboardSchema.repositoryWebhook.secretPreview,
 				})
 				.from(dashboardSchema.repositoryWebhook)
@@ -2438,34 +2919,90 @@ async function ensureRepositoryWebhookSubscription({
 							dashboardSchema.repositoryWebhook.providerId,
 							repository.providerId,
 						),
-						eq(
+						inArray(
 							dashboardSchema.repositoryWebhook.providerWebhookId,
-							String(matchingWebhook.id),
+							matchingWebhookIds,
 						),
 					),
 				)
-				.limit(1)
 		: [];
-	const webhookIsCompatible =
-		Boolean(matchingWebhook?.active) &&
-		requiredEvents.every((event) => matchingWebhook?.events.includes(event)) &&
-		recordedWebhook?.secretPreview === configuredSecretPreview;
-	let activeWebhook = matchingWebhook;
-	if (!activeWebhook || !webhookIsCompatible) {
-		if (activeWebhook) {
-			await adapter.deleteWebhook({
-				repositoryPath: repository.repositoryPath,
-				webhookId: activeWebhook.id,
-			});
-		}
-		activeWebhook = await adapter.createWebhook({
+	const recordedWebhookSecretPreviewById = new Map(
+		recordedWebhooks.map((recordedWebhook) => [
+			recordedWebhook.providerWebhookId,
+			recordedWebhook.secretPreview,
+		]),
+	);
+	const compatibleWebhook = matchingWebhooks.find(
+		(webhook) =>
+			Boolean(webhook.active) &&
+			requiredEvents.every((event) => webhook.events.includes(event)) &&
+			recordedWebhookSecretPreviewById.get(String(webhook.id)) ===
+				configuredSecretPreview,
+	);
+	let createdWebhook = false;
+	let activeWebhook = compatibleWebhook ?? null;
+	const deleteWebhook = async (webhook: (typeof matchingWebhooks)[number]) => {
+		await adapter.deleteWebhook({
 			repositoryPath: repository.repositoryPath,
-			url: deliveryUrl,
-			events: requiredEvents,
-			secret: target.secret ?? undefined,
-			signingSecret: target.signingSecret ?? undefined,
-			active: true,
+			webhookId: webhook.id,
 		});
+	};
+	const createWebhook = async () => {
+		try {
+			const webhook = await adapter.createWebhook({
+				repositoryPath: repository.repositoryPath,
+				url: deliveryUrl,
+				events: requiredEvents,
+				secret: target.secret ?? undefined,
+				signingSecret: target.signingSecret ?? undefined,
+				active: true,
+			});
+			createdWebhook = true;
+			return webhook;
+		} catch (error) {
+			if (
+				target.providerType === "github" &&
+				isGitHubDuplicateWebhookError(error)
+			) {
+				// GitHub can surface "hook already exists" when a stale duplicate
+				// webhook is still present or another sync created the hook between
+				// our list and create calls. Re-list and adopt the existing hook so
+				// sync stays idempotent instead of failing the whole job.
+				const refreshedWebhooks = await adapter.listWebhooks({
+					repositoryPath: repository.repositoryPath,
+				});
+				const refreshedMatchingWebhooks = refreshedWebhooks.filter(
+					(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
+				);
+				const refreshedWebhook = refreshedMatchingWebhooks.find(
+					(webhook) =>
+						Boolean(webhook.active) &&
+						requiredEvents.every((event) => webhook.events.includes(event)),
+				);
+				if (refreshedWebhook) {
+					for (const webhook of refreshedMatchingWebhooks) {
+						if (webhook.id !== refreshedWebhook.id) {
+							await deleteWebhook(webhook);
+						}
+					}
+					createdWebhook = false;
+					return refreshedWebhook;
+				}
+			}
+			throw error;
+		}
+	};
+	if (activeWebhook) {
+		for (const webhook of matchingWebhooks) {
+			if (webhook.id !== activeWebhook.id) {
+				await deleteWebhook(webhook);
+			}
+		}
+	} else {
+		for (const webhook of matchingWebhooks) {
+			await deleteWebhook(webhook);
+		}
+		activeWebhook = await createWebhook();
 	}
 	const now = new Date();
 	await db
@@ -2507,10 +3044,7 @@ async function ensureRepositoryWebhookSubscription({
 			},
 		});
 	return {
-		status:
-			matchingWebhook && webhookIsCompatible
-				? ("existing" as const)
-				: ("created" as const),
+		status: createdWebhook ? ("created" as const) : ("existing" as const),
 		error: null,
 	};
 }

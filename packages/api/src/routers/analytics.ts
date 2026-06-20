@@ -1253,6 +1253,7 @@ function buildDataMetrics(ctx: AnalyticsContext) {
 					{ key: "mergedAt", label: "Merged" },
 				],
 				rows: ctx.pullRequests.map((pullRequest) => ({
+					href: `/repositories/${pullRequest.repositoryId}/pull-requests/${pullRequest.number}`,
 					repository: repoNames.get(pullRequest.repositoryId) ?? "Unknown",
 					number: pullRequest.number,
 					title: pullRequest.title,

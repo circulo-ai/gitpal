@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { organization, user } from "./auth";
-import { pullRequest, repository, reviewRun } from "./dashboard";
+import { issue, pullRequest, repository, reviewRun } from "./dashboard";
 
 export const observabilityEvent = pgTable(
 	"observability_event",
@@ -27,6 +27,9 @@ export const observabilityEvent = pgTable(
 			onDelete: "set null",
 		}),
 		pullRequestId: text("pull_request_id").references(() => pullRequest.id, {
+			onDelete: "set null",
+		}),
+		issueId: text("issue_id").references(() => issue.id, {
 			onDelete: "set null",
 		}),
 		reviewRunId: text("review_run_id").references(() => reviewRun.id, {
@@ -60,6 +63,7 @@ export const observabilityEvent = pgTable(
 		index("observability_event_organization_idx").on(table.organizationId),
 		index("observability_event_repository_idx").on(table.repositoryId),
 		index("observability_event_pull_request_idx").on(table.pullRequestId),
+		index("observability_event_issue_idx").on(table.issueId),
 		index("observability_event_review_run_idx").on(table.reviewRunId),
 		index("observability_event_trace_idx").on(table.traceId),
 		index("observability_event_kind_idx").on(table.kind),
@@ -206,6 +210,10 @@ export const observabilityEventRelations = relations(
 		pullRequest: one(pullRequest, {
 			fields: [observabilityEvent.pullRequestId],
 			references: [pullRequest.id],
+		}),
+		issue: one(issue, {
+			fields: [observabilityEvent.issueId],
+			references: [issue.id],
 		}),
 		reviewRun: one(reviewRun, {
 			fields: [observabilityEvent.reviewRunId],

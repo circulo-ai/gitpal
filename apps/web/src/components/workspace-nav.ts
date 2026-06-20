@@ -5,6 +5,7 @@ import {
 	BellIcon,
 	BookOpenIcon,
 	CheckCircle2Icon,
+	CircleDotIcon,
 	Clock3Icon,
 	CreditCardIcon,
 	DatabaseIcon,
@@ -86,6 +87,16 @@ export const workspaceNavItems = [
 		icon: FolderGit2Icon,
 	},
 	{
+		title: "Pull requests",
+		href: "/pull-requests",
+		icon: GitPullRequestIcon,
+	},
+	{
+		title: "Issues",
+		href: "/issues",
+		icon: CircleDotIcon,
+	},
+	{
 		title: "Observability",
 		href: "/observability",
 		icon: ActivityIcon,
@@ -153,6 +164,22 @@ export function getWorkspacePageInfo(pathname: string) {
 			};
 		}
 
+		if (pathname.includes("/pull-requests/")) {
+			return {
+				section: "Pull requests",
+				title: "Pull request details",
+				subtitle: "GitPal review trace",
+			};
+		}
+
+		if (pathname.includes("/issues/")) {
+			return {
+				section: "Issues",
+				title: "Issue details",
+				subtitle: "GitPal labeler trace",
+			};
+		}
+
 		return {
 			section: "Repositories",
 			title: repositoryId,
@@ -165,6 +192,22 @@ export function getWorkspacePageInfo(pathname: string) {
 			section: "Workspace",
 			title: "Repositories",
 			subtitle: "Repository catalog",
+		};
+	}
+
+	if (pathname.startsWith("/pull-requests")) {
+		return {
+			section: "Workspace",
+			title: "Pull requests",
+			subtitle: "AI review history and traces",
+		};
+	}
+
+	if (pathname.startsWith("/issues")) {
+		return {
+			section: "Workspace",
+			title: "Issues",
+			subtitle: "AI labeler history and traces",
 		};
 	}
 

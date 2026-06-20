@@ -1,24 +1,53 @@
+import { randomUUID } from "node:crypto";
 import { env } from "@gitpal/env/server";
 import { eventType, NonRetriableError, staticSchema } from "inngest";
 import { z } from "zod";
 import { buildEventId } from "../../idempotency";
 import { inngest } from "../client";
 
-export const repositoryReviewRunJobSchema = z.object({
-	receiptId: z.string().min(1),
+const aiRunJobBaseSchema = z.object({
+	source: z.enum(["webhook", "manual"]).default("webhook"),
+	receiptId: z.string().min(1).optional(),
 	repositoryId: z.string().min(1),
 	providerType: z.enum(["github", "gitlab"]),
+	targetNumber: z.number().int().positive().optional(),
+	requestedByUserId: z.string().min(1).optional(),
+	retryOfRunId: z.string().min(1).optional(),
+	runId: z.string().min(1).optional(),
+	idempotencyKey: z.string().min(1).optional(),
 });
+
+export const repositoryReviewRunJobSchema = aiRunJobBaseSchema.superRefine(
+	(data, context) => {
+		if (data.source === "webhook" && !data.receiptId) {
+			context.addIssue({ code: "custom", message: "receiptId is required." });
+		}
+		if (data.source === "manual" && !data.targetNumber) {
+			context.addIssue({
+				code: "custom",
+				message: "targetNumber is required.",
+			});
+		}
+	},
+);
 
 export type RepositoryReviewRunJobData = z.infer<
 	typeof repositoryReviewRunJobSchema
 >;
 
-export const repositoryLabelerRunJobSchema = z.object({
-	receiptId: z.string().min(1),
-	repositoryId: z.string().min(1),
-	providerType: z.enum(["github", "gitlab"]),
-});
+export const repositoryLabelerRunJobSchema = aiRunJobBaseSchema.superRefine(
+	(data, context) => {
+		if (data.source === "webhook" && !data.receiptId) {
+			context.addIssue({ code: "custom", message: "receiptId is required." });
+		}
+		if (data.source === "manual" && !data.targetNumber) {
+			context.addIssue({
+				code: "custom",
+				message: "targetNumber is required.",
+			});
+		}
+	},
+);
 
 export type RepositoryLabelerRunJobData = z.infer<
 	typeof repositoryLabelerRunJobSchema
@@ -137,7 +166,11 @@ export async function enqueueRepositoryReviewRunJob(
 	return inngest.send({
 		name: "ai/review.requested",
 		data,
-		id: buildEventId(["ai-review-run", data.receiptId, data.repositoryId]),
+		id: buildEventId([
+			"ai-review-run",
+			data.receiptId ?? data.idempotencyKey ?? randomUUID(),
+			data.repositoryId,
+		]),
 	});
 }
 
@@ -149,6 +182,10 @@ export async function enqueueRepositoryLabelerRunJob(
 	return inngest.send({
 		name: "ai/labeler.requested",
 		data,
-		id: buildEventId(["ai-labeler-run", data.receiptId, data.repositoryId]),
+		id: buildEventId([
+			"ai-labeler-run",
+			data.receiptId ?? data.idempotencyKey ?? randomUUID(),
+			data.repositoryId,
+		]),
 	});
 }

@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	boolean,
 	index,
@@ -167,6 +167,38 @@ export const pullRequest = pgTable(
 	],
 );
 
+export const issue = pgTable(
+	"issue",
+	{
+		id: text("id").primaryKey(),
+		repositoryId: text("repository_id")
+			.notNull()
+			.references(() => repository.id, { onDelete: "cascade" }),
+		providerIssueId: text("provider_issue_id").notNull(),
+		number: integer("number").notNull(),
+		title: text("title").notNull(),
+		body: text("body"),
+		state: text("state").notNull(),
+		htmlUrl: text("html_url").notNull(),
+		authorLogin: text("author_login"),
+		authorName: text("author_name"),
+		authorAvatarUrl: text("author_avatar_url"),
+		labels: jsonb("labels").$type<string[]>().default([]).notNull(),
+		createdAt: timestamp("created_at").notNull(),
+		updatedAt: timestamp("updated_at").notNull(),
+		closedAt: timestamp("closed_at"),
+	},
+	(table) => [
+		uniqueIndex("issue_repository_number_idx").on(
+			table.repositoryId,
+			table.number,
+		),
+		index("issue_repository_id_idx").on(table.repositoryId),
+		index("issue_state_idx").on(table.state),
+		index("issue_updated_at_idx").on(table.updatedAt),
+	],
+);
+
 export const reviewRun = pgTable(
 	"review_run",
 	{
@@ -177,6 +209,14 @@ export const reviewRun = pgTable(
 		pullRequestId: text("pull_request_id").references(() => pullRequest.id, {
 			onDelete: "set null",
 		}),
+		issueId: text("issue_id").references(() => issue.id, {
+			onDelete: "set null",
+		}),
+		requestedByUserId: text("requested_by_user_id").references(() => user.id, {
+			onDelete: "set null",
+		}),
+		retryOfRunId: text("retry_of_run_id"),
+		traceId: text("trace_id"),
 		reviewKind: text("review_kind").default("review").notNull(),
 		trigger: text("trigger").default("pull_request").notNull(),
 		providerId: text("provider_id").notNull(),
@@ -203,6 +243,9 @@ export const reviewRun = pgTable(
 	(table) => [
 		index("review_run_repository_id_idx").on(table.repositoryId),
 		index("review_run_pull_request_id_idx").on(table.pullRequestId),
+		index("review_run_issue_id_idx").on(table.issueId),
+		index("review_run_trace_id_idx").on(table.traceId),
+		index("review_run_retry_of_run_id_idx").on(table.retryOfRunId),
 		index("review_run_status_idx").on(table.status),
 		index("review_run_created_at_idx").on(table.createdAt),
 		uniqueIndex("review_run_provider_delivery_kind_idx").on(
@@ -210,6 +253,58 @@ export const reviewRun = pgTable(
 			table.providerDeliveryId,
 			table.reviewKind,
 		),
+		uniqueIndex("review_run_active_pull_request_kind_idx")
+			.on(table.pullRequestId, table.reviewKind)
+			.where(
+				sql`${table.pullRequestId} is not null and ${table.status} in ('queued', 'running')`,
+			),
+		uniqueIndex("review_run_active_issue_kind_idx")
+			.on(table.issueId, table.reviewKind)
+			.where(
+				sql`${table.issueId} is not null and ${table.status} in ('queued', 'running')`,
+			),
+	],
+);
+
+export const reviewRunStep = pgTable(
+	"review_run_step",
+	{
+		id: text("id").primaryKey(),
+		reviewRunId: text("review_run_id")
+			.notNull()
+			.references(() => reviewRun.id, { onDelete: "cascade" }),
+		parentStepId: text("parent_step_id"),
+		stepKey: text("step_key").notNull(),
+		position: integer("position").notNull(),
+		attempt: integer("attempt").default(1).notNull(),
+		status: text("status").default("pending").notNull(),
+		title: text("title").notNull(),
+		summary: text("summary"),
+		details: jsonb("details")
+			.$type<Record<string, unknown> | null>()
+			.default({})
+			.notNull(),
+		errorCode: text("error_code"),
+		startedAt: timestamp("started_at"),
+		completedAt: timestamp("completed_at"),
+		durationMs: integer("duration_ms"),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("review_run_step_run_key_attempt_idx").on(
+			table.reviewRunId,
+			table.stepKey,
+			table.attempt,
+		),
+		index("review_run_step_run_position_idx").on(
+			table.reviewRunId,
+			table.position,
+		),
+		index("review_run_step_status_idx").on(table.status),
 	],
 );
 
@@ -488,6 +583,7 @@ export const repositoryRelations = relations(repository, ({ one, many }) => ({
 	access: many(repositoryAccess),
 	settings: many(repositorySettings),
 	pullRequests: many(pullRequest),
+	issues: many(issue),
 	reviewRuns: many(reviewRun),
 	reviewComments: many(reviewComment),
 	toolFindings: many(toolFinding),
@@ -496,6 +592,14 @@ export const repositoryRelations = relations(repository, ({ one, many }) => ({
 	reportDeliveries: many(reportDelivery),
 	webhooks: many(repositoryWebhook),
 	webhookReceipts: many(webhookEventReceipt),
+}));
+
+export const issueRelations = relations(issue, ({ one, many }) => ({
+	repository: one(repository, {
+		fields: [issue.repositoryId],
+		references: [repository.id],
+	}),
+	reviewRuns: many(reviewRun),
 }));
 
 export const organizationSettingsRelations = relations(
@@ -557,8 +661,24 @@ export const reviewRunRelations = relations(reviewRun, ({ one, many }) => ({
 		fields: [reviewRun.pullRequestId],
 		references: [pullRequest.id],
 	}),
+	issue: one(issue, {
+		fields: [reviewRun.issueId],
+		references: [issue.id],
+	}),
+	requestedBy: one(user, {
+		fields: [reviewRun.requestedByUserId],
+		references: [user.id],
+	}),
+	steps: many(reviewRunStep),
 	reviewComments: many(reviewComment),
 	preMergeCheckRuns: many(preMergeCheckRun),
+}));
+
+export const reviewRunStepRelations = relations(reviewRunStep, ({ one }) => ({
+	reviewRun: one(reviewRun, {
+		fields: [reviewRunStep.reviewRunId],
+		references: [reviewRun.id],
+	}),
 }));
 
 export const reviewCommentRelations = relations(reviewComment, ({ one }) => ({

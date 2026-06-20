@@ -5,6 +5,7 @@ import {
 	type GitComment,
 	type GitCommentInput,
 	type GitCommitStatusInput,
+	type GitIssue,
 	type GitMergeMethod,
 	type GitProviderAdapter,
 	type GitProviderAuth,
@@ -117,6 +118,8 @@ type GitLabIssue = {
 	} | null;
 	created_at: string;
 	updated_at: string;
+	closed_at?: string | null;
+	labels?: string[];
 };
 
 type GitLabNote = {
@@ -283,6 +286,8 @@ const gitlabIssueSchema = z.object({
 		.optional(),
 	created_at: z.string(),
 	updated_at: z.string(),
+	closed_at: z.string().nullable().optional(),
+	labels: z.array(z.string()).optional(),
 });
 
 const gitlabNoteSchema = z.object({
@@ -1151,6 +1156,40 @@ export function createGitLabAdapter({
 		return mapPullRequest(mergeRequest, providerId, input.repositoryPath);
 	}
 
+	async function getIssue(
+		input: GitRepositoryRef & { issueNumber: number },
+	): Promise<GitIssue> {
+		const response = await requestJson<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/issues/${input.issueNumber}`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(auth),
+				},
+			},
+			providerId,
+		);
+		const item = gitlabIssueSchema.parse(response);
+
+		return {
+			providerId,
+			repositoryPath: input.repositoryPath,
+			number: item.iid,
+			id: String(item.id),
+			title: item.title,
+			body: item.description ?? null,
+			state: item.state,
+			htmlUrl: item.web_url,
+			author: mapActor(item.author ?? undefined),
+			labels: item.labels ?? [],
+			createdAt: item.created_at,
+			updatedAt: item.updated_at,
+			closedAt: item.closed_at ?? null,
+		};
+	}
+
 	async function listPullRequestFiles(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	) {
@@ -1904,6 +1943,7 @@ export function createGitLabAdapter({
 		getRepository,
 		listPullRequests,
 		getPullRequest,
+		getIssue,
 		listPullRequestFiles,
 		listPullRequestComments,
 		listPullRequestReviews,

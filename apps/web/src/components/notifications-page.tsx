@@ -67,6 +67,8 @@ import {
 	Settings2Icon,
 	Trash2Icon,
 } from "lucide-react";
+import type { Route } from "next";
+import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -734,6 +736,24 @@ export function NotificationsPage() {
 															<ArchiveIcon data-icon="inline-start" />
 															Archive
 														</Button>
+													) : null}
+													{notification.actionHref ? (
+														<Button
+															variant="outline"
+															size="sm"
+															className="flex-1 sm:flex-none"
+															render={(props) => (
+																<Link
+																	{...props}
+																	href={
+																		(notification.actionHref ??
+																			"/notifications") as Route
+																	}
+																>
+																	View details
+																</Link>
+															)}
+														/>
 													) : null}
 												</div>
 											</div>

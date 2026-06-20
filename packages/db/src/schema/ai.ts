@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
-import { pullRequest, repository, reviewRun } from "./dashboard";
+import { issue, pullRequest, repository, reviewRun } from "./dashboard";
 
 export const userLlmRoutingSettings = pgTable(
 	"user_llm_routing_settings",
@@ -91,6 +91,9 @@ export const aiGeneration = pgTable(
 		pullRequestId: text("pull_request_id").references(() => pullRequest.id, {
 			onDelete: "set null",
 		}),
+		issueId: text("issue_id").references(() => issue.id, {
+			onDelete: "set null",
+		}),
 		reviewRunId: text("review_run_id").references(() => reviewRun.id, {
 			onDelete: "set null",
 		}),
@@ -145,6 +148,7 @@ export const aiGeneration = pgTable(
 		index("ai_generation_user_id_idx").on(table.userId),
 		index("ai_generation_repository_id_idx").on(table.repositoryId),
 		index("ai_generation_pull_request_id_idx").on(table.pullRequestId),
+		index("ai_generation_issue_id_idx").on(table.issueId),
 		index("ai_generation_review_run_id_idx").on(table.reviewRunId),
 		index("ai_generation_call_kind_idx").on(table.callKind),
 		index("ai_generation_status_idx").on(table.status),
@@ -181,6 +185,10 @@ export const aiGenerationRelations = relations(aiGeneration, ({ one }) => ({
 	pullRequest: one(pullRequest, {
 		fields: [aiGeneration.pullRequestId],
 		references: [pullRequest.id],
+	}),
+	issue: one(issue, {
+		fields: [aiGeneration.issueId],
+		references: [issue.id],
 	}),
 	reviewRun: one(reviewRun, {
 		fields: [aiGeneration.reviewRunId],

@@ -49,6 +49,7 @@ import {
 	RefreshCcwIcon,
 	WrenchIcon,
 } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
@@ -358,7 +359,23 @@ export function ObservabilityPage() {
 											</div>
 											<div className="min-w-0 flex-1">
 												<div className="flex flex-wrap items-center gap-2">
-													<span className="font-medium">{event.title}</span>
+													{event.pullRequest && event.repository ? (
+														<Link
+															href={`/repositories/${event.repository.id}/pull-requests/${event.pullRequest.number}`}
+															className="font-medium hover:underline"
+														>
+															{event.title}
+														</Link>
+													) : event.issue && event.repository ? (
+														<Link
+															href={`/repositories/${event.repository.id}/issues/${event.issue.number}`}
+															className="font-medium hover:underline"
+														>
+															{event.title}
+														</Link>
+													) : (
+														<span className="font-medium">{event.title}</span>
+													)}
 													<Badge variant="outline">{event.kind}</Badge>
 													<Badge variant={severityBadgeVariant(event.severity)}>
 														{event.status}
@@ -424,9 +441,25 @@ export function ObservabilityPage() {
 														</div>
 														<div className="min-w-0">
 															<div className="flex flex-wrap items-center gap-2">
-																<span className="font-medium">
-																	{event.title}
-																</span>
+																{event.pullRequest && event.repository ? (
+																	<Link
+																		href={`/repositories/${event.repository.id}/pull-requests/${event.pullRequest.number}`}
+																		className="font-medium hover:underline"
+																	>
+																		{event.title}
+																	</Link>
+																) : event.issue && event.repository ? (
+																	<Link
+																		href={`/repositories/${event.repository.id}/issues/${event.issue.number}`}
+																		className="font-medium hover:underline"
+																	>
+																		{event.title}
+																	</Link>
+																) : (
+																	<span className="font-medium">
+																		{event.title}
+																	</span>
+																)}
 																<Badge variant="outline">{event.kind}</Badge>
 															</div>
 															<div className="mt-1 line-clamp-2 text-muted-foreground text-xs">

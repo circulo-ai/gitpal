@@ -192,6 +192,22 @@ export type GitRepositorySearchResult = {
 	updatedAt: string;
 };
 
+export type GitIssue = {
+	providerId: GitProviderId;
+	repositoryPath: string;
+	number: number;
+	id: string;
+	title: string;
+	body: string | null;
+	state: string;
+	htmlUrl: string;
+	author: GitActor | null;
+	labels: string[];
+	createdAt: string;
+	updatedAt: string;
+	closedAt: string | null;
+};
+
 export type GitRepositoryLabel = {
 	providerId: GitProviderId;
 	repositoryPath: string;
@@ -338,6 +354,9 @@ export interface GitProviderAdapter {
 	getPullRequest(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	): Promise<GitPullRequest>;
+	getIssue(
+		input: GitRepositoryRef & { issueNumber: number },
+	): Promise<GitIssue>;
 	listPullRequestFiles(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	): Promise<GitPullRequestFile[]>;

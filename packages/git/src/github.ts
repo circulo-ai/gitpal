@@ -7,6 +7,7 @@ import {
 	type GitComment,
 	type GitCommentInput,
 	type GitCommitStatusInput,
+	type GitIssue,
 	type GitMergeMethod,
 	type GitProviderAdapter,
 	type GitProviderAuth,
@@ -698,6 +699,52 @@ export function createGitHubAdapter({
 		);
 	}
 
+	async function getIssue(
+		input: GitRepositoryRef & { issueNumber: number },
+	): Promise<GitIssue> {
+		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+		const response = await octokit.rest.issues.get({
+			owner,
+			repo,
+			issue_number: input.issueNumber,
+		});
+		const item = response.data as unknown as Record<string, unknown>;
+		const labels = Array.isArray(item.labels)
+			? item.labels.flatMap((label) => {
+					if (typeof label === "string") return [label];
+					if (
+						typeof label === "object" &&
+						label !== null &&
+						"name" in label &&
+						typeof label.name === "string"
+					) {
+						return [label.name];
+					}
+					return [];
+				})
+			: [];
+
+		return {
+			providerId,
+			repositoryPath: input.repositoryPath,
+			number: Number(item.number ?? input.issueNumber),
+			id: String(item.id ?? item.node_id ?? input.issueNumber),
+			title: String(item.title ?? ""),
+			body: typeof item.body === "string" ? item.body : null,
+			state: typeof item.state === "string" ? item.state : "open",
+			htmlUrl: typeof item.html_url === "string" ? item.html_url : "",
+			author: mapActor(
+				typeof item.user === "object" && item.user !== null
+					? (item.user as Record<string, unknown>)
+					: null,
+			),
+			labels,
+			createdAt: String(item.created_at ?? new Date().toISOString()),
+			updatedAt: String(item.updated_at ?? new Date().toISOString()),
+			closedAt: typeof item.closed_at === "string" ? item.closed_at : null,
+		};
+	}
+
 	async function listPullRequestFiles(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	) {
@@ -1201,6 +1248,7 @@ export function createGitHubAdapter({
 		getRepository,
 		listPullRequests,
 		getPullRequest,
+		getIssue,
 		listPullRequestFiles,
 		listPullRequestComments,
 		listPullRequestReviews,

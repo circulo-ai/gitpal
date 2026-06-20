@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@gitpal/db";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
 import { eq } from "drizzle-orm";
+import { sanitizeDiagnosticText, sanitizeRunDetails } from "./safe-diagnostics";
 
 type ObservabilityDbExecutor = Pick<typeof db, "insert" | "update">;
 
@@ -25,6 +26,7 @@ export type RecordObservabilityEventInput = {
 	organizationId?: string | null;
 	repositoryId?: string | null;
 	pullRequestId?: string | null;
+	issueId?: string | null;
 	reviewRunId?: string | null;
 	traceId?: string | null;
 	parentEventId?: string | null;
@@ -59,6 +61,7 @@ export async function recordObservabilityEvent(
 		organizationId: input.organizationId ?? null,
 		repositoryId: input.repositoryId ?? null,
 		pullRequestId: input.pullRequestId ?? null,
+		issueId: input.issueId ?? null,
 		reviewRunId: input.reviewRunId ?? null,
 		traceId: input.traceId ?? null,
 		parentEventId: input.parentEventId ?? null,
@@ -67,13 +70,13 @@ export async function recordObservabilityEvent(
 		status: input.status,
 		severity: input.severity ?? "info",
 		title: input.title,
-		body: input.body ?? null,
+		body: input.body ? sanitizeDiagnosticText(input.body) : null,
 		sourceType: input.sourceType ?? null,
 		sourceId: input.sourceId ?? null,
 		dedupeKey: input.dedupeKey ?? null,
 		durationMs: input.durationMs ?? null,
 		costCents: input.costCents ?? null,
-		metadata: input.metadata ?? {},
+		metadata: sanitizeRunDetails(input.metadata),
 		occurredAt: now,
 		createdAt: new Date(),
 	};
@@ -87,6 +90,7 @@ export async function recordObservabilityEvent(
 				organizationId: values.organizationId,
 				repositoryId: values.repositoryId,
 				pullRequestId: values.pullRequestId,
+				issueId: values.issueId,
 				reviewRunId: values.reviewRunId,
 				traceId: values.traceId,
 				parentEventId: values.parentEventId,

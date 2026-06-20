@@ -35,5 +35,7 @@ GitPal is only production-ready when the webhook path, background jobs, provider
 - `Reviewers are not assigned`: check the connected provider account mapping and repository access list.
 - `Wallet balance looks wrong`: check AI generation rows, settlement cost, and ledger updates.
 - `Sign-in resets after deployment`: verify `BETTER_AUTH_COOKIE_DOMAIN` and make sure the API and web app still share the same root domain.
+- `Hook already exists on this repository`: deploy the current webhook reconciliation logic and retry from Repositories. GitPal treats GitHub's duplicate-hook response as an idempotent race, adopts the matching hook, archives the prior error after recovery, and records a recovery notification.
+- `Repository sync needs attention`: open Repositories, inspect the last successful sync and safe failure summary, then use `Retry sync`.
 
 If something looks off, start at the receipt, then the review run, then the generation row. That order usually tells you where the pipeline diverged.

@@ -121,6 +121,20 @@ app.use(
 	}),
 );
 
+app.use("/trpc/*", async (c, next) => {
+	if (c.req.method !== "POST") {
+		await next();
+		return;
+	}
+
+	const origin = c.req.header("origin");
+	if (!origin || origin !== new URL(env.CORS_ORIGIN).origin) {
+		return c.json({ ok: false, error: "invalid_origin" }, 403);
+	}
+
+	await next();
+});
+
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.get("/integrations/oauth/callback", async (c) => {

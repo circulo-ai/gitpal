@@ -530,6 +530,30 @@ const LANGUAGE_OPTIONS = [
 ] as const;
 
 const CUSTOM_LANGUAGE_VALUE = "__custom__";
+const LANGUAGE_SELECT_ITEMS = [
+	...LANGUAGE_OPTIONS,
+	{ value: CUSTOM_LANGUAGE_VALUE, label: "Custom language tag" },
+] as const;
+const REVIEW_PROFILE_OPTIONS = [
+	{ value: "chill", label: "Chill" },
+	{ value: "assertive", label: "Assertive" },
+] as const;
+const REVIEW_FOCUS_OPTIONS = [
+	{ value: "balanced", label: "Balanced" },
+	{ value: "security", label: "Security" },
+	{ value: "performance", label: "Performance" },
+	{ value: "maintainability", label: "Maintainability" },
+] as const;
+const THOUGHT_EFFORT_OPTIONS = [
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+] as const;
+const SUMMARY_VISIBILITY_OPTIONS = [
+	{ value: "auto", label: "Auto" },
+	{ value: "detailed", label: "Detailed" },
+	{ value: "hidden", label: "Hidden" },
+] as const;
 const CURATED_MODEL_GROUPS = buildCuratedModelGroups();
 
 const SECTIONS = [
@@ -733,6 +757,7 @@ export function WorkspaceSettingsForm({
 						description="Choose a common locale or switch to custom for any BCP 47 tag."
 					>
 						<Select
+							items={LANGUAGE_SELECT_ITEMS}
 							value={languageMode}
 							disabled={disabled}
 							onValueChange={(nextValue) => {
@@ -789,6 +814,7 @@ export function WorkspaceSettingsForm({
 						description="Choose how direct the review should be."
 					>
 						<Select
+							items={REVIEW_PROFILE_OPTIONS}
 							value={value.reviews.behavior.profile}
 							disabled={disabled}
 							onValueChange={(profile) => {
@@ -1282,6 +1308,7 @@ export function WorkspaceSettingsForm({
 						/>
 						<Field label="Review focus">
 							<Select
+								items={REVIEW_FOCUS_OPTIONS}
 								value={value.ai.reviewer.focus}
 								disabled={disabled}
 								onValueChange={(focus) => {
@@ -1480,6 +1507,7 @@ export function WorkspaceSettingsForm({
 					<div className="grid gap-4 md:grid-cols-3">
 						<Field label="Effort">
 							<Select
+								items={THOUGHT_EFFORT_OPTIONS}
 								value={value.ai.thinking.effort}
 								disabled={disabled}
 								onValueChange={(effort) => {
@@ -1516,6 +1544,7 @@ export function WorkspaceSettingsForm({
 						/>
 						<Field label="Summary visibility">
 							<Select
+								items={SUMMARY_VISIBILITY_OPTIONS}
 								value={value.ai.thinking.summaryVisibility}
 								disabled={disabled}
 								onValueChange={(summaryVisibility) => {

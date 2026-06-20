@@ -7,7 +7,7 @@ import {
 	enqueueRepositoryLabelerRunJob,
 	enqueueRepositoryReviewRunJob,
 } from "@gitpal/jobs/inngest/functions/ai-workflows";
-import { and, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
 import {
 	createAdapterForUserProvider,
 	getAutomationActorForRepository,
@@ -29,13 +29,34 @@ async function accessibleRepository({
 	organizationId: string | null;
 	repositoryId: string;
 }) {
-	const repositories = await listRepositoriesForUser({
-		userId,
-		organizationId,
-	});
-	return (
-		repositories.find((repository) => repository.id === repositoryId) ?? null
-	);
+	if (!organizationId) return null;
+	const [row] = await db
+		.select({
+			access: dashboardSchema.repositoryAccess,
+			repository: dashboardSchema.repository,
+		})
+		.from(dashboardSchema.repositoryAccess)
+		.innerJoin(
+			dashboardSchema.repository,
+			eq(
+				dashboardSchema.repositoryAccess.repositoryId,
+				dashboardSchema.repository.id,
+			),
+		)
+		.where(
+			and(
+				eq(dashboardSchema.repositoryAccess.userId, userId),
+				eq(dashboardSchema.repository.id, repositoryId),
+				eq(dashboardSchema.repository.organizationId, organizationId),
+			),
+		)
+		.limit(1);
+	return row
+		? {
+				...row.repository,
+				enabled: row.access.enabled,
+			}
+		: null;
 }
 
 export async function listWorkItems({
@@ -69,68 +90,78 @@ export async function listWorkItems({
 		repositories.map((repository) => [repository.id, repository]),
 	);
 	const normalizedQuery = query?.trim();
-	const offset = (page - 1) * pageSize;
+	const normalizedPage = Math.max(1, Math.trunc(page));
+	const normalizedPageSize = Math.min(100, Math.max(1, Math.trunc(pageSize)));
+	const offset = (normalizedPage - 1) * normalizedPageSize;
 
 	if (kind === "pull_request") {
-		const rows = await db
-			.select()
-			.from(dashboardSchema.pullRequest)
-			.where(
-				and(
-					inArray(dashboardSchema.pullRequest.repositoryId, allowed),
-					state ? eq(dashboardSchema.pullRequest.state, state) : undefined,
-					normalizedQuery
-						? or(
-								ilike(
-									dashboardSchema.pullRequest.title,
-									`%${normalizedQuery}%`,
-								),
-								ilike(
-									dashboardSchema.pullRequest.authorLogin,
-									`%${normalizedQuery}%`,
-								),
-							)
-						: undefined,
-				),
-			)
-			.orderBy(desc(dashboardSchema.pullRequest.updatedAt));
+		const condition = and(
+			inArray(dashboardSchema.pullRequest.repositoryId, allowed),
+			state ? eq(dashboardSchema.pullRequest.state, state) : undefined,
+			normalizedQuery
+				? or(
+						ilike(dashboardSchema.pullRequest.title, `%${normalizedQuery}%`),
+						ilike(
+							dashboardSchema.pullRequest.authorLogin,
+							`%${normalizedQuery}%`,
+						),
+					)
+				: undefined,
+		);
+		const [rows, [totalRow]] = await Promise.all([
+			db
+				.select()
+				.from(dashboardSchema.pullRequest)
+				.where(condition)
+				.orderBy(desc(dashboardSchema.pullRequest.updatedAt))
+				.limit(normalizedPageSize)
+				.offset(offset),
+			db
+				.select({ total: count() })
+				.from(dashboardSchema.pullRequest)
+				.where(condition),
+		]);
 		return {
-			items: rows.slice(offset, offset + pageSize).map((item) => ({
+			items: rows.map((item) => ({
 				...item,
 				kind,
 				repository: repositoryMap.get(item.repositoryId) ?? null,
 			})),
-			total: rows.length,
-			page,
-			pageSize,
+			total: totalRow?.total ?? 0,
+			page: normalizedPage,
+			pageSize: normalizedPageSize,
 		};
 	}
 
-	const rows = await db
-		.select()
-		.from(dashboardSchema.issue)
-		.where(
-			and(
-				inArray(dashboardSchema.issue.repositoryId, allowed),
-				state ? eq(dashboardSchema.issue.state, state) : undefined,
-				normalizedQuery
-					? or(
-							ilike(dashboardSchema.issue.title, `%${normalizedQuery}%`),
-							ilike(dashboardSchema.issue.authorLogin, `%${normalizedQuery}%`),
-						)
-					: undefined,
-			),
-		)
-		.orderBy(desc(dashboardSchema.issue.updatedAt));
+	const condition = and(
+		inArray(dashboardSchema.issue.repositoryId, allowed),
+		state ? eq(dashboardSchema.issue.state, state) : undefined,
+		normalizedQuery
+			? or(
+					ilike(dashboardSchema.issue.title, `%${normalizedQuery}%`),
+					ilike(dashboardSchema.issue.authorLogin, `%${normalizedQuery}%`),
+				)
+			: undefined,
+	);
+	const [rows, [totalRow]] = await Promise.all([
+		db
+			.select()
+			.from(dashboardSchema.issue)
+			.where(condition)
+			.orderBy(desc(dashboardSchema.issue.updatedAt))
+			.limit(normalizedPageSize)
+			.offset(offset),
+		db.select({ total: count() }).from(dashboardSchema.issue).where(condition),
+	]);
 	return {
-		items: rows.slice(offset, offset + pageSize).map((item) => ({
+		items: rows.map((item) => ({
 			...item,
 			kind,
 			repository: repositoryMap.get(item.repositoryId) ?? null,
 		})),
-		total: rows.length,
-		page,
-		pageSize,
+		total: totalRow?.total ?? 0,
+		page: normalizedPage,
+		pageSize: normalizedPageSize,
 	};
 }
 

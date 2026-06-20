@@ -69,7 +69,7 @@ export async function recordObservabilityEvent(
 		action: input.action,
 		status: input.status,
 		severity: input.severity ?? "info",
-		title: input.title,
+		title: sanitizeDiagnosticText(input.title).slice(0, 500),
 		body: input.body ? sanitizeDiagnosticText(input.body) : null,
 		sourceType: input.sourceType ?? null,
 		sourceId: input.sourceId ?? null,
@@ -122,6 +122,6 @@ export async function appendObservabilityEventMetadata({
 }) {
 	await db
 		.update(observabilitySchema.observabilityEvent)
-		.set({ metadata })
+		.set({ metadata: sanitizeRunDetails(metadata) })
 		.where(eq(observabilitySchema.observabilityEvent.id, id));
 }

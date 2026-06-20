@@ -153,6 +153,11 @@ export const aiGeneration = pgTable(
 		index("ai_generation_call_kind_idx").on(table.callKind),
 		index("ai_generation_status_idx").on(table.status),
 		index("ai_generation_created_at_idx").on(table.createdAt),
+		index("ai_generation_user_created_idx").on(table.userId, table.createdAt),
+		index("ai_generation_review_run_created_idx").on(
+			table.reviewRunId,
+			table.createdAt,
+		),
 	],
 );
 

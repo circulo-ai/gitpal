@@ -158,6 +158,20 @@ export async function updateAppApiKeyForUser({
 	name?: string;
 	enabled?: boolean;
 }) {
+	const [ownedKey] = await db
+		.select({ id: authSchema.apiKey.id })
+		.from(authSchema.apiKey)
+		.where(
+			and(
+				eq(authSchema.apiKey.id, keyId),
+				eq(authSchema.apiKey.referenceId, userId),
+			),
+		)
+		.limit(1);
+	if (!ownedKey) {
+		throw new Error("API key was not found.");
+	}
+
 	const updated = await auth.api.updateApiKey({
 		body: {
 			userId,

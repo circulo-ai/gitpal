@@ -13,6 +13,7 @@ import {
 } from "@resend/chat-sdk-adapter";
 import { type Adapter, Chat } from "chat";
 import { z } from "zod";
+import { normalizeTrustedServiceUrl } from "./trusted-service-url";
 
 export const notificationChannelProviders = [
 	"resend",
@@ -43,15 +44,23 @@ export const slackChannelCredentialSchema = z.object({
 	botUsername: optionalSecretSchema,
 });
 
-export const teamsChannelCredentialSchema = z.object({
-	appId: requiredSecretSchema,
-	appPassword: requiredSecretSchema,
-	appTenantId: requiredSecretSchema,
-	conversationId: requiredSecretSchema,
-	serviceUrl: requiredSecretSchema,
-	appType: z.enum(["MultiTenant", "SingleTenant"]).optional(),
-	botUsername: optionalSecretSchema,
-});
+export const teamsChannelCredentialSchema = z
+	.object({
+		appId: requiredSecretSchema,
+		appPassword: requiredSecretSchema,
+		appTenantId: requiredSecretSchema,
+		conversationId: requiredSecretSchema,
+		serviceUrl: requiredSecretSchema,
+		appType: z.enum(["MultiTenant", "SingleTenant"]).optional(),
+		botUsername: optionalSecretSchema,
+	})
+	.transform((credential) => ({
+		...credential,
+		serviceUrl: normalizeTrustedServiceUrl(credential.serviceUrl, {
+			exactHosts: ["smba.trafficmanager.net"],
+			hostSuffixes: ["botframework.com"],
+		}) as string,
+	}));
 
 export const linearChannelCredentialSchema = z
 	.object({

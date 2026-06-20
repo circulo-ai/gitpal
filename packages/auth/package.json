@@ -9,7 +9,9 @@
 			"default": "./src/*.ts"
 		}
 	},
-	"scripts": {},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
 	"dependencies": {
 		"@better-auth/api-key": "^1.6.18",
 		"@gitpal/db": "workspace:*",

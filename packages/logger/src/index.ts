@@ -126,10 +126,49 @@ function wrapPino(pinoLogger: Logger): ScopedLogger {
 // Pino configuration
 // ─────────────────────────────────────────────────────────────────
 
+function sanitizeLogText(value: string) {
+	return value
+		.replace(/Bearer\s+[A-Za-z0-9._~+/-]+/gi, "Bearer [redacted]")
+		.replace(/\b(sk|ghp|glpat)-[A-Za-z0-9_-]{8,}\b/gi, "[redacted]")
+		.replace(/([?&](?:key|token|secret|password)=)[^&\s]+/gi, "$1[redacted]");
+}
+
 const baseOptions: LoggerOptions = {
 	level: LOG_LEVEL ?? "info",
 	timestamp: pino.stdTimeFunctions.isoTime,
-	serializers: { err: pino.stdSerializers.err },
+	redact: {
+		paths: [
+			"authorization",
+			"cookie",
+			"password",
+			"secret",
+			"token",
+			"*.authorization",
+			"*.cookie",
+			"*.password",
+			"*.secret",
+			"*.token",
+			"headers.authorization",
+			"headers.cookie",
+		],
+		censor: "[redacted]",
+	},
+	serializers: {
+		err(error) {
+			const serialized = pino.stdSerializers.err(error);
+			return {
+				...serialized,
+				message:
+					typeof serialized.message === "string"
+						? sanitizeLogText(serialized.message)
+						: serialized.message,
+				stack:
+					typeof serialized.stack === "string"
+						? sanitizeLogText(serialized.stack)
+						: serialized.stack,
+			};
+		},
+	},
 	formatters: {
 		level(label) {
 			return { level: label };

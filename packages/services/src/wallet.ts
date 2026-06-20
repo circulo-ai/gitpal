@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { db, runTransactionWithRetry } from "@gitpal/db";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import { env } from "@gitpal/env/server";
@@ -11,6 +10,7 @@ import {
 	normalizeNowPaymentsStatus,
 } from "./nowpayments";
 import { recordObservabilityEvent } from "./observability";
+import { stableId } from "./stable-id";
 
 type WalletDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
 const TOPUP_FINAL_STATUSES = new Set(["paid"]);
@@ -53,12 +53,6 @@ export type WalletSummary = {
 		createdAt: string;
 	}>;
 };
-
-function stableId(parts: Array<string | number | boolean | null | undefined>) {
-	return createHash("sha256")
-		.update(parts.map((part) => String(part ?? "")).join(":"))
-		.digest("hex");
-}
 
 function getWalletId(userId: string) {
 	return `wallet_${stableId([userId]).slice(0, 32)}`;
@@ -122,6 +116,16 @@ async function ensureWalletForUser(
 	}
 
 	return existing;
+}
+
+export async function assertWalletCanStartUsage(userId: string) {
+	const wallet = await ensureWalletForUser(userId);
+	if (wallet.availableBalanceCents <= 0) {
+		throw new Error(
+			"Wallet balance is depleted. Add funds before starting AI work.",
+		);
+	}
+	return wallet.availableBalanceCents;
 }
 
 export async function getWalletSummaryForUser(
@@ -198,8 +202,12 @@ export async function createWalletTopupForUser({
 		throw new Error("NOWPayments is not configured.");
 	}
 
-	if (amountUsdCents < 500) {
-		throw new Error("Minimum top-up amount is $5.00.");
+	if (
+		!Number.isSafeInteger(amountUsdCents) ||
+		amountUsdCents < 500 ||
+		amountUsdCents > 1_000_000
+	) {
+		throw new Error("Top-up amount must be between $5.00 and $10,000.00.");
 	}
 
 	const wallet = await ensureWalletForUser(userId);
@@ -222,6 +230,10 @@ export async function createWalletTopupForUser({
 
 	if (!invoiceUrl) {
 		throw new Error("NOWPayments did not return an invoice URL.");
+	}
+	const parsedInvoiceUrl = new URL(invoiceUrl);
+	if (parsedInvoiceUrl.protocol !== "https:") {
+		throw new Error("NOWPayments returned an unsafe invoice URL.");
 	}
 
 	const [topup] = await db
@@ -397,20 +409,14 @@ export async function applyWalletUsageDebitInTransaction(
 			totalSpentCents: sql`${billingSchema.wallet.totalSpentCents} + ${amountCents}`,
 			updatedAt: now,
 		})
-		.where(
-			and(
-				eq(billingSchema.wallet.id, wallet.id),
-				sql`${billingSchema.wallet.availableBalanceCents} - ${amountCents} >= -10`,
-			),
-		)
+		.where(eq(billingSchema.wallet.id, wallet.id))
 		.returning({
 			id: billingSchema.wallet.id,
 			availableBalanceCents: billingSchema.wallet.availableBalanceCents,
 		});
 
-	if (!updatedWallet) {
-		throw new Error("Insufficient wallet balance.");
-	}
+	if (!updatedWallet)
+		throw new Error("Wallet not found during usage settlement.");
 
 	await executor
 		.update(billingSchema.walletLedgerEntry)
@@ -462,6 +468,17 @@ export async function handleNowPaymentsWebhook(
 			updated: false,
 			credited: false,
 		};
+	}
+	const identifiersMatch =
+		(!orderId || existingTopup.orderId === orderId) &&
+		(!providerInvoiceId ||
+			!existingTopup.providerInvoiceId ||
+			existingTopup.providerInvoiceId === providerInvoiceId) &&
+		(!providerPaymentId ||
+			!existingTopup.providerPaymentId ||
+			existingTopup.providerPaymentId === providerPaymentId);
+	if (!identifiersMatch) {
+		return { updated: false, credited: false };
 	}
 
 	let credited = false;

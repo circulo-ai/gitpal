@@ -96,3 +96,46 @@ export async function requestJson<T>(
 		providerId,
 	);
 }
+
+export async function requestJsonPages<T>(
+	url: string,
+	init: RequestInit,
+	providerId: string,
+	{
+		pageSize = 100,
+		maxPages = 100,
+	}: {
+		pageSize?: number;
+		maxPages?: number;
+	} = {},
+): Promise<T[]> {
+	const items: T[] = [];
+
+	for (let page = 1; page <= maxPages; page += 1) {
+		const pageUrl = new URL(url);
+		pageUrl.searchParams.set("per_page", String(pageSize));
+		pageUrl.searchParams.set("page", String(page));
+		const pageItems = await requestJson<T[]>(
+			pageUrl.toString(),
+			init,
+			providerId,
+		);
+		if (!Array.isArray(pageItems)) {
+			throw new GitProviderRequestError(
+				`Request to ${pageUrl.toString()} returned a non-list response.`,
+				502,
+				providerId,
+			);
+		}
+		items.push(...pageItems);
+		if (pageItems.length < pageSize) {
+			return items;
+		}
+	}
+
+	throw new GitProviderRequestError(
+		`Request to ${url} exceeded the ${maxPages}-page safety limit.`,
+		502,
+		providerId,
+	);
+}

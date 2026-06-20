@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -7,6 +6,7 @@ import { decryptSecret, encryptSecret } from "@gitpal/auth";
 import { db } from "@gitpal/db";
 import * as aiSchema from "@gitpal/db/schema/ai";
 import { env } from "@gitpal/env/server";
+import { normalizeConnectorServerUrl } from "@gitpal/mcp";
 import {
 	type ByokProviderKeyInput,
 	type ByokRoutingSettings,
@@ -23,6 +23,7 @@ import {
 import { createGateway, type LanguageModel } from "ai";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { createOllama } from "ollama-ai-provider-v2";
+import { stableId } from "./stable-id";
 
 type UserLlmApiKeyRow = typeof aiSchema.userLlmApiKey.$inferSelect;
 
@@ -324,12 +325,6 @@ export async function resolveLanguageModelForUser({
 	};
 }
 
-function stableId(parts: Array<string | number | boolean | null | undefined>) {
-	return createHash("sha256")
-		.update(parts.map((part) => String(part ?? "")).join(":"))
-		.digest("hex");
-}
-
 function getRoutingSettingsId(userId: string) {
 	return `llm_routing_${stableId([userId]).slice(0, 32)}`;
 }
@@ -573,7 +568,7 @@ export async function saveByokKeyForUser({
 	// value on an existing row, then the catalog default.
 	const resolvedBaseUrl =
 		validated.baseUrl !== undefined
-			? validated.baseUrl
+			? normalizeConnectorServerUrl(validated.baseUrl)
 			: (currentRow?.baseUrl ?? provider.baseUrl);
 
 	const now = new Date();

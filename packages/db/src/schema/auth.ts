@@ -47,7 +47,10 @@ export const session = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
 	},
-	(table) => [index("session_userId_idx").on(table.userId)],
+	(table) => [
+		index("session_userId_idx").on(table.userId),
+		index("session_expires_at_idx").on(table.expiresAt),
+	],
 );
 
 export const account = pgTable(
@@ -71,7 +74,10 @@ export const account = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
-	(table) => [index("account_userId_idx").on(table.userId)],
+	(table) => [
+		index("account_userId_idx").on(table.userId),
+		index("account_user_provider_idx").on(table.userId, table.providerId),
+	],
 );
 
 export const organization = pgTable(
@@ -179,6 +185,11 @@ export const invitation = pgTable(
 	(table) => [
 		index("invitation_email_idx").on(table.email),
 		index("invitation_organization_id_idx").on(table.organizationId),
+		index("invitation_org_status_expires_idx").on(
+			table.organizationId,
+			table.status,
+			table.expiresAt,
+		),
 		uniqueIndex("invitation_org_email_idx").on(
 			table.organizationId,
 			table.email,
@@ -270,7 +281,10 @@ export const verification = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
-	(table) => [index("verification_identifier_idx").on(table.identifier)],
+	(table) => [
+		index("verification_identifier_idx").on(table.identifier),
+		index("verification_expires_at_idx").on(table.expiresAt),
+	],
 );
 
 export const enterpriseGitProvider = pgTable(

@@ -14,7 +14,6 @@ import {
 	getConnectorDefaultRateLimit,
 	getConnectorProvider,
 	listConnectorProviders,
-	normalizeConnectorServerUrl,
 	parseConnectorHeaders,
 	redactHeaders,
 	redactSecret,
@@ -31,6 +30,7 @@ import {
 	decryptSecretEnvelope,
 	encryptSecretEnvelope,
 } from "./secret-envelope";
+import { normalizeTrustedServiceUrl } from "./trusted-service-url";
 
 type IntegrationConnectionRow =
 	typeof integrationSchema.integrationConnection.$inferSelect;
@@ -473,8 +473,10 @@ export async function upsertIntegrationConnection({
 		existing: existingCredential,
 	});
 	const rateLimit = getConnectorDefaultRateLimit(data.providerId);
-	const serverUrl =
-		normalizeConnectorServerUrl(data.serverUrl) ?? provider.defaultServerUrl;
+	const serverUrl = normalizeTrustedServiceUrl(
+		data.serverUrl || provider.defaultServerUrl,
+		{ exactHosts: [provider.host] },
+	);
 	const status =
 		data.authMethod === "oauth" && !credential?.oauth
 			? "pending_oauth"
@@ -645,9 +647,6 @@ export async function completeIntegrationOAuthCallback({
 	}
 
 	if (oauthState.expiresAt.getTime() < Date.now()) {
-		await db
-			.delete(integrationSchema.integrationOAuthState)
-			.where(eq(integrationSchema.integrationOAuthState.id, oauthState.id));
 		throw new Error("OAuth state expired. Please try again.");
 	}
 
@@ -747,10 +746,6 @@ export async function completeIntegrationOAuthCallback({
 			},
 		})
 		.returning();
-
-	await db
-		.delete(integrationSchema.integrationOAuthState)
-		.where(eq(integrationSchema.integrationOAuthState.id, oauthState.id));
 
 	if (!connection) {
 		throw new Error("Unable to save OAuth connector.");
@@ -1056,10 +1051,9 @@ function parseOAuthTokenResponse(value: unknown) {
 
 async function readOAuthState(state: string) {
 	const [row] = await db
-		.select()
-		.from(integrationSchema.integrationOAuthState)
+		.delete(integrationSchema.integrationOAuthState)
 		.where(eq(integrationSchema.integrationOAuthState.state, state))
-		.limit(1);
+		.returning();
 
 	return row ?? null;
 }

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import {
@@ -11,15 +10,10 @@ import {
 	workspaceSettingsSchema,
 } from "@gitpal/utils";
 import { and, eq } from "drizzle-orm";
+import { stableId } from "./stable-id";
 
 type RepositorySettingsRow =
 	typeof dashboardSchema.repositorySettings.$inferSelect;
-
-function stableId(parts: Array<string | number | boolean | null | undefined>) {
-	return createHash("sha256")
-		.update(parts.map((part) => String(part ?? "")).join(":"))
-		.digest("hex");
-}
 
 function getOrganizationSettingsId(organizationId: string) {
 	return `org_settings_${stableId([organizationId]).slice(0, 32)}`;
@@ -191,6 +185,20 @@ export async function saveRepositoryWorkspaceSettings({
 	useOrganizationSettings: boolean;
 	settings: WorkspaceSettings;
 }) {
+	const [repository] = await db
+		.select({ id: dashboardSchema.repository.id })
+		.from(dashboardSchema.repository)
+		.where(
+			and(
+				eq(dashboardSchema.repository.id, repositoryId),
+				eq(dashboardSchema.repository.organizationId, organizationId),
+			),
+		)
+		.limit(1);
+	if (!repository) {
+		throw new Error("Repository was not found in this workspace.");
+	}
+
 	const validatedSettings = workspaceSettingsSchema.parse(settings);
 	const normalizedSettings = normalizeWorkspaceSettings(validatedSettings);
 	const now = new Date();

@@ -97,7 +97,7 @@ export function createAuth() {
 		],
 		advanced: {
 			defaultCookieAttributes: {
-				sameSite: env.NODE_ENV === "production" ? "none" : "lax",
+				sameSite: "lax",
 				secure: env.NODE_ENV === "production",
 				httpOnly: true,
 				domain: env.BETTER_AUTH_COOKIE_DOMAIN ?? undefined,

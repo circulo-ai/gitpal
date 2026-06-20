@@ -68,6 +68,11 @@ export const observabilityEvent = pgTable(
 		index("observability_event_trace_idx").on(table.traceId),
 		index("observability_event_kind_idx").on(table.kind),
 		index("observability_event_status_idx").on(table.status),
+		index("observability_event_user_status_occurred_idx").on(
+			table.userId,
+			table.status,
+			table.occurredAt,
+		),
 		uniqueIndex("observability_event_dedupe_key_idx").on(table.dedupeKey),
 	],
 );
@@ -113,6 +118,11 @@ export const notification = pgTable(
 		index("notification_organization_idx").on(table.organizationId),
 		index("notification_repository_idx").on(table.repositoryId),
 		index("notification_category_idx").on(table.category),
+		index("notification_user_archived_created_idx").on(
+			table.userId,
+			table.archivedAt,
+			table.createdAt,
+		),
 		uniqueIndex("notification_dedupe_key_idx").on(table.dedupeKey),
 	],
 );
@@ -157,6 +167,10 @@ export const notificationChannel = pgTable(
 		index("notification_channel_provider_idx").on(table.provider),
 		index("notification_channel_target_idx").on(table.provider, table.targetId),
 		index("notification_channel_status_idx").on(table.status),
+		index("notification_channel_user_enabled_idx").on(
+			table.userId,
+			table.enabled,
+		),
 	],
 );
 
@@ -185,6 +199,10 @@ export const notificationDelivery = pgTable(
 		index("notification_delivery_notification_idx").on(table.notificationId),
 		index("notification_delivery_channel_idx").on(table.channelId),
 		index("notification_delivery_status_idx").on(table.status),
+		index("notification_delivery_status_created_idx").on(
+			table.status,
+			table.createdAt,
+		),
 		uniqueIndex("notification_delivery_notification_channel_idx").on(
 			table.notificationId,
 			table.channelId,

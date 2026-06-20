@@ -21,7 +21,7 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [ ] [Near-term] Add stronger review templates for bug fixes, refactors, dependency updates, and security changes.
 - [ ] [Near-term] Add a review-confidence summary that explains why a change was considered low-risk or high-risk.
 - [ ] [Near-term] Add better anchor handling for long diffs and generated review comments.
-- [ ] [Near-term] Add a review diff preview that shows the exact text GitPal plans to publish.
+- [x] [Near-term] Add a review diff preview that shows the exact text GitPal plans to publish.
 - [ ] [Later] Add multi-model evaluation so we can compare reviewer models against each other.
 - [ ] [Later] Add prompt regression tests and golden outputs for the most important repository types.
 - [ ] [Later] Add a prompt playground for product teams and admins.
@@ -31,13 +31,13 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## PR Sync and Repository State
 
-- [ ] [P0] Make PR reconciliation sweep the full provider state instead of only the open subset.
-- [ ] [P0] Add bounded concurrency to PR backfill so large repositories reconcile faster.
-- [ ] [P0] Backfill review timestamps and approval state without relying on webhook timing alone.
-- [ ] [P0] Heal stale merged, closed, reopened, and force-pushed PRs in a single reconciliation pass.
-- [ ] [P0] Add a clear sync health view that shows the last successful sync per repository.
+- [x] [P0] Make PR reconciliation sweep the full provider state instead of only the open subset.
+- [x] [P0] Add bounded concurrency to PR backfill so large repositories reconcile faster.
+- [x] [P0] Backfill review timestamps and approval state without relying on webhook timing alone.
+- [x] [P0] Heal stale merged, closed, reopened, and force-pushed PRs in a single reconciliation pass.
+- [x] [P0] Add a clear sync health view that shows the last successful sync per repository.
 - [ ] [Near-term] Add incremental sync based on provider update timestamps to avoid unnecessary full scans.
-- [ ] [Near-term] Add a repository-level "sync now" action with progress and retry feedback.
+- [x] [Near-term] Add a repository-level "sync now" action with progress and retry feedback.
 - [ ] [Near-term] Add webhook-gap detection so the app can schedule a reconcile when deliveries go missing.
 - [ ] [Near-term] Add per-provider rate-limit backoff and user-visible retry hints.
 - [ ] [Later] Add branch rename detection and a clearer story for rebases and force pushes.
@@ -50,7 +50,7 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [ ] [Near-term] Add richer onboarding for GitHub, GitLab, and enterprise hosts.
 - [ ] [Near-term] Add a connector health page with last validation, last use, and last error.
 - [ ] [Near-term] Add a "reconnect" flow for expired OAuth credentials.
-- [ ] [Near-term] Add knowledge-base linking that helps external connectors map to the right repository.
+- [x] [Near-term] Add knowledge-base linking that helps external connectors map to the right repository.
 - [ ] [Near-term] Add better webhook setup guidance with provider-specific examples.
 - [ ] [Near-term] Add repository access diagnostics when reviewer mapping fails.
 - [ ] [Later] Add more connectors for issue trackers, docs, chat, and incident systems.
@@ -73,7 +73,7 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## Observability
 
-- [ ] [Near-term] Add a unified trace view that links webhook receipts, jobs, reviews, notifications, and billing events.
+- [x] [Near-term] Add a unified trace view that links webhook receipts, jobs, reviews, notifications, and billing events.
 - [ ] [Near-term] Add better filters for repository, pull request, user, source ID, and severity.
 - [ ] [Near-term] Add a details panel for the exact source event that produced each observability row.
 - [ ] [Near-term] Add a user-friendly error timeline for failed webhook and workflow runs.
@@ -86,10 +86,10 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## Billing and Monetization
 
-- [ ] [P0] Keep wallet top-ups cloud-only and hide them completely in self-hosted deployments.
-- [ ] [Near-term] Add a clearer cloud-billing badge and messaging across the app.
-- [ ] [Near-term] Add balance alerts when a wallet is low or close to negative tolerance.
-- [ ] [Near-term] Add invoice and settlement history that is easier to scan.
+- [x] [P0] Keep wallet top-ups cloud-only and hide them completely in self-hosted deployments.
+- [x] [Near-term] Add a clearer cloud-billing badge and messaging across the app.
+- [x] [Near-term] Add balance alerts when a wallet is low or close to negative tolerance.
+- [x] [Near-term] Add invoice and settlement history that is easier to scan.
 - [ ] [Near-term] Add organization-level spend caps and budget alerts.
 - [ ] [Near-term] Add admin credits for support and onboarding.
 - [ ] [Later] Add refund and adjustment flows.
@@ -100,13 +100,13 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## Self-Hosting and Deployment
 
-- [ ] [P0] Document the new host-run dev flow with `docker-compose.dev.yml` and `bun run dev`.
-- [ ] [P0] Document the Better Auth cookie domain fix for deployments that use sibling subdomains.
+- [x] [P0] Document the new host-run dev flow with `docker-compose.dev.yml` and `bun run dev`.
+- [x] [P0] Document the Better Auth cookie domain fix for deployments that use sibling subdomains.
 - [ ] [Near-term] Add a one-command local bootstrap script that runs compose, migrations, and app startup in the right order.
 - [ ] [Near-term] Add a backup and restore guide for the database and Inngest state.
 - [ ] [Near-term] Add a release-upgrade guide for self-hosted installs.
 - [ ] [Near-term] Add a reverse proxy guide with path prefixes, cookie domains, and webhook URLs.
-- [ ] [Near-term] Add a production readiness checklist for self-hosted operators.
+- [x] [Near-term] Add a production readiness checklist for self-hosted operators.
 - [ ] [Later] Add an environment-variable wizard or generator.
 - [ ] [Later] Add seed/demo data for self-hosted evaluation installs.
 - [ ] [Later] Add zero-downtime upgrade notes.
@@ -114,9 +114,9 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## Documentation and Onboarding
 
-- [ ] [P0] Keep the docs home page concise and route users toward the right section quickly.
-- [ ] [P0] Maintain the new tutorials, notifications, observability, and self-hosting pages.
-- [ ] [Near-term] Add more screenshots and diagrams for the most important workflows.
+- [x] [P0] Keep the docs home page concise and route users toward the right section quickly.
+- [x] [P0] Maintain the new tutorials, notifications, observability, and self-hosting pages.
+- [x] [Near-term] Add more screenshots and diagrams for the most important workflows.
 - [ ] [Near-term] Add a changelog for user-visible product changes.
 - [ ] [Near-term] Add a compact API reference for the most important endpoints.
 - [ ] [Near-term] Add troubleshooting pages for auth, webhooks, billing, and sync issues.
@@ -127,8 +127,8 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## Developer Experience
 
-- [ ] [Near-term] Keep root `bun run check` and `bun run check-types` meaningful for every active app.
-- [ ] [Near-term] Add or maintain `check-types` scripts in apps and packages that do not have them yet.
+- [x] [Near-term] Keep root `bun run check` and `bun run check-types` meaningful for every active app.
+- [x] [Near-term] Add or maintain `check-types` scripts in apps and packages that do not have them yet.
 - [ ] [Near-term] Add browser smoke checks for visible UI changes.
 - [ ] [Near-term] Add fixtures for common provider, notification, billing, and observability scenarios.
 - [ ] [Near-term] Add a repo reset script for local development.
@@ -173,4 +173,3 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [ ] [Far future] Add multilingual docs and localized product surfaces.
 - [ ] [Far future] Add mobile-friendly incident alerts and review summaries.
 - [ ] [Far future] Add organization-wide AI policy controls for privacy, model choice, and retention.
-

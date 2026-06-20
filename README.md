@@ -41,7 +41,7 @@ Core server variables:
 | `DATABASE_URL`           | PostgreSQL connection string used by `@gitpal/db`.            |
 | `BETTER_AUTH_SECRET`     | Better Auth secret, at least 32 characters.                   |
 | `BETTER_AUTH_URL`        | Public auth/server URL.                                       |
-| `BETTER_AUTH_COOKIE_DOMAIN` | Optional shared cookie domain for subdomain deployments. Leave it unset for single-origin or localhost setups. |
+| `BETTER_AUTH_COOKIE_DOMAIN` | Optional shared cookie domain for sibling-subdomain deployments. Cookies remain `SameSite=Lax`; leave unset for single-origin or localhost setups. |
 | `CORS_ORIGIN`            | Allowed web origin for the API.                               |
 | `NEXT_PUBLIC_SERVER_URL` | Public API URL used by the web app and baked into web builds. |
 | `REDIS_URL`              | GitPal Redis URL for queues and cache helpers.                |

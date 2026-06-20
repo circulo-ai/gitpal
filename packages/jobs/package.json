@@ -9,6 +9,9 @@
 			"default": "./src/*.ts"
 		}
 	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
 	"dependencies": {
 		"@gitpal/env": "workspace:*",
 		"@gitpal/logger": "workspace:*",

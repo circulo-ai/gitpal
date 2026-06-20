@@ -1,3 +1,4 @@
+import { queuePullRequestReconcileForUser } from "@gitpal/services/pr-reconcile";
 import {
 	addRepositoryForUser,
 	listRepositoriesForUser,
@@ -103,6 +104,29 @@ export const repositoriesRouter = router({
 			force: true,
 		});
 	}),
+
+	reconcile: protectedMutationProcedure
+		.input(
+			organizationScopeSchema.merge(
+				z.object({ repositoryId: z.string().min(1) }),
+			),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const organizationId =
+				input.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
+			await requireOrganizationPermission({
+				userId: ctx.session.user.id,
+				organizationId,
+				permissions: { repository: ["sync"] },
+			});
+			return queuePullRequestReconcileForUser({
+				userId: ctx.session.user.id,
+				organizationId: organizationId as string,
+				repositoryId: input.repositoryId,
+			});
+		}),
 
 	syncWebhooks: protectedMutationProcedure
 		.input(

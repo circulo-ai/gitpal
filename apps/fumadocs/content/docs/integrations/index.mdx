@@ -5,7 +5,11 @@ description: GitHub, GitLab, webhook events, and native reviewer assignment.
 
 GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps provider-specific behavior where it matters and normalizes the shared flow where it can.
 
-![Integrations overview](/screenshots/integrations-catalog.svg)
+<img
+  src="/screenshots/integrations-catalog.svg"
+  alt="Integrations overview"
+  loading="eager"
+/>
 
 ## The short version
 
@@ -25,8 +29,17 @@ GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps
 
 - GitPal stores a webhook receipt before processing begins.
 - Duplicate deliveries are ignored by design.
+- Webhook registration is idempotent. If two syncs race and GitHub reports that the hook already exists, GitPal re-lists hooks and adopts the matching hook instead of reporting a failed sync.
 - Background jobs handle the actual review, labeler, and lifecycle work, which keeps the webhook response fast and stable.
 - If a delivery fails, observability keeps the receipt and the failure reason together.
+
+![Repository sync health](/screenshots/repository-sync-health.svg)
+
+## Repository sync health
+
+- The repositories page shows the last successful PR reconciliation and the current sync state for each repository.
+- Use `Sync now` to queue a full provider-state reconcile. Failed syncs retain a safe error summary and expose a retry action.
+- A duplicate-hook validation error does not require deleting a healthy GitHub hook manually. Retry the sync after deploying the current release; GitPal will reconcile the existing hook.
 
 ## Provider-native reviewer assignment
 

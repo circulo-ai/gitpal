@@ -59,6 +59,11 @@ import {
 	startRunStep,
 } from "./run-trace";
 import { sanitizeRunDetails } from "./safe-diagnostics";
+import {
+	findWebhookAfterDuplicate,
+	getUnverifiedWebhookDecision,
+	isGitHubDuplicateWebhookError,
+} from "./webhook-reconciliation";
 import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 
 const log = createLogger("repository-webhooks");
@@ -232,12 +237,6 @@ function resolveWebhookReceiptStatus({
 }
 function buildDeliveryUrl(target: ProviderWebhookTarget) {
 	return new URL(target.routePath, getWebhookBaseUrl()).toString();
-}
-function isGitHubDuplicateWebhookError(error: unknown) {
-	return (
-		error instanceof Error &&
-		error.message.includes("Hook already exists on this repository")
-	);
 }
 function createWebhookVerifier(target: ProviderWebhookTarget) {
 	const webhookSecrets = target.secret ? [target.secret] : [];
@@ -2968,25 +2967,27 @@ async function ensureRepositoryWebhookSubscription({
 				// webhook is still present or another sync created the hook between
 				// our list and create calls. Re-list and adopt the existing hook so
 				// sync stays idempotent instead of failing the whole job.
-				const refreshedWebhooks = await adapter.listWebhooks({
-					repositoryPath: repository.repositoryPath,
-				});
-				const refreshedMatchingWebhooks = refreshedWebhooks.filter(
-					(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
-				);
-				const refreshedWebhook = refreshedMatchingWebhooks.find(
-					(webhook) =>
+				const recovered = await findWebhookAfterDuplicate({
+					listWebhooks: () =>
+						adapter.listWebhooks({
+							repositoryPath: repository.repositoryPath,
+						}),
+					isMatch: (webhook) =>
+						normalizeWebhookUrl(webhook.url) === deliveryUrl &&
 						Boolean(webhook.active) &&
 						requiredEvents.every((event) => webhook.events.includes(event)),
-				);
-				if (refreshedWebhook) {
+				});
+				if (recovered) {
+					const refreshedMatchingWebhooks = recovered.webhooks.filter(
+						(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
+					);
 					for (const webhook of refreshedMatchingWebhooks) {
-						if (webhook.id !== refreshedWebhook.id) {
+						if (webhook.id !== recovered.webhook.id) {
 							await deleteWebhook(webhook);
 						}
 					}
 					createdWebhook = false;
-					return refreshedWebhook;
+					return recovered.webhook;
 				}
 			}
 			throw error;
@@ -3178,13 +3179,11 @@ export async function receiveProviderWebhook({
 	try {
 		const verified = await verifier.verify({ headers, rawBody });
 		if (!verified) {
-			// SECURITY: fail closed whenever a secret is configured. An unverified
-			// payload is untrusted in EVERY environment, not just production —
-			// gating the rejection on NODE_ENV allowed forged webhooks to be
-			// processed in staging/preview. We only allow an unverified payload
-			// through when NO secret is configured at all (e.g. local development),
-			// and even then we log loudly so the gap is obvious.
-			if (hasSecret) {
+			const decision = getUnverifiedWebhookDecision({
+				hasSecret,
+				isProduction: env.NODE_ENV === "production",
+			});
+			if (decision === "invalid_signature") {
 				log.warn(
 					{
 						providerId,
@@ -3195,6 +3194,16 @@ export async function receiveProviderWebhook({
 				return {
 					status: 401,
 					body: { ok: false, error: "invalid_signature" },
+				};
+			}
+			if (decision === "secret_not_configured") {
+				log.error(
+					{ providerId },
+					"Webhook secret is missing in production; rejecting payload.",
+				);
+				return {
+					status: 503,
+					body: { ok: false, error: "webhook_secret_not_configured" },
 				};
 			}
 			log.warn(

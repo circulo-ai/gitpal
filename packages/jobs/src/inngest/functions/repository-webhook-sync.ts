@@ -7,6 +7,7 @@ export const repositoryWebhookSyncJobSchema = z.object({
 	userId: z.string().min(1),
 	organizationId: z.string().min(1).optional().nullable(),
 	repositoryId: z.string().min(1).optional(),
+	requestId: z.string().min(1).max(128).optional(),
 	reason: z
 		.enum([
 			"sync",
@@ -60,6 +61,7 @@ export async function enqueueRepositoryWebhookSyncJob(
 			input.userId,
 			input.organizationId ?? null,
 			input.repositoryId ?? null,
+			input.requestId ?? null,
 		]),
 	});
 }

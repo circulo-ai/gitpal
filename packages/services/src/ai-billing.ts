@@ -11,7 +11,11 @@ import { eq } from "drizzle-orm";
 import type { ModelRoutePreview } from "./llm-credentials";
 import { sendUserNotification } from "./notifications";
 import { recordObservabilityEvent } from "./observability";
-import { applyWalletUsageDebitInTransaction } from "./wallet";
+import { sanitizeDiagnosticText, sanitizeRunDetails } from "./safe-diagnostics";
+import {
+	applyWalletUsageDebitInTransaction,
+	assertWalletCanStartUsage,
+} from "./wallet";
 
 type AiBillingDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
 const aiGateway = env.AI_GATEWAY_API_KEY
@@ -375,7 +379,7 @@ async function insertGenerationRow({
 		totalTokens: 0,
 		walletDebitCents: 0,
 		providerMetadata: {},
-		metadata: {
+		metadata: sanitizeRunDetails({
 			...metadata,
 			...buildGenerationMetadata({
 				callKind,
@@ -395,7 +399,7 @@ async function insertGenerationRow({
 				actualCostCents: null,
 				providerGenerationId: null,
 			}),
-		},
+		}),
 		startedAt: now,
 		createdAt: now,
 		updatedAt: now,
@@ -486,10 +490,12 @@ async function completeGenerationRow({
 			walletDebitCents,
 			walletBalanceAfterCents,
 			providerGenerationId,
-			providerMetadata: providerMetadata
-				? (providerMetadata as Record<string, unknown>)
-				: {},
-			metadata: {
+			providerMetadata: sanitizeRunDetails(
+				providerMetadata && typeof providerMetadata === "object"
+					? (providerMetadata as Record<string, unknown>)
+					: {},
+			),
+			metadata: sanitizeRunDetails({
 				...metadata,
 				...buildGenerationMetadata({
 					callKind,
@@ -500,7 +506,7 @@ async function completeGenerationRow({
 					actualCostCents,
 					providerGenerationId,
 				}),
-			},
+			}),
 			completedAt: now,
 			updatedAt: now,
 		})
@@ -586,6 +592,7 @@ async function failGenerationRow({
 	const durationMs = startedAt
 		? Math.max(0, now.getTime() - startedAt.getTime())
 		: null;
+	const safeErrorMessage = sanitizeDiagnosticText(errorMessage).slice(0, 2_000);
 	const generationMetadata =
 		callKind && modelId && routePreview && tags && usage
 			? buildGenerationMetadata({
@@ -603,7 +610,7 @@ async function failGenerationRow({
 		.update(aiSchema.aiGeneration)
 		.set({
 			status: "failed",
-			errorMessage,
+			errorMessage: safeErrorMessage,
 			...(usage
 				? {
 						inputTokens: usage.inputTokens,
@@ -626,22 +633,25 @@ async function failGenerationRow({
 			...(providerGenerationId !== undefined
 				? { providerGenerationId: providerGenerationId ?? null }
 				: {}),
-			providerMetadata:
+			providerMetadata: sanitizeRunDetails(
 				providerMetadata && typeof providerMetadata === "object"
 					? (providerMetadata as Record<string, unknown>)
 					: {},
+			),
 			...(generationMetadata
 				? {
-						metadata: metadata
-							? {
-									...metadata,
-									...generationMetadata,
-								}
-							: generationMetadata,
+						metadata: sanitizeRunDetails(
+							metadata
+								? {
+										...metadata,
+										...generationMetadata,
+									}
+								: generationMetadata,
+						),
 					}
 				: metadata
 					? {
-							metadata,
+							metadata: sanitizeRunDetails(metadata),
 						}
 					: {}),
 			completedAt: now,
@@ -662,7 +672,7 @@ async function failGenerationRow({
 				status: "failed",
 				severity: "error",
 				title: `${callKind} AI generation failed`,
-				body: errorMessage,
+				body: safeErrorMessage,
 				sourceType: "ai-generation",
 				sourceId: generationId,
 				dedupeKey: `ai-generation:${generationId}:failed`,
@@ -746,6 +756,9 @@ export async function runTrackedAiGeneration<TResult>({
 	});
 
 	try {
+		if (routePreview.billedBy === "wallet") {
+			await assertWalletCanStartUsage(userId);
+		}
 		const result = await execute({
 			generationId,
 			providerOptions: buildAiProviderOptions({
@@ -844,6 +857,28 @@ export async function runTrackedAiGeneration<TResult>({
 			};
 		});
 		walletBalanceAfterCents = settledWalletBalance.walletBalanceAfterCents;
+		if (
+			routePreview.billedBy === "wallet" &&
+			walletBalanceAfterCents !== null &&
+			walletBalanceAfterCents <= 100
+		) {
+			await sendUserNotification({
+				userId,
+				type: "wallet_balance_low",
+				category: "billing",
+				severity: walletBalanceAfterCents <= 0 ? "error" : "warning",
+				title: "Wallet balance is low",
+				body:
+					walletBalanceAfterCents <= 0
+						? "AI usage has depleted your wallet. Add funds before starting more cloud-billed work."
+						: `Your wallet has $${(walletBalanceAfterCents / 100).toFixed(2)} remaining.`,
+				actionHref: "/account/billing",
+				sourceType: "wallet",
+				sourceId: userId,
+				dedupeKey: `wallet:${userId}:balance:${walletBalanceAfterCents <= 0 ? "depleted" : "low"}`,
+				metadata: { walletBalanceAfterCents },
+			}).catch(() => undefined);
+		}
 
 		return {
 			result,

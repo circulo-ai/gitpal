@@ -167,6 +167,23 @@ export function RepositoriesPage() {
 			},
 		}),
 	);
+	const reconcileMutation = useMutation(
+		trpc.repositories.reconcile.mutationOptions({
+			onSuccess: async (result) => {
+				await queryClient.invalidateQueries({
+					queryKey: trpc.repositories.list.queryKey({
+						organizationId: activeWorkspaceId ?? undefined,
+					}),
+				});
+				if (result.queued) {
+					toast.success("Pull request reconciliation queued.");
+				} else {
+					toast.error(result.error ?? "Reconciliation could not be queued.");
+				}
+			},
+			onError: (error) => toast.error(error.message),
+		}),
+	);
 
 	const repositories = repositoriesQuery.data ?? [];
 	const providers = providersQuery.data ?? [];
@@ -186,11 +203,11 @@ export function RepositoriesPage() {
 	const enabledCount = repositories.filter(
 		(repository) => repository.enabled,
 	).length;
-	const privateCount = repositories.filter(
-		(repository) => repository.private,
-	).length;
 	const webhookConnectedCount = repositories.filter(
 		(repository) => repository.webhookConnected,
+	).length;
+	const reconcileFailureCount = repositories.filter(
+		(repository) => repository.reconcileState === "failed",
 	).length;
 
 	React.useEffect(() => {
@@ -374,9 +391,9 @@ export function RepositoriesPage() {
 				</Card>
 				<Card size="sm">
 					<CardHeader>
-						<CardDescription>Private repositories</CardDescription>
+						<CardDescription>Sync needs attention</CardDescription>
 						<CardTitle className="text-3xl tabular-nums">
-							{privateCount}
+							{reconcileFailureCount}
 						</CardTitle>
 					</CardHeader>
 				</Card>
@@ -554,23 +571,50 @@ export function RepositoriesPage() {
 											</Link>
 										</div>
 										<div className="mt-4 flex items-center justify-between gap-3">
-											<div className="text-muted-foreground text-sm">
-												{repository.enabled
-													? "AI workflows enabled"
-													: "AI workflows paused"}
+											<div className="space-y-1 text-muted-foreground text-sm">
+												<div>
+													{repository.enabled
+														? "AI workflows enabled"
+														: "AI workflows paused"}
+												</div>
+												<div>
+													PR sync: {repository.reconcileState}
+													{repository.lastReconciledAt
+														? `, ${formatDistanceToNow(new Date(repository.lastReconciledAt), { addSuffix: true })}`
+														: ""}
+												</div>
 											</div>
-											<Switch
-												checked={repository.enabled}
-												disabled={toggleMutation.isPending}
-												onCheckedChange={(enabled) =>
-													toggleMutation.mutate({
-														organizationId: activeWorkspaceId ?? undefined,
-														repositoryId: repository.id,
-														enabled,
-													})
-												}
-												aria-label={`Toggle analytics for ${repository.fullName}`}
-											/>
+											<div className="flex items-center gap-2">
+												<Button
+													type="button"
+													variant="outline"
+													size="sm"
+													disabled={reconcileMutation.isPending}
+													onClick={() =>
+														reconcileMutation.mutate({
+															organizationId: activeWorkspaceId ?? undefined,
+															repositoryId: repository.id,
+														})
+													}
+												>
+													<RefreshCcwIcon />
+													{repository.reconcileState === "failed"
+														? "Retry"
+														: "Sync now"}
+												</Button>
+												<Switch
+													checked={repository.enabled}
+													disabled={toggleMutation.isPending}
+													onCheckedChange={(enabled) =>
+														toggleMutation.mutate({
+															organizationId: activeWorkspaceId ?? undefined,
+															repositoryId: repository.id,
+															enabled,
+														})
+													}
+													aria-label={`Toggle analytics for ${repository.fullName}`}
+												/>
+											</div>
 										</div>
 									</div>
 								))}
@@ -628,7 +672,25 @@ export function RepositoriesPage() {
 														>
 															{repository.enabled ? "AI enabled" : "AI paused"}
 														</Badge>
+														<Badge
+															variant={
+																repository.reconcileState === "failed"
+																	? "destructive"
+																	: "outline"
+															}
+														>
+															PR sync {repository.reconcileState}
+														</Badge>
 													</div>
+													{repository.lastReconciledAt ? (
+														<div className="mt-1 text-muted-foreground text-xs">
+															Last successful sync{" "}
+															{formatDistanceToNow(
+																new Date(repository.lastReconciledAt),
+																{ addSuffix: true },
+															)}
+														</div>
+													) : null}
 													{repository.webhookLastDeliveredAt ? (
 														<div className="mt-1 text-muted-foreground text-xs">
 															Last delivery{" "}
@@ -653,6 +715,26 @@ export function RepositoriesPage() {
 														>
 															<GitPullRequestIcon />
 														</Link>
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon-sm"
+															tooltip={
+																repository.reconcileState === "failed"
+																	? "Retry pull request sync"
+																	: "Sync pull requests now"
+															}
+															disabled={reconcileMutation.isPending}
+															onClick={() =>
+																reconcileMutation.mutate({
+																	organizationId:
+																		activeWorkspaceId ?? undefined,
+																	repositoryId: repository.id,
+																})
+															}
+														>
+															<RefreshCcwIcon />
+														</Button>
 														<Link
 															href={`/issues?repositoryId=${encodeURIComponent(repository.id)}`}
 															aria-label={`Open issues for ${repository.fullName}`}

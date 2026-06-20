@@ -34,7 +34,7 @@ import {
 	normalizeHeaderRecord,
 } from "./core";
 import { GitProviderConfigurationError } from "./errors";
-import { requestJson } from "./request";
+import { requestJson, requestJsonPages } from "./request";
 
 type GitLabAdapterOptions = {
 	providerId?: string;
@@ -1008,8 +1008,8 @@ export function createGitLabAdapter({
 	const normalizedApiBaseUrl = normalizeBaseUrl(apiBaseUrl);
 
 	async function listRepositories(): Promise<GitRepository[]> {
-		const response = await requestJson<unknown>(
-			`${normalizedApiBaseUrl}/projects?membership=true&simple=true&order_by=last_activity_at&sort=desc&per_page=100`,
+		const response = await requestJsonPages<unknown>(
+			`${normalizedApiBaseUrl}/projects?membership=true&simple=true&order_by=last_activity_at&sort=desc`,
 			{
 				headers: {
 					...createGitLabRequestHeaders(auth),
@@ -1117,7 +1117,7 @@ export function createGitLabAdapter({
 						? "closed"
 						: "opened";
 
-		const response = await requestJson<unknown>(
+		const response = await requestJsonPages<unknown>(
 			`${createRepositoryUrl(
 				normalizedApiBaseUrl,
 				input.repositoryPath,
@@ -1261,8 +1261,8 @@ export function createGitLabAdapter({
 		// carries a timestamp is the system note emitted when a user approves or
 		// unapproves an MR, so we derive reviews from those. (Ordinary review
 		// comments are returned by listPullRequestComments, not here.)
-		const notesResponse = await requestJson<unknown>(
-			`${mergeRequestUrl}/notes?per_page=100`,
+		const notesResponse = await requestJsonPages<unknown>(
+			`${mergeRequestUrl}/notes`,
 			{
 				headers: {
 					...createGitLabRequestHeaders(auth),

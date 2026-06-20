@@ -7,6 +7,7 @@ const PULL_REQUEST_SYNC_CONCURRENCY = 3;
 
 export const pullRequestSyncJobSchema = z.object({
 	repositoryId: z.string().min(1).optional(),
+	requestId: z.string().min(1).optional(),
 	reason: z
 		.enum(["scheduled", "on-demand", "repository-enabled", "webhook-gap"])
 		.optional(),
@@ -69,6 +70,7 @@ export async function enqueuePullRequestSyncJob(input: PullRequestSyncJobData) {
 			"pull-request-sync",
 			input.repositoryId ?? "all",
 			input.reason ?? "scheduled",
+			input.requestId ?? null,
 		]),
 	});
 }

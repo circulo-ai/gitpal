@@ -10,6 +10,7 @@
 		}
 	},
 	"scripts": {
+		"check-types": "tsc --noEmit",
 		"redis:start": "docker compose up -d",
 		"redis:watch": "docker compose up",
 		"redis:stop": "docker compose stop",

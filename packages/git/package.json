@@ -9,6 +9,9 @@
 			"default": "./src/*.ts"
 		}
 	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
 	"dependencies": {
 		"@gitpal/logger": "workspace:*",
 		"@octokit/auth-app": "^8.2.0",

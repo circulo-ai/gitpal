@@ -5,6 +5,7 @@ import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
 import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { mapWithConcurrency } from "./bounded-concurrency";
 import {
 	getNotificationChannelCredentialPreview,
 	getNotificationChannelTargetId,
@@ -16,6 +17,7 @@ import {
 	sendNotificationViaChatSdk,
 } from "./notification-chat";
 import { recordObservabilityEvent } from "./observability";
+import { sanitizeDiagnosticText, sanitizeRunDetails } from "./safe-diagnostics";
 import {
 	decryptSecretEnvelope,
 	encryptSecretEnvelope,
@@ -154,7 +156,14 @@ function buildNotificationDedupeKey(input: SendUserNotificationInput) {
 }
 
 function getErrorMessage(error: unknown) {
-	return error instanceof Error ? error.message : "Unknown notification error.";
+	return sanitizeDiagnosticText(
+		error instanceof Error ? error.message : "Unknown notification error.",
+	);
+}
+
+function normalizeActionHref(value: string | null | undefined) {
+	const trimmed = value?.trim();
+	return trimmed?.startsWith("/") && !trimmed.startsWith("//") ? trimmed : null;
 }
 
 function parseChannelSettings(value: unknown) {
@@ -352,10 +361,8 @@ async function dispatchNotificationToChannels(
 			eq(observabilitySchema.notificationChannel.userId, notification.userId),
 		);
 
-	await Promise.all(
-		channels.map((channel) =>
-			deliverNotificationToChannel({ channel, notification }),
-		),
+	await mapWithConcurrency(channels, 4, (channel) =>
+		deliverNotificationToChannel({ channel, notification }),
 	);
 }
 
@@ -373,7 +380,7 @@ export function serializeNotification(
 		actionHref: row.actionHref,
 		sourceType: row.sourceType,
 		sourceId: row.sourceId,
-		metadata: row.metadata ?? {},
+		metadata: sanitizeRunDetails(row.metadata),
 		readAt: row.readAt?.toISOString() ?? null,
 		archivedAt: row.archivedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
@@ -986,6 +993,33 @@ export async function archiveNotificationsForUser({
 	return { updated: rows.length };
 }
 
+export async function archiveNotificationByDedupeKeyForUser({
+	userId,
+	dedupeKey,
+}: {
+	userId: string;
+	dedupeKey: string;
+}) {
+	const now = new Date();
+	const rows = await db
+		.update(observabilitySchema.notification)
+		.set({
+			status: "archived",
+			archivedAt: now,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(observabilitySchema.notification.userId, userId),
+				eq(observabilitySchema.notification.dedupeKey, dedupeKey),
+				isNull(observabilitySchema.notification.archivedAt),
+			),
+		)
+		.returning({ id: observabilitySchema.notification.id });
+
+	return { updated: rows.length };
+}
+
 export async function sendUserNotification(
 	input: SendUserNotificationInput,
 	executor: NotificationDbExecutor = db,
@@ -1001,13 +1035,15 @@ export async function sendUserNotification(
 		category: input.category,
 		severity: input.severity ?? "info",
 		status: "unread",
-		title: input.title,
-		body: input.body ?? null,
-		actionHref: input.actionHref ?? null,
+		title: sanitizeDiagnosticText(input.title).slice(0, 500),
+		body: input.body
+			? sanitizeDiagnosticText(input.body).slice(0, 5_000)
+			: null,
+		actionHref: normalizeActionHref(input.actionHref),
 		sourceType: input.sourceType ?? null,
 		sourceId: input.sourceId ?? null,
 		dedupeKey,
-		metadata: input.metadata ?? {},
+		metadata: sanitizeRunDetails(input.metadata),
 		readAt: null,
 		archivedAt: null,
 		createdAt: now,
@@ -1075,8 +1111,8 @@ export async function sendUserNotification(
 export async function sendManyUserNotifications(
 	notifications: SendUserNotificationInput[],
 ) {
-	return Promise.all(
-		notifications.map((notification) => sendUserNotification(notification)),
+	return mapWithConcurrency(notifications, 8, (notification) =>
+		sendUserNotification(notification),
 	);
 }
 

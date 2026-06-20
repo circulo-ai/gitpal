@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { db } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
@@ -11,7 +11,7 @@ import {
 } from "@gitpal/jobs/inngest/functions/repo-sync";
 import { createLogger } from "@gitpal/logger";
 import { and, count, desc, eq, inArray, max, notInArray } from "drizzle-orm";
-
+import { mapWithConcurrency } from "./bounded-concurrency";
 import {
 	createAdapterFromAccount,
 	type EnterpriseProvider,
@@ -20,6 +20,7 @@ import {
 } from "./git-provider-access";
 import { recordObservabilityEvent } from "./observability";
 import { queueRepositoryWebhookSyncForUser } from "./repository-webhook-sync";
+import { stableId } from "./stable-id";
 
 type Account = typeof authSchema.account.$inferSelect;
 type RepositoryAccessRow = typeof dashboardSchema.repositoryAccess.$inferSelect;
@@ -80,6 +81,11 @@ export type RepositorySummary = {
 	enabled: boolean;
 	syncState: string;
 	lastSyncedAt: string | null;
+	reconcileState: string;
+	lastReconcileStartedAt: string | null;
+	lastReconciledAt: string | null;
+	lastReconcileFailedAt: string | null;
+	lastReconcileError: string | null;
 	lastSeenAt: string;
 	webhookConnected: boolean;
 	webhookLastDeliveredAt: string | null;
@@ -119,12 +125,6 @@ export type RepositoryProviderSummary = {
 	apiBaseUrl: string | null;
 	settingsUrl: string | null;
 };
-
-function stableId(parts: Array<string | number | boolean | null | undefined>) {
-	return createHash("sha256")
-		.update(parts.map((part) => String(part ?? "")).join(":"))
-		.digest("hex");
-}
 
 function slugify(value: string) {
 	return value
@@ -614,29 +614,37 @@ async function refreshRepositoriesForAccount(
 		const seenRepositoryIds = new Set<string>();
 		const seenWorkspaceIds = new Set<string>();
 
-		for (const repository of repositories) {
-			// FIX Bug 1: repos without a workspace ref (e.g. personal repos) were
-			// previously skipped entirely, meaning they never got a repository_access
-			// row, so getAutomationActorForRepository always returned null for them.
-			// Fall back to a synthetic personal workspace derived from the account.
-			const workspaceRef =
-				repository.workspace ?? buildPersonalWorkspaceRef(account, repository);
+		const synced = await mapWithConcurrency(
+			repositories,
+			5,
+			async (repository) => {
+				// FIX Bug 1: repos without a workspace ref (e.g. personal repos) were
+				// previously skipped entirely, meaning they never got a repository_access
+				// row, so getAutomationActorForRepository always returned null for them.
+				// Fall back to a synthetic personal workspace derived from the account.
+				const workspaceRef =
+					repository.workspace ??
+					buildPersonalWorkspaceRef(account, repository);
 
-			const organizationId = await upsertWorkspaceForUser({
-				userId,
-				account,
-				provider,
-				workspace: workspaceRef,
-			});
+				const organizationId = await upsertWorkspaceForUser({
+					userId,
+					account,
+					provider,
+					workspace: workspaceRef,
+				});
 
-			const repositoryPrimaryId = await upsertRepositoryForUser({
-				userId,
-				account,
-				repository,
-				provider,
-				organizationId,
-			});
+				const repositoryPrimaryId = await upsertRepositoryForUser({
+					userId,
+					account,
+					repository,
+					provider,
+					organizationId,
+				});
 
+				return { organizationId, repositoryPrimaryId };
+			},
+		);
+		for (const { organizationId, repositoryPrimaryId } of synced) {
 			seenWorkspaceIds.add(organizationId);
 			seenRepositoryIds.add(repositoryPrimaryId);
 		}
@@ -1250,6 +1258,13 @@ function mapRepositorySummary(
 		enabled: access.enabled,
 		syncState: repository.syncState,
 		lastSyncedAt: repository.lastSyncedAt?.toISOString() ?? null,
+		reconcileState: repository.reconcileState,
+		lastReconcileStartedAt:
+			repository.lastReconcileStartedAt?.toISOString() ?? null,
+		lastReconciledAt: repository.lastReconciledAt?.toISOString() ?? null,
+		lastReconcileFailedAt:
+			repository.lastReconcileFailedAt?.toISOString() ?? null,
+		lastReconcileError: repository.lastReconcileError,
 		lastSeenAt: access.lastSeenAt.toISOString(),
 		webhookConnected: webhook?.connected ?? false,
 		webhookLastDeliveredAt: webhook?.lastDeliveredAt?.toISOString() ?? null,

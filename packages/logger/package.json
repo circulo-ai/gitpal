@@ -6,7 +6,9 @@
 			"default": "./src/index.ts"
 		}
 	},
-	"scripts": {},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
 	"dependencies": {
 		"@gitpal/env": "workspace:*",
 		"pino": "^9.8.0"

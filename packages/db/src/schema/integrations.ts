@@ -64,6 +64,11 @@ export const integrationConnection = pgTable(
 		),
 		index("integration_connection_provider_type_idx").on(table.providerType),
 		index("integration_connection_status_idx").on(table.status),
+		index("integration_connection_org_enabled_type_idx").on(
+			table.organizationId,
+			table.enabled,
+			table.providerType,
+		),
 	],
 );
 

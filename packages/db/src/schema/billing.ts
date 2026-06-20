@@ -97,6 +97,7 @@ export const walletTopup = pgTable(
 		index("wallet_topup_wallet_id_idx").on(table.walletId),
 		index("wallet_topup_user_id_idx").on(table.userId),
 		index("wallet_topup_status_idx").on(table.status),
+		index("wallet_topup_user_created_idx").on(table.userId, table.createdAt),
 	],
 );
 

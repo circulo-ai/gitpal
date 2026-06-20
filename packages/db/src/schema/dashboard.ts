@@ -35,6 +35,11 @@ export const repository = pgTable(
 		enabled: boolean("enabled").default(true).notNull(),
 		syncState: text("sync_state").default("synced").notNull(),
 		lastSyncedAt: timestamp("last_synced_at"),
+		reconcileState: text("reconcile_state").default("idle").notNull(),
+		lastReconcileStartedAt: timestamp("last_reconcile_started_at"),
+		lastReconciledAt: timestamp("last_reconciled_at"),
+		lastReconcileFailedAt: timestamp("last_reconcile_failed_at"),
+		lastReconcileError: text("last_reconcile_error"),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
 		updatedAt: timestamp("updated_at")
 			.defaultNow()
@@ -54,6 +59,9 @@ export const repository = pgTable(
 			table.repositoryPath,
 		),
 		index("repository_enabled_idx").on(table.enabled),
+		index("repository_org_enabled_idx").on(table.organizationId, table.enabled),
+		index("repository_reconcile_state_idx").on(table.reconcileState),
+		index("repository_last_reconciled_at_idx").on(table.lastReconciledAt),
 	],
 );
 
@@ -83,6 +91,11 @@ export const repositoryAccess = pgTable(
 		),
 		index("repository_access_user_id_idx").on(table.userId),
 		index("repository_access_repository_id_idx").on(table.repositoryId),
+		index("repository_access_user_enabled_seen_idx").on(
+			table.userId,
+			table.enabled,
+			table.lastSeenAt,
+		),
 	],
 );
 
@@ -154,6 +167,7 @@ export const pullRequest = pgTable(
 		reviewReadyAt: timestamp("review_ready_at"),
 		approvedAt: timestamp("approved_at"),
 		approvalState: text("approval_state"),
+		reviewStateUpdatedAt: timestamp("review_state_updated_at"),
 		mergeCommitSha: text("merge_commit_sha"),
 	},
 	(table) => [
@@ -164,6 +178,11 @@ export const pullRequest = pgTable(
 		index("pull_request_repository_id_idx").on(table.repositoryId),
 		index("pull_request_state_idx").on(table.state),
 		index("pull_request_merged_at_idx").on(table.mergedAt),
+		index("pull_request_repo_state_updated_idx").on(
+			table.repositoryId,
+			table.state,
+			table.updatedAt,
+		),
 	],
 );
 
@@ -196,6 +215,11 @@ export const issue = pgTable(
 		index("issue_repository_id_idx").on(table.repositoryId),
 		index("issue_state_idx").on(table.state),
 		index("issue_updated_at_idx").on(table.updatedAt),
+		index("issue_repo_state_updated_idx").on(
+			table.repositoryId,
+			table.state,
+			table.updatedAt,
+		),
 	],
 );
 
@@ -248,6 +272,11 @@ export const reviewRun = pgTable(
 		index("review_run_retry_of_run_id_idx").on(table.retryOfRunId),
 		index("review_run_status_idx").on(table.status),
 		index("review_run_created_at_idx").on(table.createdAt),
+		index("review_run_pull_request_created_idx").on(
+			table.pullRequestId,
+			table.createdAt,
+		),
+		index("review_run_issue_created_idx").on(table.issueId, table.createdAt),
 		uniqueIndex("review_run_provider_delivery_kind_idx").on(
 			table.providerId,
 			table.providerDeliveryId,
@@ -537,6 +566,10 @@ export const repositoryWebhook = pgTable(
 		),
 		index("repository_webhook_repository_id_idx").on(table.repositoryId),
 		index("repository_webhook_provider_id_idx").on(table.providerId),
+		index("repository_webhook_repo_enabled_idx").on(
+			table.repositoryId,
+			table.enabled,
+		),
 	],
 );
 
@@ -572,6 +605,10 @@ export const webhookEventReceipt = pgTable(
 		index("webhook_event_receipt_repository_id_idx").on(table.repositoryId),
 		index("webhook_event_receipt_event_idx").on(table.event),
 		index("webhook_event_receipt_status_idx").on(table.status),
+		index("webhook_receipt_repo_received_idx").on(
+			table.repositoryId,
+			table.receivedAt,
+		),
 	],
 );
 

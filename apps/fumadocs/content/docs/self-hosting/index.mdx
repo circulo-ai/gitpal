@@ -25,6 +25,8 @@ GitPal is intentionally self-host friendly. The main difference is that a few cl
 
 - Better Auth uses host-only cookies by default when `BETTER_AUTH_COOKIE_DOMAIN` is empty.
 - Add a shared cookie domain only when your web app and API live on different subdomains of the same root domain.
+- Auth cookies remain `SameSite=Lax` in production. This supports sibling subdomains while preventing cross-site form posts from carrying the session cookie.
+- Set `CORS_ORIGIN` to the exact public web origin. Authenticated tRPC mutations reject requests whose `Origin` does not match it.
 - If sign-in resets after deployment, the cookie domain is usually the first thing to check.
 
 ## What stays the same

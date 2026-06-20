@@ -116,11 +116,17 @@ async function withNowPaymentsRetry<T>(
 }
 
 export function isNowPaymentsCheckoutEnabled() {
-	return Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET);
+	return Boolean(
+		env.GITPAL_CLOUD_BILLING_ENABLED &&
+			env.NOWPAYMENTS_API_KEY &&
+			env.NOWPAYMENTS_IPN_SECRET,
+	);
 }
 
 export function isNowPaymentsWebhookEnabled() {
-	return Boolean(env.NOWPAYMENTS_IPN_SECRET);
+	return Boolean(
+		env.GITPAL_CLOUD_BILLING_ENABLED && env.NOWPAYMENTS_IPN_SECRET,
+	);
 }
 
 export function parseNowPaymentsWebhook({

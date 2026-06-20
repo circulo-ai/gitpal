@@ -1,0 +1,20 @@
+CREATE INDEX "ai_generation_user_created_idx" ON "ai_generation" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "ai_generation_review_run_created_idx" ON "ai_generation" USING btree ("review_run_id","created_at");--> statement-breakpoint
+CREATE INDEX "account_user_provider_idx" ON "account" USING btree ("user_id","provider_id");--> statement-breakpoint
+CREATE INDEX "invitation_org_status_expires_idx" ON "invitation" USING btree ("organization_id","status","expires_at");--> statement-breakpoint
+CREATE INDEX "session_expires_at_idx" ON "session" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "verification_expires_at_idx" ON "verification" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "wallet_topup_user_created_idx" ON "wallet_topup" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "issue_repo_state_updated_idx" ON "issue" USING btree ("repository_id","state","updated_at");--> statement-breakpoint
+CREATE INDEX "pull_request_repo_state_updated_idx" ON "pull_request" USING btree ("repository_id","state","updated_at");--> statement-breakpoint
+CREATE INDEX "repository_org_enabled_idx" ON "repository" USING btree ("organization_id","enabled");--> statement-breakpoint
+CREATE INDEX "repository_access_user_enabled_seen_idx" ON "repository_access" USING btree ("user_id","enabled","last_seen_at");--> statement-breakpoint
+CREATE INDEX "repository_webhook_repo_enabled_idx" ON "repository_webhook" USING btree ("repository_id","enabled");--> statement-breakpoint
+CREATE INDEX "review_run_pull_request_created_idx" ON "review_run" USING btree ("pull_request_id","created_at");--> statement-breakpoint
+CREATE INDEX "review_run_issue_created_idx" ON "review_run" USING btree ("issue_id","created_at");--> statement-breakpoint
+CREATE INDEX "webhook_receipt_repo_received_idx" ON "webhook_event_receipt" USING btree ("repository_id","received_at");--> statement-breakpoint
+CREATE INDEX "integration_connection_org_enabled_type_idx" ON "integration_connection" USING btree ("organization_id","enabled","provider_type");--> statement-breakpoint
+CREATE INDEX "notification_user_archived_created_idx" ON "notification" USING btree ("user_id","archived_at","created_at");--> statement-breakpoint
+CREATE INDEX "notification_channel_user_enabled_idx" ON "notification_channel" USING btree ("user_id","enabled");--> statement-breakpoint
+CREATE INDEX "notification_delivery_status_created_idx" ON "notification_delivery" USING btree ("status","created_at");--> statement-breakpoint
+CREATE INDEX "observability_event_user_status_occurred_idx" ON "observability_event" USING btree ("user_id","status","occurred_at");

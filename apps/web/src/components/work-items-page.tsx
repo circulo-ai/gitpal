@@ -44,6 +44,7 @@ import { formatDistanceToNow } from "date-fns";
 import { CircleDotIcon, GitPullRequestIcon, SearchIcon } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 
 import { trpc } from "@/utils/trpc";
@@ -82,6 +83,9 @@ export function WorkItemsPage({
 	repositoryId?: string;
 }) {
 	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
 	const [search, setSearch] = React.useState("");
 	const [state, setState] = React.useState("all");
 	const [page, setPage] = React.useState(1);
@@ -89,6 +93,44 @@ export function WorkItemsPage({
 	const title = kind === "pull_request" ? "Pull requests" : "Issues";
 	const singular = kind === "pull_request" ? "pull request" : "issue";
 	const Icon = kind === "pull_request" ? GitPullRequestIcon : CircleDotIcon;
+	const repositoriesQuery = useQuery({
+		...trpc.repositories.list.queryOptions({
+			organizationId: activeWorkspaceId ?? undefined,
+		}),
+		enabled: Boolean(activeWorkspaceId),
+	});
+	const repositoryItems = [
+		{ label: "All repositories", value: "all" },
+		...(repositoriesQuery.data?.map((repository) => ({
+			label: repository.fullName,
+			value: repository.id,
+		})) ?? []),
+	];
+	const stateItems = [
+		{ label: "All states", value: "all" },
+		{ label: "Open", value: "open" },
+		{ label: "Closed", value: "closed" },
+		...(kind === "pull_request" ? [{ label: "Merged", value: "merged" }] : []),
+	];
+
+	const updateRepositoryFilter = React.useCallback(
+		(nextRepositoryId: string | null) => {
+			const nextParams = new URLSearchParams(searchParams.toString());
+			if (nextRepositoryId && nextRepositoryId !== "all") {
+				nextParams.set("repositoryId", nextRepositoryId);
+			} else {
+				nextParams.delete("repositoryId");
+			}
+
+			const nextUrl = nextParams.toString()
+				? `${pathname}?${nextParams.toString()}`
+				: pathname;
+			router.replace(nextUrl as never);
+			setPage(1);
+		},
+		[pathname, router, searchParams],
+	);
+
 	const query = useQuery({
 		...trpc.workItems.list.queryOptions({
 			organizationId: activeWorkspaceId ?? undefined,
@@ -129,7 +171,8 @@ export function WorkItemsPage({
 					</span>
 				</h1>
 				<p className="max-w-3xl text-muted-foreground text-sm">
-					Trace provider state and every GitPal AI run from request to result.
+					Trace provider state, filter by repository, and follow every GitPal AI
+					run from request to result.
 				</p>
 			</div>
 
@@ -137,12 +180,13 @@ export function WorkItemsPage({
 				<CardHeader>
 					<CardTitle>{title}</CardTitle>
 					<CardDescription>
-						Search by title or author and filter by provider state.
+						Search by title or author, filter by repository, and narrow by
+						provider state.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="flex flex-col gap-4">
-					<div className="flex flex-col gap-3 sm:flex-row">
-						<div className="relative flex-1">
+					<div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+						<div className="relative min-w-0 flex-1">
 							<SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
 							<Input
 								value={search}
@@ -155,6 +199,27 @@ export function WorkItemsPage({
 							/>
 						</div>
 						<Select
+							items={repositoryItems}
+							value={repositoryId ?? "all"}
+							onValueChange={(value) => {
+								updateRepositoryFilter(value);
+							}}
+						>
+							<SelectTrigger className="w-full sm:w-64">
+								<SelectValue placeholder="Repository" />
+							</SelectTrigger>
+							<SelectContent align="start">
+								<SelectGroup>
+									{repositoryItems.map((item) => (
+										<SelectItem key={item.value} value={item.value}>
+											{item.label}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
+						<Select
+							items={stateItems}
 							value={state}
 							onValueChange={(value) => {
 								setState(value ?? "all");
@@ -166,12 +231,11 @@ export function WorkItemsPage({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectGroup>
-									<SelectItem value="all">All states</SelectItem>
-									<SelectItem value="open">Open</SelectItem>
-									<SelectItem value="closed">Closed</SelectItem>
-									{kind === "pull_request" ? (
-										<SelectItem value="merged">Merged</SelectItem>
-									) : null}
+									{stateItems.map((item) => (
+										<SelectItem key={item.value} value={item.value}>
+											{item.label}
+										</SelectItem>
+									))}
 								</SelectGroup>
 							</SelectContent>
 						</Select>
@@ -215,36 +279,47 @@ export function WorkItemsPage({
 								))}
 							</div>
 							<div className="hidden overflow-x-auto rounded-xl border md:block">
-								<Table>
+								<Table className="table-fixed">
 									<TableHeader>
 										<TableRow>
-											<TableHead>{singular}</TableHead>
-											<TableHead>Repository</TableHead>
-											<TableHead>Author</TableHead>
-											<TableHead>State</TableHead>
-											<TableHead>Updated</TableHead>
+											<TableHead className="w-[36%]">{singular}</TableHead>
+											<TableHead className="w-[26%]">Repository</TableHead>
+											<TableHead className="w-[18%]">Author</TableHead>
+											<TableHead className="w-[10%]">State</TableHead>
+											<TableHead className="w-[10%]">Updated</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
 										{query.data.items.map((item) => (
 											<TableRow key={item.id}>
-												<TableCell>
+												<TableCell title={`#${item.number} ${item.title}`}>
 													<Link
 														href={itemHref(
 															kind,
 															item.repositoryId,
 															item.number,
 														)}
-														className="font-medium hover:underline"
+														className="block truncate font-medium hover:underline"
 													>
 														#{item.number} {item.title}
 													</Link>
 												</TableCell>
-												<TableCell className="text-muted-foreground">
-													{item.repository?.fullName}
+												<TableCell
+													className="text-muted-foreground"
+													title={item.repository?.fullName ?? "Unknown"}
+												>
+													<div className="truncate">
+														{item.repository?.fullName ?? "Unknown"}
+													</div>
 												</TableCell>
-												<TableCell>
-													{item.authorLogin ?? item.authorName ?? "Unknown"}
+												<TableCell
+													title={
+														item.authorLogin ?? item.authorName ?? "Unknown"
+													}
+												>
+													<div className="truncate">
+														{item.authorLogin ?? item.authorName ?? "Unknown"}
+													</div>
 												</TableCell>
 												<TableCell>
 													<Badge variant="outline">{item.state}</Badge>

@@ -1,18 +1,39 @@
+import { randomUUID } from "node:crypto";
 import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitProviderAdapter, GitPullRequest } from "@gitpal/git";
 import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 import { createLogger } from "@gitpal/logger";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { mapWithConcurrency } from "./bounded-concurrency";
 import { getAutomationActorForRepository } from "./git-provider-access";
 import { projectIssueSnapshot } from "./issue-projection";
 import {
 	projectPullRequestSnapshot,
-	recordHumanReviewSignal,
+	reconcileHumanReviewSummary,
 	recordPullRequestMetricEvents,
 } from "./pr-projection";
+import { summarizeHumanReviews } from "./pull-request-reviews";
+import { sanitizeDiagnosticText } from "./safe-diagnostics";
 
 const log = createLogger("pull-request-reconcile");
+
+function getErrorMessage(error: unknown) {
+	return error instanceof Error
+		? error.message
+		: "Provider reconciliation failed.";
+}
+
+async function markReconcileFailed(repositoryId: string, error: string) {
+	await db
+		.update(dashboardSchema.repository)
+		.set({
+			reconcileState: "failed",
+			lastReconcileFailedAt: new Date(),
+			lastReconcileError: sanitizeDiagnosticText(error).slice(0, 2_000),
+		})
+		.where(eq(dashboardSchema.repository.id, repositoryId));
+}
 
 /**
  * Reconcile a single repository's pull requests against the provider.
@@ -28,9 +49,8 @@ const log = createLogger("pull-request-reconcile");
  * also backfills review timing (firstHumanReviewAt / lastHumanReviewAt /
  * approvedAt / approvalState) from adapter.listPullRequestReviews for each
  * projected PR, so a missed pull_request_review webhook self-heals on the next
- * reconcile. Only reviews that carry a real provider timestamp are folded in;
- * GitLab approvals without a system note (hence no timestamp) are skipped to
- * avoid polluting timing with the reconcile time.
+ * reconcile. Provider timestamps drive timing metrics, while timestamp-less
+ * current approvals (such as GitLab's approvals endpoint) still heal state.
  */
 export async function reconcilePullRequestsForRepository({
 	repositoryId,
@@ -45,6 +65,15 @@ export async function reconcilePullRequestsForRepository({
 	if (!repository) {
 		return { projected: 0 };
 	}
+	const reconcileStartedAt = new Date();
+	await db
+		.update(dashboardSchema.repository)
+		.set({
+			reconcileState: "running",
+			lastReconcileStartedAt: reconcileStartedAt,
+			lastReconcileError: null,
+		})
+		.where(eq(dashboardSchema.repository.id, repository.id));
 
 	const automationActor = await getAutomationActorForRepository({
 		repositoryId: repository.id,
@@ -54,6 +83,10 @@ export async function reconcilePullRequestsForRepository({
 		log.debug(
 			{ repositoryId },
 			"Reconcile skipped — no automation actor for repository.",
+		);
+		await markReconcileFailed(
+			repository.id,
+			"No provider credentials are available for reconciliation.",
 		);
 		return { projected: 0 };
 	}
@@ -75,10 +108,11 @@ export async function reconcilePullRequestsForRepository({
 			{ err: error, repositoryId },
 			"Reconcile failed — listPullRequests error.",
 		);
+		await markReconcileFailed(repository.id, getErrorMessage(error));
 		return { projected: 0 };
 	}
 
-	const projectedRows = await runWithConcurrency(
+	const projectedRows = await mapWithConcurrency(
 		pullRequests,
 		3,
 		async (pullRequest) => {
@@ -92,6 +126,7 @@ export async function reconcilePullRequestsForRepository({
 					repositoryId: repository.id,
 					repositoryPath: repository.repositoryPath,
 					pullRequestNumber: pullRequest.number,
+					observedAt: reconcileStartedAt,
 				});
 				await recordPullRequestMetricEvents({
 					userId: automationActor.userId,
@@ -114,6 +149,22 @@ export async function reconcilePullRequestsForRepository({
 		(total, value) => total + value,
 		0,
 	);
+	const failed = pullRequests.length - projected;
+	if (failed > 0) {
+		await markReconcileFailed(
+			repository.id,
+			`${failed} of ${pullRequests.length} pull requests could not be reconciled.`,
+		);
+	} else {
+		await db
+			.update(dashboardSchema.repository)
+			.set({
+				reconcileState: "healthy",
+				lastReconciledAt: new Date(),
+				lastReconcileError: null,
+			})
+			.where(eq(dashboardSchema.repository.id, repository.id));
+	}
 	log.info(
 		{
 			repositoryId,
@@ -139,7 +190,7 @@ async function reconcileKnownIssueSnapshots({
 		.select({ number: dashboardSchema.issue.number })
 		.from(dashboardSchema.issue)
 		.where(eq(dashboardSchema.issue.repositoryId, repositoryId));
-	const results = await runWithConcurrency(
+	const results = await mapWithConcurrency(
 		knownIssues,
 		3,
 		async ({ number }) => {
@@ -165,64 +216,32 @@ async function reconcileKnownIssueSnapshots({
 /**
  * Backfill human-review timing for a single PR from the provider's reviews.
  *
- * Best-effort and bounded: a failure here never fails the reconcile. Bot
- * reviews and reviews without a real timestamp are skipped so that
- * firstHumanReviewAt / lastHumanReviewAt only ever reflect genuine human review
- * events (never the reconcile time).
+ * Bot and pending reviews never affect the summary. Timestamp-less provider
+ * approvals update current state without fabricating timing data.
  */
 async function backfillHumanReviews({
 	adapter,
 	repositoryId,
 	repositoryPath,
 	pullRequestNumber,
+	observedAt,
 }: {
 	adapter: GitProviderAdapter;
 	repositoryId: string;
 	repositoryPath: string;
 	pullRequestNumber: number;
+	observedAt: Date;
 }): Promise<typeof dashboardSchema.pullRequest.$inferSelect | null> {
-	let reviews: Awaited<
-		ReturnType<GitProviderAdapter["listPullRequestReviews"]>
-	>;
-	try {
-		reviews = await adapter.listPullRequestReviews({
-			repositoryPath,
-			pullRequestNumber,
-		});
-	} catch (error) {
-		log.debug(
-			{ err: error, repositoryId, pullRequestNumber },
-			"Review backfill skipped — listPullRequestReviews error.",
-		);
-		return null;
-	}
-
-	let latestRow: typeof dashboardSchema.pullRequest.$inferSelect | null = null;
-	for (const review of reviews) {
-		// Pending reviews have not been submitted; skip.
-		if (review.state === "pending") {
-			continue;
-		}
-		// Only fold in reviews with a real provider timestamp so we never set review
-		// timing to the reconcile time (e.g. GitLab approvals without a note).
-		if (!review.submittedAt) {
-			continue;
-		}
-		const login = review.author?.login?.toLowerCase() ?? "";
-		if (review.author?.kind === "bot" || login.endsWith("[bot]")) {
-			continue;
-		}
-		latestRow =
-			(await recordHumanReviewSignal({
-				repositoryId,
-				pullRequestNumber,
-				reviewedAt: new Date(review.submittedAt),
-				isApproval: review.state === "approved",
-				approvalState: review.state,
-			})) ?? latestRow;
-	}
-
-	return latestRow;
+	const reviews = await adapter.listPullRequestReviews({
+		repositoryPath,
+		pullRequestNumber,
+	});
+	return reconcileHumanReviewSummary({
+		repositoryId,
+		pullRequestNumber,
+		summary: summarizeHumanReviews(reviews),
+		observedAt,
+	});
 }
 
 /**
@@ -238,10 +257,20 @@ export async function dispatchPullRequestReconcile(): Promise<{
 		})
 		.from(dashboardSchema.repositoryAccess)
 		.where(eq(dashboardSchema.repositoryAccess.enabled, true));
-	const results = await Promise.allSettled(
-		rows.map(({ repositoryId }) =>
-			enqueuePullRequestSyncJob({ repositoryId, reason: "scheduled" }),
-		),
+	const results = await mapWithConcurrency(
+		rows,
+		10,
+		async ({ repositoryId }) => {
+			try {
+				const value = await enqueuePullRequestSyncJob({
+					repositoryId,
+					reason: "scheduled",
+				});
+				return { status: "fulfilled" as const, value };
+			} catch (reason) {
+				return { status: "rejected" as const, reason };
+			}
+		},
 	);
 	for (const result of results) {
 		if (result.status === "rejected") {
@@ -251,8 +280,65 @@ export async function dispatchPullRequestReconcile(): Promise<{
 			);
 		}
 	}
-	log.info({ dispatched: rows.length }, "Pull request reconcile dispatched.");
-	return { dispatched: rows.length };
+	const dispatched = results.filter(
+		(result) => result.status === "fulfilled",
+	).length;
+	log.info(
+		{ dispatched, requested: rows.length },
+		"Pull request reconcile dispatched.",
+	);
+	return { dispatched };
+}
+
+export async function queuePullRequestReconcileForUser({
+	userId,
+	organizationId,
+	repositoryId,
+}: {
+	userId: string;
+	organizationId: string;
+	repositoryId: string;
+}) {
+	const [access] = await db
+		.select({ repositoryId: dashboardSchema.repository.id })
+		.from(dashboardSchema.repositoryAccess)
+		.innerJoin(
+			dashboardSchema.repository,
+			eq(
+				dashboardSchema.repositoryAccess.repositoryId,
+				dashboardSchema.repository.id,
+			),
+		)
+		.where(
+			and(
+				eq(dashboardSchema.repositoryAccess.userId, userId),
+				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
+				eq(dashboardSchema.repository.organizationId, organizationId),
+			),
+		)
+		.limit(1);
+	if (!access) {
+		return {
+			queued: false,
+			jobId: null,
+			error: "Repository access was not found.",
+		};
+	}
+
+	try {
+		const job = await enqueuePullRequestSyncJob({
+			repositoryId,
+			reason: "on-demand",
+			requestId: `pr_sync_${randomUUID()}`,
+		});
+		return { queued: true, jobId: job.ids?.[0] ?? null, error: null };
+	} catch (error) {
+		return {
+			queued: false,
+			jobId: null,
+			error: getErrorMessage(error),
+		};
+	}
 }
 
 /**
@@ -270,40 +356,4 @@ export async function processPullRequestSyncJob(data: {
 		return;
 	}
 	await dispatchPullRequestReconcile();
-}
-
-async function runWithConcurrency<T, R>(
-	items: T[],
-	concurrency: number,
-	mapper: (item: T) => Promise<R>,
-) {
-	if (items.length === 0) {
-		return [] as R[];
-	}
-
-	const results = new Array<R>(items.length);
-	let cursor = 0;
-	const workerCount = Math.min(concurrency, items.length);
-
-	await Promise.all(
-		Array.from({ length: workerCount }, async () => {
-			while (true) {
-				const currentIndex = cursor;
-				cursor += 1;
-
-				if (currentIndex >= items.length) {
-					return;
-				}
-
-				const item = items[currentIndex];
-				if (item === undefined) {
-					return;
-				}
-
-				results[currentIndex] = await mapper(item);
-			}
-		}),
-	);
-
-	return results;
 }

@@ -4,8 +4,12 @@ import {
 	repositoryWebhookSyncJobSchema,
 } from "@gitpal/jobs/inngest/functions/repository-webhook-sync";
 import { createLogger } from "@gitpal/logger";
-import { sendUserNotification } from "./notifications";
+import {
+	archiveNotificationByDedupeKeyForUser,
+	sendUserNotification,
+} from "./notifications";
 import { recordObservabilityEvent } from "./observability";
+import { getRepositoryWebhookSyncFailureNotificationKey } from "./repository-webhook-sync-notifications";
 import { syncRepositoryWebhooksForUser } from "./repository-webhooks";
 
 const log = createLogger("repository-webhook-sync");
@@ -40,6 +44,8 @@ export async function processRepositoryWebhookSyncJob(
 	});
 
 	const failed = result.failed > 0 || result.errors.length > 0;
+	const failureNotificationKey =
+		getRepositoryWebhookSyncFailureNotificationKey(data);
 
 	await recordObservabilityEvent({
 		userId: data.userId,
@@ -88,18 +94,38 @@ export async function processRepositoryWebhookSyncJob(
 			actionHref: "/observability",
 			sourceType: "repository-webhook-sync",
 			sourceId: data.repositoryId ?? data.organizationId ?? data.userId,
-			dedupeKey: [
-				"repository-webhook-sync",
-				data.userId,
-				data.organizationId ?? "all",
-				data.repositoryId ?? "all",
-				"notification",
-			].join(":"),
+			dedupeKey: failureNotificationKey,
 			metadata: {
 				reason: data.reason ?? null,
 				errors: result.errors,
 			},
 		});
+	} else {
+		const resolved = await archiveNotificationByDedupeKeyForUser({
+			userId: data.userId,
+			dedupeKey: failureNotificationKey,
+		});
+		if (resolved.updated > 0) {
+			await sendUserNotification({
+				userId: data.userId,
+				organizationId: data.organizationId ?? null,
+				repositoryId: data.repositoryId ?? null,
+				type: "repository_webhook_sync_recovered",
+				category: "webhook",
+				severity: "success",
+				title: "Webhook sync recovered",
+				body: "The repository webhook is configured and the previous sync error has been resolved.",
+				actionHref: "/repositories",
+				sourceType: "repository-webhook-sync",
+				sourceId: data.repositoryId ?? data.organizationId ?? data.userId,
+				dedupeKey: `${failureNotificationKey}:recovered`,
+				metadata: {
+					reason: data.reason ?? null,
+					created: result.created,
+					existing: result.existing,
+				},
+			});
+		}
 	}
 
 	return result;
@@ -111,7 +137,10 @@ export async function queueRepositoryWebhookSyncForUser(
 	const data = repositoryWebhookSyncJobSchema.parse(input);
 
 	try {
-		const job = await enqueueRepositoryWebhookSyncJob(data);
+		const job = await enqueueRepositoryWebhookSyncJob({
+			...data,
+			requestId: data.requestId ?? randomUUID(),
+		});
 		return {
 			queued: true,
 			jobId: job.ids?.[0] ?? null,
@@ -145,3 +174,5 @@ export async function queueRepositoryWebhookSyncForUser(
 		};
 	}
 }
+
+import { randomUUID } from "node:crypto";

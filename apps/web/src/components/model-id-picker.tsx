@@ -73,6 +73,15 @@ export function ModelIdPicker({
 	);
 	const selectValue =
 		isCustomMode || !isCuratedModel(value, groups) ? CUSTOM_MODEL_VALUE : value;
+	const selectItems = [
+		...groups.flatMap((group) =>
+			group.options.map((option) => ({
+				label: option.label ?? option.value,
+				value: option.value,
+			})),
+		),
+		{ label: "Use a custom model ID", value: CUSTOM_MODEL_VALUE },
+	];
 
 	React.useEffect(() => {
 		if (!isCustomMode && !isCuratedModel(value, groups)) {
@@ -88,6 +97,7 @@ export function ModelIdPicker({
 				<p className="text-muted-foreground text-xs">{helperText}</p>
 			</div>
 			<Select
+				items={selectItems}
 				value={selectValue}
 				disabled={disabled}
 				onValueChange={(nextValue) => {

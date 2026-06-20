@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { db, runTransactionWithRetry } from "@gitpal/db";
 import * as authSchema from "@gitpal/db/schema/auth";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
@@ -21,6 +20,7 @@ import {
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
 import { readWorkspaceMetadata } from "./repository-sync";
+import { stableId } from "./stable-id";
 
 const log = createLogger("team-management");
 const DEFAULT_TEAM_MEMBER_SYNC_TTL_MS = 10 * 60 * 1000;
@@ -84,12 +84,6 @@ export type WorkspaceTeamMemberSyncResult = {
 	lastSyncedAt: string | null;
 	error: string | null;
 };
-
-function stableId(parts: Array<string | number | boolean | null | undefined>) {
-	return createHash("sha256")
-		.update(parts.map((part) => String(part ?? "")).join(":"))
-		.digest("hex");
-}
 
 function getProviderWorkspaceMemberId({
 	organizationId,

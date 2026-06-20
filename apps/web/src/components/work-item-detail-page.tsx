@@ -524,6 +524,11 @@ export function WorkItemDetailPage({
 		detail?.runs.find((run) => run.id === selectedRunId) ??
 		detail?.runs[0] ??
 		null;
+	const runSelectItems =
+		detail?.runs.map((run) => ({
+			label: `${format(new Date(run.createdAt), "MMM d, HH:mm")} · ${run.status}`,
+			value: run.id,
+		})) ?? [];
 
 	React.useEffect(() => {
 		if (!selectedRunId && detail?.runs[0]) setSelectedRunId(detail.runs[0].id);
@@ -884,6 +889,7 @@ export function WorkItemDetailPage({
 										</div>
 										{detail.runs.length ? (
 											<Select
+												items={runSelectItems}
 												value={selectedRun?.id ?? ""}
 												onValueChange={(value) =>
 													setSelectedRunId(value ?? null)

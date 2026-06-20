@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
+import { db, runTransactionWithRetry } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitPullRequest } from "@gitpal/git";
 import { createLogger } from "@gitpal/logger";
 import { and, eq } from "drizzle-orm";
 import { recordObservabilityEvent } from "./observability";
+import type { HumanReviewSummary } from "./pull-request-reviews";
 
 const log = createLogger("pull-request-projection");
 
@@ -125,9 +126,8 @@ export type HumanReviewSignal = {
  * lifecycle snapshot is always projected first, so this is an edge case (and
  * the next reconcile sweep will create the row).
  *
- * NOTE: provider APIs do not expose historical per-review timestamps, so these
- * review-timing columns can only be captured here, in real time. The reconcile
- * worker intentionally does not touch them.
+ * Provider reconciliation backfills exact historical bounds. This path keeps
+ * webhook-time state monotonic until the next provider snapshot arrives.
  */
 export async function recordHumanReviewSignal({
 	repositoryId,
@@ -136,39 +136,125 @@ export async function recordHumanReviewSignal({
 	isApproval = false,
 	approvalState = null,
 }: HumanReviewSignal): Promise<ProjectedPullRequestRow | null> {
-	const [existing] = await db
-		.select()
-		.from(dashboardSchema.pullRequest)
-		.where(
-			and(
-				eq(dashboardSchema.pullRequest.repositoryId, repositoryId),
-				eq(dashboardSchema.pullRequest.number, pullRequestNumber),
-			),
-		)
-		.limit(1);
-	if (!existing) {
-		log.warn(
-			{ repositoryId, pullRequestNumber },
-			"Human review signal skipped — pull request snapshot not found.",
-		);
-		return null;
-	}
-	const firstHumanReviewAt = existing.firstHumanReviewAt ?? reviewedAt;
-	const lastHumanReviewAt =
-		existing.lastHumanReviewAt && existing.lastHumanReviewAt > reviewedAt
-			? existing.lastHumanReviewAt
-			: reviewedAt;
-	const [row] = await db
-		.update(dashboardSchema.pullRequest)
-		.set({
-			firstHumanReviewAt,
-			lastHumanReviewAt,
-			approvalState: approvalState ?? existing.approvalState ?? null,
-			approvedAt: isApproval ? reviewedAt : (existing.approvedAt ?? null),
-		})
-		.where(eq(dashboardSchema.pullRequest.id, existing.id))
-		.returning();
-	return row ?? null;
+	return runTransactionWithRetry(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(dashboardSchema.pullRequest)
+			.where(
+				and(
+					eq(dashboardSchema.pullRequest.repositoryId, repositoryId),
+					eq(dashboardSchema.pullRequest.number, pullRequestNumber),
+				),
+			)
+			.limit(1)
+			.for("update");
+		if (!existing) {
+			log.warn(
+				{ repositoryId, pullRequestNumber },
+				"Human review signal skipped — pull request snapshot not found.",
+			);
+			return null;
+		}
+		const firstHumanReviewAt =
+			existing.firstHumanReviewAt && existing.firstHumanReviewAt < reviewedAt
+				? existing.firstHumanReviewAt
+				: reviewedAt;
+		const isLatestSignal =
+			!existing.lastHumanReviewAt || reviewedAt >= existing.lastHumanReviewAt;
+		const isDecisiveNonApproval =
+			approvalState === "changes_requested" || approvalState === "dismissed";
+		const isDecisiveReview = isApproval || isDecisiveNonApproval;
+		const approvedAt = isApproval
+			? existing.approvedAt && existing.approvedAt < reviewedAt
+				? existing.approvedAt
+				: reviewedAt
+			: isLatestSignal && isDecisiveNonApproval
+				? null
+				: (existing.approvedAt ?? null);
+		const [row] = await tx
+			.update(dashboardSchema.pullRequest)
+			.set({
+				firstHumanReviewAt,
+				lastHumanReviewAt: isLatestSignal
+					? reviewedAt
+					: existing.lastHumanReviewAt,
+				approvalState:
+					isLatestSignal &&
+					approvalState &&
+					(isDecisiveReview || !existing.approvalState)
+						? approvalState
+						: (existing.approvalState ?? null),
+				approvedAt,
+				reviewStateUpdatedAt: new Date(),
+			})
+			.where(eq(dashboardSchema.pullRequest.id, existing.id))
+			.returning();
+		return row ?? null;
+	});
+}
+
+export async function reconcileHumanReviewSummary({
+	repositoryId,
+	pullRequestNumber,
+	summary,
+	observedAt,
+}: {
+	repositoryId: string;
+	pullRequestNumber: number;
+	summary: HumanReviewSummary;
+	observedAt: Date;
+}): Promise<ProjectedPullRequestRow | null> {
+	return runTransactionWithRetry(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(dashboardSchema.pullRequest)
+			.where(
+				and(
+					eq(dashboardSchema.pullRequest.repositoryId, repositoryId),
+					eq(dashboardSchema.pullRequest.number, pullRequestNumber),
+				),
+			)
+			.limit(1)
+			.for("update");
+		if (!existing) return null;
+
+		const firstHumanReviewAt =
+			existing.firstHumanReviewAt && summary.firstHumanReviewAt
+				? existing.firstHumanReviewAt < summary.firstHumanReviewAt
+					? existing.firstHumanReviewAt
+					: summary.firstHumanReviewAt
+				: (existing.firstHumanReviewAt ?? summary.firstHumanReviewAt);
+		const lastHumanReviewAt =
+			existing.lastHumanReviewAt && summary.lastHumanReviewAt
+				? existing.lastHumanReviewAt > summary.lastHumanReviewAt
+					? existing.lastHumanReviewAt
+					: summary.lastHumanReviewAt
+				: (existing.lastHumanReviewAt ?? summary.lastHumanReviewAt);
+		const canReplaceCurrentState =
+			!existing.reviewStateUpdatedAt ||
+			existing.reviewStateUpdatedAt <= observedAt;
+		const approvedAt = canReplaceCurrentState
+			? (summary.approvedAt ??
+				(summary.approvalState === "approved" ? existing.approvedAt : null))
+			: existing.approvedAt;
+		const [row] = await tx
+			.update(dashboardSchema.pullRequest)
+			.set({
+				firstHumanReviewAt,
+				lastHumanReviewAt,
+				approvalState: canReplaceCurrentState
+					? summary.approvalState
+					: existing.approvalState,
+				approvedAt,
+				reviewStateUpdatedAt: canReplaceCurrentState
+					? new Date()
+					: existing.reviewStateUpdatedAt,
+			})
+			.where(eq(dashboardSchema.pullRequest.id, existing.id))
+			.returning();
+
+		return row ?? null;
+	});
 }
 
 export async function recordPullRequestMetricEvents({

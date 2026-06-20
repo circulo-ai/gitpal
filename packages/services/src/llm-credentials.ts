@@ -20,6 +20,7 @@ import {
 	maskSecret,
 	matchesAllowedModels,
 } from "@gitpal/utils";
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createGateway, type LanguageModel } from "ai";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { createOllama } from "ollama-ai-provider-v2";
@@ -446,6 +447,13 @@ function createDirectProviderModel({
 			apiKey,
 			...(baseUrl ? { baseURL: baseUrl } : {}),
 		})(modelId);
+	}
+
+	if (provider.family === "openrouter") {
+		return createOpenRouter({
+			apiKey,
+			...(baseUrl ? { baseURL: baseUrl } : {}),
+		}).chat(modelId);
 	}
 
 	const resolvedBaseUrl = baseUrl ?? provider.baseUrl;

@@ -18,7 +18,8 @@ export type LlmProviderFamily =
 	| "anthropic"
 	| "google"
 	| "openai"
-	| "openai-compatible";
+	| "openai-compatible"
+	| "openrouter";
 
 export type LlmProviderDefinition = {
 	id: string;
@@ -103,7 +104,7 @@ export const llmProviderCatalog = [
 		label: "OpenRouter",
 		description:
 			"Route compatible models through OpenRouter with your own key.",
-		family: "openai-compatible",
+		family: "openrouter",
 		modelPrefixes: ["openrouter"],
 		suggestedModels: [
 			"anthropic/claude-sonnet-4.6",

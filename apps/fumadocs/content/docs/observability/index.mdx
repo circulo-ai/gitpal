@@ -1,0 +1,42 @@
+---
+title: Observability
+description: Event timelines, trace debugging, and system health.
+---
+
+Observability in GitPal is the bridge between a webhook, the review or labeler work that followed it, and the notifications or billing events that came out the other side.
+
+![GitPal observability timeline](/screenshots/observability-timeline.svg)
+
+## The three layers
+
+- Webhook receipts show what arrived.
+- Durable jobs show what was processed.
+- Observability events show what the user will care about later.
+
+## What to filter by
+
+- Event kind: AI, billing, job, notification, review, tool, or webhook.
+- Repository and pull request.
+- Status and severity.
+- Time window.
+
+## How to debug quickly
+
+1. Find the webhook receipt.
+2. Open the review run or labeler run linked to that receipt.
+3. Check the final observability event.
+4. If billing is involved, inspect the wallet ledger and the generation record.
+
+## What healthy looks like
+
+- Receipts arrive once.
+- Jobs eventually finish.
+- Review events include a useful summary and a traceable source.
+- Billing events and notifications agree on the same source ID.
+
+## What broken looks like
+
+- A receipt exists but nothing was queued.
+- A job retried repeatedly without making progress.
+- A notification failed after the review already finished.
+- A wallet entry does not match the generation cost you expected.

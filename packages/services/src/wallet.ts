@@ -29,6 +29,7 @@ export type WalletSummary = {
 	totalCreditedCents: number;
 	totalRevenueCents: number;
 	totalSpentCents: number;
+	cloudBillingEnabled: boolean;
 	revenueSharePercent: number;
 	checkoutEnabled: boolean;
 	checkoutDisabledReason: string | null;
@@ -127,6 +128,8 @@ export async function getWalletSummaryForUser(
 	userId: string,
 ): Promise<WalletSummary> {
 	const wallet = await ensureWalletForUser(userId);
+	const cloudBillingEnabled = env.GITPAL_CLOUD_BILLING_ENABLED;
+	const checkoutEnabled = cloudBillingEnabled && isNowPaymentsCheckoutEnabled();
 	const [topups, entries] = await Promise.all([
 		db
 			.select()
@@ -150,11 +153,14 @@ export async function getWalletSummaryForUser(
 		totalCreditedCents: wallet.totalCreditedCents,
 		totalRevenueCents: wallet.totalRevenueCents,
 		totalSpentCents: wallet.totalSpentCents,
+		cloudBillingEnabled,
 		revenueSharePercent: env.GITPAL_WALLET_REVENUE_SHARE_PERCENT,
-		checkoutEnabled: isNowPaymentsCheckoutEnabled(),
-		checkoutDisabledReason: isNowPaymentsCheckoutEnabled()
-			? null
-			: "Wallet top-ups are not available until NOWPayments is configured.",
+		checkoutEnabled,
+		checkoutDisabledReason: !cloudBillingEnabled
+			? "Wallet top-ups are only available in GitPal Cloud."
+			: checkoutEnabled
+				? null
+				: "Wallet top-ups are not available until NOWPayments is configured.",
 		recentTopups: topups.map((topup) => ({
 			id: topup.id,
 			status: topup.status,
@@ -184,6 +190,10 @@ export async function createWalletTopupForUser({
 	userId: string;
 	amountUsdCents: number;
 }) {
+	if (!env.GITPAL_CLOUD_BILLING_ENABLED) {
+		throw new Error("Wallet top-ups are only available in GitPal Cloud.");
+	}
+
 	if (!isNowPaymentsCheckoutEnabled()) {
 		throw new Error("NOWPayments is not configured.");
 	}

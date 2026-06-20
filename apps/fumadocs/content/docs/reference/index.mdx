@@ -16,6 +16,9 @@ This page is the quick glossary for the settings that show up in the app.
 - `MCP binding`: automatically wires the GitHub or GitLab MCP server name.
 - `Wallet billing`: charges GitPal-handled generations to the user's wallet.
 - `BYOK routing`: uses the user's own provider key instead of wallet billing.
+- `Cloud billing`: the feature flag that enables wallet top-ups in GitPal Cloud only.
+- `Self-hosted`: a deployment where billing stays off and the app runs with local infrastructure.
+- `Cookie domain`: the shared auth cookie domain used only when web and API live on sibling subdomains.
 
 ## Terms
 
@@ -23,9 +26,12 @@ This page is the quick glossary for the settings that show up in the app.
 - `label run`: one labeling execution for an issue or pull request.
 - `generation`: one model call with persisted usage and settlement metadata.
 - `route preview`: the predicted execution path for the current model ID and user routing settings.
+- `receipt`: the stored record that proves a webhook arrived before background processing started.
+- `observability event`: the durable audit record used for traces, notifications, and debugging.
 
 ## How to read the settings page
 
 - Use the curated selects first.
 - Switch to custom override only when you intentionally need a model that is not in the catalog.
 - Keep the preview dialog open to confirm the final output before letting the app act on real provider data.
+- Treat billing as cloud-only even if you are running the rest of the stack locally.

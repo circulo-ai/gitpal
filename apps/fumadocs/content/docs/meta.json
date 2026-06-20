@@ -4,10 +4,14 @@
   "pagesIndex": "index",
   "pages": [
     "getting-started",
+    "tutorials",
     "integrations",
+    "notifications",
+    "observability",
     "ai",
     "tools",
     "billing",
+    "self-hosting",
     "operations",
     "reference"
   ]

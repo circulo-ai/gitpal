@@ -7,8 +7,14 @@ GitPal separates two billing paths:
 
 - Calls handled by GitPal-managed routes are billed to the user's wallet.
 - Calls served through the user's own provider key are not billed to the wallet.
+- Wallet top-ups are cloud-only. Self-hosted deployments should leave billing disabled.
 
-## Wallet-billed calls
+<Callout title="Cloud only">
+  The wallet and checkout flow are intended for GitPal Cloud. Self-hosted
+  deployments can still use BYOK routing, but they should not expose top-ups.
+</Callout>
+
+## How billing works
 
 - The app records usage, generation metadata, and the resolved generation ID.
 - The wallet is debited only after the generation settles and the cost is known.

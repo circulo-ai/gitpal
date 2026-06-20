@@ -1,0 +1,43 @@
+---
+title: Tutorials
+description: Step-by-step GitPal workflows for reviews, notifications, and self-hosting.
+---
+
+If you want the fastest path from zero to useful, start here. Each tutorial is short enough to finish in one sitting.
+
+<Cards>
+  <Card title="First review" href="/docs/getting-started" description="Install GitPal, connect a provider, and run the first review." />
+  <Card title="Integrations" href="/docs/integrations" description="Understand provider bindings, webhooks, and reviewer mapping." />
+  <Card title="Notifications" href="/docs/notifications" description="Pick a channel and make sure important events reach your team." />
+  <Card title="Self-hosting" href="/docs/self-hosting" description="Run the app locally with Docker Compose and hot reloads." />
+</Cards>
+
+![GitPal notification workflow](/screenshots/notifications-center.svg)
+
+## 1. Ship your first review
+
+1. Start the local stack with `bun run docker:dev:up`.
+2. Run `bun run dev` to start the web app, API, and docs site.
+3. Connect GitHub or GitLab.
+4. Open a pull request and confirm the review comment, walkthrough, and labels look right.
+
+## 2. Set up a notification channel
+
+1. Open Notifications.
+2. Add a channel for Slack, Teams, Telegram, Linear, or Resend.
+3. Pick the categories and severities that matter to you.
+4. Send a test notification and confirm it arrives.
+
+## 3. Run self-hosted locally
+
+1. Start Postgres, Redis, and Inngest with `bun run docker:dev:up`.
+2. Set `GITPAL_CLOUD_BILLING_ENABLED=false` and `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false`.
+3. Leave `BETTER_AUTH_COOKIE_DOMAIN` unset unless you need a shared cookie domain.
+4. Use `bun run db:push` before you start reviewing pull requests.
+
+## 4. Read the result of a review
+
+1. Open Observability.
+2. Find the webhook receipt for the PR.
+3. Follow the review run and notification events.
+4. Check the wallet ledger only when the request was billed by GitPal Cloud.

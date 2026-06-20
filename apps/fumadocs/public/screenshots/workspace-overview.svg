@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" fill="none" role="img">
+  <title>Workspace overview screenshot</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="36" fill="url(#bg)"/>
+  <rect x="38" y="40" width="1124" height="640" rx="28" fill="#ffffff" stroke="#dbe4f0"/>
+  <rect x="38" y="40" width="1124" height="84" rx="28" fill="#0f172a"/>
+  <circle cx="84" cy="82" r="11" fill="#22c55e"/>
+  <circle cx="114" cy="82" r="11" fill="#f59e0b"/>
+  <circle cx="144" cy="82" r="11" fill="#ef4444"/>
+  <rect x="330" y="66" width="240" height="34" rx="17" fill="#1e293b"/>
+  <rect x="332" y="75" width="74" height="16" rx="8" fill="#334155"/>
+  <rect x="430" y="75" width="54" height="16" rx="8" fill="#475569"/>
+  <rect x="504" y="75" width="46" height="16" rx="8" fill="#334155"/>
+  <rect x="64" y="150" width="248" height="500" rx="22" fill="#0f172a"/>
+  <rect x="90" y="178" width="170" height="18" rx="9" fill="#334155"/>
+  <rect x="90" y="214" width="200" height="14" rx="7" fill="#1e293b"/>
+  <rect x="90" y="244" width="136" height="14" rx="7" fill="#1e293b"/>
+  <rect x="90" y="286" width="184" height="14" rx="7" fill="#1e293b"/>
+  <rect x="90" y="316" width="120" height="14" rx="7" fill="#1e293b"/>
+  <rect x="90" y="390" width="190" height="110" rx="20" fill="#111827" stroke="#1f2937"/>
+  <text x="112" y="422" font-family="Inter, Arial, sans-serif" font-size="16" fill="#cbd5e1">Workspace</text>
+  <text x="112" y="450" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700" fill="#ffffff">GitPal Cloud</text>
+  <text x="112" y="478" font-family="Inter, Arial, sans-serif" font-size="14" fill="#94a3b8">12 repositories synced</text>
+  <rect x="340" y="156" width="784" height="110" rx="24" fill="#ffffff" stroke="#dbe4f0"/>
+  <text x="370" y="196" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">First review ready</text>
+  <text x="370" y="224" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">GitHub PR #218, review findings, walkthrough, and labels all complete.</text>
+  <rect x="370" y="238" width="176" height="14" rx="7" fill="url(#accent)"/>
+  <rect x="340" y="292" width="250" height="122" rx="24" fill="#ffffff" stroke="#dbe4f0"/>
+  <rect x="612" y="292" width="250" height="122" rx="24" fill="#ffffff" stroke="#dbe4f0"/>
+  <rect x="884" y="292" width="240" height="122" rx="24" fill="#ffffff" stroke="#dbe4f0"/>
+  <text x="368" y="332" font-family="Inter, Arial, sans-serif" font-size="14" fill="#64748b">Open PRs</text>
+  <text x="368" y="370" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#0f172a">18</text>
+  <text x="640" y="332" font-family="Inter, Arial, sans-serif" font-size="14" fill="#64748b">Review latency</text>
+  <text x="640" y="370" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#0f172a">4m 12s</text>
+  <text x="912" y="332" font-family="Inter, Arial, sans-serif" font-size="14" fill="#64748b">Notifications</text>
+  <text x="912" y="370" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700" fill="#0f172a">7</text>
+  <rect x="340" y="438" width="784" height="176" rx="24" fill="#0f172a" stroke="#1e293b"/>
+  <text x="370" y="478" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Review preview</text>
+  <rect x="370" y="500" width="704" height="16" rx="8" fill="#334155"/>
+  <rect x="370" y="530" width="620" height="16" rx="8" fill="#1e293b"/>
+  <rect x="370" y="560" width="540" height="16" rx="8" fill="#1e293b"/>
+  <rect x="370" y="590" width="120" height="16" rx="8" fill="url(#accent)"/>
+  <text x="512" y="602" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Summary, walkthrough, findings, labels, reviewers</text>
+</svg>

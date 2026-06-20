@@ -3,17 +3,21 @@ title: GitPal Documentation
 description: Production-ready docs for GitPal cloud and self-hosted deployments.
 ---
 
-GitPal automates pull request reviews, issue and PR labeling, reviewer assignment, and tool-assisted context gathering across GitHub and GitLab.
+GitPal helps teams review pull requests, route context, label issues, and understand what happened after the review lands.
 
 <Callout title="Built for production">
-  The docs below match the actual product behavior: curated model selection with custom overrides, provider-native reviewer assignment, wallet billing for GitPal-handled calls, and automatic MCP server binding.
+  These docs match the actual product behavior: curated model selection, provider-native reviewer assignment, cloud-only wallet billing, and automatic MCP binding where it applies.
 </Callout>
 
 ## Start here
 
 <Cards>
   <Card title="Getting started" href="/docs/getting-started" description="Install GitPal, connect a provider, and run the first review." />
-  <Card title="Integrations" href="/docs/integrations" description="GitHub, GitLab, webhook delivery, and reviewer mapping." />
+  <Card title="Tutorials" href="/docs/tutorials" description="Step-by-step workflows for reviews, notifications, and self-hosting." />
+  <Card title="Integrations" href="/docs/integrations" description="GitHub, GitLab, webhooks, reviewer mapping, and enterprise hosts." />
+  <Card title="Notifications" href="/docs/notifications" description="Channels, categories, severities, and delivery testing." />
+  <Card title="Observability" href="/docs/observability" description="Event timelines, trace debugging, and system health." />
+  <Card title="Self-hosting" href="/docs/self-hosting" description="Local compose, auth cookies, webhooks, and cloud-only billing." />
   <Card title="AI review" href="/docs/ai" description="Reviewer, walkthrough, labeler, routing, and model selection." />
   <Card title="Tools and MCP" href="/docs/tools" description="Built-in tools, MCP bindings, and repository context behavior." />
   <Card title="Billing" href="/docs/billing" description="Wallet billing, BYOK routing, and generation settlement." />
@@ -24,17 +28,17 @@ GitPal automates pull request reviews, issue and PR labeling, reviewer assignmen
 ## What GitPal does
 
 - Review pull requests with repository context, related work, file history, and selected tools.
-- Assign labels from the repository's existing label catalog for issues and pull requests.
-- Request provider-native reviewers from connected GitHub or GitLab identities.
+- Assign labels from the repository's own label catalog.
+- Request provider-native reviewers from connected GitHub, GitLab, or enterprise identities.
 - Route model calls through GitPal-managed providers or a user's own keys.
-- Persist generation usage and settlement details for auditability and billing.
+- Persist generation usage, settlement details, and observability events for auditability.
 
-## How to think about the app
+## How to use these docs
 
-- `AI review`: main reviewer, walkthrough generation, fun extras, and label suggestions.
-- `Integrations`: GitHub, GitLab, webhook delivery, and provider-native actions.
-- `Tools`: built-in tools, MCP bindings, repository overrides, and search context.
-- `Billing`: wallet debits, BYOK routing, and generation cost tracking.
-- `Operations`: production safety, logs, retries, and troubleshooting.
+- Use `Getting started` for the first install and connection flow.
+- Use `Tutorials` when you want the quickest path to a repeatable task.
+- Use `Self-hosting` when you are running the app outside GitPal Cloud.
+- Use `Reference` when you need the exact term or setting name.
+- Use `Operations` when something needs debugging or production hardening.
 
-Use the category pages to configure the product end to end, then use the settings preview to verify the comment that GitPal will publish on real PRs.
+Each section is concise on purpose. When you need more detail, follow the links in that page instead of hunting through the app.

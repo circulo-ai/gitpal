@@ -1,5 +1,7 @@
 import { Card, Cards } from "fumadocs-ui/components/card";
 import {
+  BarChart3Icon,
+  BellIcon,
   BookOpenIcon,
   GitPullRequestIcon,
   ShieldCheckIcon,
@@ -19,12 +21,13 @@ export default function HomePage() {
           GitPal documentation
         </div>
         <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-          Production docs for automated PR review, labels, tools, and billing.
+          Product docs for reviews, integrations, notifications, and
+          self-hosting.
         </h1>
         <p className="mt-6 max-w-2xl text-pretty text-base leading-7 text-muted-foreground sm:text-lg">
           GitPal helps teams review GitHub and GitLab changes with curated model
-          selection, provider-native reviewer assignment, wallet-aware billing,
-          and a settings preview that mirrors the real comment output.
+          selection, provider-native reviewer assignment, cloud-only wallet
+          billing, and a settings preview that mirrors the real comment output.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -41,12 +44,48 @@ export default function HomePage() {
           </Link>
         </div>
         <div className="mt-14">
-          <Cards className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Cards className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Card
               title="Getting started"
               description="Connect a provider, tune the settings, and run the first review."
               href="/docs/getting-started"
               icon={<BookOpenIcon className="size-5" />}
+            />
+            <Card
+              title="Tutorials"
+              description="Repeatable workflows for reviews, notifications, and local dev."
+              href="/docs/tutorials"
+              icon={<WandSparklesIcon className="size-5" />}
+            />
+            <Card
+              title="Integrations"
+              description="GitHub, GitLab, webhooks, and enterprise host setup."
+              href="/docs/integrations"
+              icon={<GitPullRequestIcon className="size-5" />}
+            />
+            <Card
+              title="Notifications"
+              description="Channels, categories, severities, and delivery testing."
+              href="/docs/notifications"
+              icon={<BellIcon className="size-5" />}
+            />
+            <Card
+              title="Observability"
+              description="Event timelines, trace debugging, and system health."
+              href="/docs/observability"
+              icon={<BarChart3Icon className="size-5" />}
+            />
+            <Card
+              title="Billing"
+              description="Cloud-only wallet settlement, BYOK routing, and generation tracking."
+              href="/docs/billing"
+              icon={<WalletIcon className="size-5" />}
+            />
+            <Card
+              title="Self-hosting"
+              description="Local compose, auth cookies, and cloud-only billing."
+              href="/docs/self-hosting"
+              icon={<ShieldCheckIcon className="size-5" />}
             />
             <Card
               title="AI review"
@@ -59,18 +98,6 @@ export default function HomePage() {
               description="Built-in tools, automatic MCP binding, and repository overrides."
               href="/docs/tools"
               icon={<WrenchIcon className="size-5" />}
-            />
-            <Card
-              title="Integrations"
-              description="GitHub, GitLab, webhooks, and native reviewer mapping."
-              href="/docs/integrations"
-              icon={<GitPullRequestIcon className="size-5" />}
-            />
-            <Card
-              title="Billing"
-              description="Wallet settlement, BYOK routing, and generation tracking."
-              href="/docs/billing"
-              icon={<WalletIcon className="size-5" />}
             />
             <Card
               title="Operations"

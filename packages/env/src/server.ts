@@ -7,8 +7,10 @@ export const env = createEnv({
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
+		BETTER_AUTH_COOKIE_DOMAIN: z.string().min(1).optional(),
 		CORS_ORIGIN: z.url(),
 		NEXT_PUBLIC_SERVER_URL: z.url(),
+		GITPAL_CLOUD_BILLING_ENABLED: z.stringbool().default(false),
 		LOG_LEVEL: z
 			.enum(["fatal", "error", "warn", "info", "debug", "trace"])
 			.default("info"),

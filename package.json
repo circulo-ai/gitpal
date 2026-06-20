@@ -36,7 +36,7 @@
 	},
 	"type": "module",
 	"scripts": {
-		"dev": "turbo run dev --filter=web --filter=server",
+		"dev": "turbo run dev --filter=web --filter=server --filter=fumadocs",
 		"dev:all": "turbo run dev",
 		"build": "turbo run build",
 		"check-types": "turbo run check-types",
@@ -53,6 +53,9 @@
 		"db:down": "docker compose down postgres",
 		"docker:build": "docker compose build",
 		"docker:up": "docker compose up -d --build",
+		"docker:dev:up": "docker compose -f docker-compose.dev.yml up -d",
+		"docker:dev:down": "docker compose -f docker-compose.dev.yml down",
+		"docker:dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
 		"docker:down": "docker compose down",
 		"docker:logs": "docker compose logs -f",
 		"check": "biome check --write .",

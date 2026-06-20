@@ -36,6 +36,7 @@ import {
 } from "@gitpal/ui/components/sidebar";
 import { cn } from "@gitpal/ui/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
+import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
@@ -328,7 +329,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 										<SidebarMenuSubItem key={item.href}>
 											<SidebarMenuSubButton
 												isActive={pathname === item.href}
-												render={<Link href={item.href} />}
+												render={<Link href={item.href as Route} />}
 											>
 												<Icon />
 												<span>{item.title}</span>

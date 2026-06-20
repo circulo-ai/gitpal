@@ -1,3 +1,4 @@
+import { env } from "@gitpal/env/web";
 import {
 	ActivityIcon,
 	BarChart3Icon,
@@ -18,6 +19,8 @@ import {
 	TablePropertiesIcon,
 	Users2Icon,
 } from "lucide-react";
+
+const cloudBillingEnabled = env.NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED;
 
 export const dashboardNavItems = [
 	{
@@ -116,11 +119,15 @@ export const accountNavItems = [
 		href: "/account/team-management",
 		icon: Users2Icon,
 	},
-	{
-		title: "Billing",
-		href: "/account/billing",
-		icon: CreditCardIcon,
-	},
+	...(cloudBillingEnabled
+		? [
+				{
+					title: "Billing",
+					href: "/account/billing",
+					icon: CreditCardIcon,
+				},
+			]
+		: []),
 	{
 		title: "API Keys",
 		href: "/account/api-keys",
@@ -131,6 +138,10 @@ export const accountNavItems = [
 export type DashboardView = (typeof dashboardNavItems)[number]["view"];
 
 export function getWorkspacePageInfo(pathname: string) {
+	const accountSubtitle = cloudBillingEnabled
+		? "Workspaces, billing, and keys"
+		: "Workspaces and keys";
+
 	if (pathname.startsWith("/repositories/")) {
 		const repositoryId = pathname.split("/")[2] ?? "Repository";
 
@@ -163,7 +174,7 @@ export function getWorkspacePageInfo(pathname: string) {
 		return {
 			section: "Account",
 			title: item?.title ?? "Account",
-			subtitle: "Workspaces, billing, and keys",
+			subtitle: accountSubtitle,
 		};
 	}
 

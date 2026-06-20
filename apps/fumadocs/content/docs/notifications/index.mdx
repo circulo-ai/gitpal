@@ -1,0 +1,44 @@
+---
+title: Notifications
+description: Channels, categories, severities, and delivery testing.
+---
+
+GitPal notifications are meant to be useful, not noisy. You decide which events matter, where they go, and how urgent they should feel.
+
+![GitPal notification center](/screenshots/notifications-center.svg)
+
+## Channels
+
+- Resend for email.
+- Slack for team chat.
+- Microsoft Teams for workspace chat.
+- Telegram for quick personal alerts.
+- Linear for issue-tracking follow-up.
+
+## What gets sent
+
+- Review outcomes.
+- Billing events.
+- AI workflow status.
+- Webhook failures and retries.
+- Correctness, security, performance, maintainability, testing, documentation, and architecture signals.
+
+## How to tune the noise
+
+- Start with success, warning, and error severity filters.
+- Turn off categories you already track elsewhere.
+- Keep review and webhook alerts on by default.
+- Use the channel test button before you depend on a new destination.
+
+## What to expect
+
+- Every channel stores its target preview so you can confirm where messages will go.
+- Delivery failures are recorded and reflected in observability.
+- Channel credentials stay encrypted at rest.
+
+## Good defaults
+
+- Use Slack or Teams for shared team alerts.
+- Use Resend for one-person email updates.
+- Use Telegram or Linear for high-signal personal follow-up.
+- Keep billing alerts enabled even when everything else is quiet.

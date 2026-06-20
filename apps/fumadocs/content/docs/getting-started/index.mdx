@@ -5,25 +5,39 @@ description: Set up GitPal, connect a provider, and run the first review.
 
 GitPal is designed to get from install to a useful review path quickly, while still leaving room for self-hosting and advanced policy tuning.
 
-## 1. Connect a provider
+<Callout title="Before you begin">
+  Have a database, Redis, and one connected Git provider ready. If you are
+  running locally, start the infra stack first, then run the apps with hot
+  reloads.
+</Callout>
+
+![GitPal workspace overview](/screenshots/workspace-overview.svg)
+
+## 1. Start the local stack
+
+- Run `bun run docker:dev:up` to start Postgres, Redis, and Inngest.
+- Run `bun run dev` to start `server`, `web`, and `fumadocs` with hot reload.
+- Run `bun run db:push` or `bun run db:migrate` once the database is reachable.
+
+## 2. Connect a provider
 
 - Sign in with GitHub or GitLab.
 - Connect the repository account that should create comments, request reviewers, and apply labels.
 - Make sure the repository access mapping includes the people who should receive native reviewer requests.
 
-## 2. Open the workspace settings
+## 3. Open the workspace settings
 
 - Choose the review model, walkthrough model, labeler model, and fun model from curated selects.
 - Use the custom override path only when you intentionally need an unlisted model ID.
 - Keep the settings preview open while you tune the workflow so you can see the final comment format.
 
-## 3. Verify webhook delivery
+## 4. Verify webhook delivery
 
 - GitPal receives provider events through webhooks and stores a receipt before it queues background processing.
 - If a webhook cannot be queued, the app marks the receipt as failed instead of pretending the event was handled.
 - Duplicate deliveries are deduplicated by provider delivery ID.
 
-## 4. Run the first review
+## 5. Run the first review
 
 - Open a pull request or make a change ready for review.
 - Confirm that GitPal posts the walkthrough, findings, related work, and summary comment you expect.
@@ -34,11 +48,13 @@ GitPal is designed to get from install to a useful review path quickly, while st
 - Set the webhook base URL to the public address that GitHub or GitLab can reach.
 - Keep provider access tokens scoped to the repository work GitPal needs to do.
 - Back up the database before changing settings schemas or upgrading the app.
+- Leave `BETTER_AUTH_COOKIE_DOMAIN` unset unless you need shared cookies across sibling subdomains.
+- Keep `GITPAL_CLOUD_BILLING_ENABLED` and `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED` disabled in self-hosted deployments.
 
 ## Quick checklist
 
 - `Provider connected`: GitPal needs a real repository account to create comments and labels.
 - `Webhooks reachable`: events must reach the app before anything can run.
 - `Review settings saved`: the preview must match the production behavior.
-- `Billing mode understood`: wallet billing and BYOK calls behave differently.
+- `Billing mode understood`: wallet billing is cloud-only, while BYOK calls still work everywhere.
 - `Native reviewers mapped`: reviewer assignment only works when GitPal can resolve provider identities.

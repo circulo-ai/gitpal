@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" fill="none" role="img">
+  <title>Notifications center screenshot</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#fef3c7"/>
+    </linearGradient>
+    <linearGradient id="soft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="36" fill="url(#bg)"/>
+  <rect x="38" y="40" width="1124" height="640" rx="28" fill="#ffffff" stroke="#f3e8c8"/>
+  <text x="74" y="94" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#0f172a">Notifications</text>
+  <text x="74" y="124" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">Useful, high-signal alerts for review, billing, and system events.</text>
+  <rect x="74" y="164" width="332" height="478" rx="24" fill="#0f172a"/>
+  <text x="100" y="206" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Inbox</text>
+  <rect x="100" y="230" width="280" height="92" rx="18" fill="#111827" stroke="#1f2937"/>
+  <rect x="100" y="336" width="280" height="92" rx="18" fill="#111827" stroke="#1f2937"/>
+  <rect x="100" y="442" width="280" height="92" rx="18" fill="#111827" stroke="#1f2937"/>
+  <text x="126" y="264" font-family="Inter, Arial, sans-serif" font-size="14" fill="#f59e0b">Review</text>
+  <text x="126" y="292" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">2 findings ready</text>
+  <text x="126" y="318" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Slack, Teams, and email channels active</text>
+  <text x="126" y="370" font-family="Inter, Arial, sans-serif" font-size="14" fill="#f59e0b">Billing</text>
+  <text x="126" y="398" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Top-up confirmed</text>
+  <text x="126" y="424" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Cloud-only wallet settlement complete</text>
+  <text x="126" y="476" font-family="Inter, Arial, sans-serif" font-size="14" fill="#f59e0b">Webhook</text>
+  <text x="126" y="504" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">GitHub retry failed</text>
+  <text x="126" y="530" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Receipt recorded, job will retry</text>
+  <rect x="436" y="164" width="690" height="114" rx="24" fill="#ffffff" stroke="#f3e8c8"/>
+  <text x="466" y="206" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">Channels</text>
+  <rect x="466" y="226" width="100" height="28" rx="14" fill="url(#soft)"/>
+  <rect x="576" y="226" width="100" height="28" rx="14" fill="#e2e8f0"/>
+  <rect x="686" y="226" width="100" height="28" rx="14" fill="#e2e8f0"/>
+  <rect x="796" y="226" width="100" height="28" rx="14" fill="#e2e8f0"/>
+  <rect x="906" y="226" width="100" height="28" rx="14" fill="#e2e8f0"/>
+  <text x="489" y="245" font-family="Inter, Arial, sans-serif" font-size="12" fill="#ffffff">Slack</text>
+  <text x="600" y="245" font-family="Inter, Arial, sans-serif" font-size="12" fill="#475569">Teams</text>
+  <text x="707" y="245" font-family="Inter, Arial, sans-serif" font-size="12" fill="#475569">Resend</text>
+  <text x="817" y="245" font-family="Inter, Arial, sans-serif" font-size="12" fill="#475569">Telegram</text>
+  <text x="922" y="245" font-family="Inter, Arial, sans-serif" font-size="12" fill="#475569">Linear</text>
+  <rect x="436" y="304" width="690" height="338" rx="24" fill="#0f172a"/>
+  <text x="466" y="348" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Category filters</text>
+  <text x="466" y="378" font-family="Inter, Arial, sans-serif" font-size="14" fill="#94a3b8">review, billing, ai, webhook, correctness, security, performance, maintainability, testing, documentation, architecture</text>
+  <rect x="466" y="412" width="612" height="16" rx="8" fill="#334155"/>
+  <rect x="466" y="444" width="540" height="16" rx="8" fill="#1e293b"/>
+  <rect x="466" y="476" width="486" height="16" rx="8" fill="#1e293b"/>
+  <rect x="466" y="508" width="420" height="16" rx="8" fill="#1e293b"/>
+  <rect x="466" y="552" width="164" height="38" rx="19" fill="url(#soft)"/>
+  <text x="503" y="577" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#ffffff">Send test</text>
+</svg>

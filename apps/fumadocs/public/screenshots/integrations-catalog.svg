@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" fill="none" role="img">
+  <title>Integrations catalog screenshot</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#ecfeff"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0ea5e9"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="36" fill="url(#bg)"/>
+  <rect x="38" y="40" width="1124" height="640" rx="28" fill="#ffffff" stroke="#dbe4f0"/>
+  <text x="76" y="96" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#0f172a">Integrations</text>
+  <text x="76" y="126" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">GitHub, GitLab, webhooks, enterprise hosts, and reviewer mapping.</text>
+  <rect x="76" y="164" width="250" height="178" rx="22" fill="#0f172a"/>
+  <rect x="346" y="164" width="250" height="178" rx="22" fill="#ffffff" stroke="#dbe4f0"/>
+  <rect x="616" y="164" width="250" height="178" rx="22" fill="#ffffff" stroke="#dbe4f0"/>
+  <rect x="886" y="164" width="250" height="178" rx="22" fill="#ffffff" stroke="#dbe4f0"/>
+  <text x="104" y="206" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">GitHub</text>
+  <text x="104" y="236" font-family="Inter, Arial, sans-serif" font-size="13" fill="#cbd5e1">Reviews, labels, reviewers</text>
+  <rect x="104" y="256" width="160" height="14" rx="7" fill="url(#chip)"/>
+  <text x="374" y="206" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">GitLab</text>
+  <text x="374" y="236" font-family="Inter, Arial, sans-serif" font-size="13" fill="#475569">Merge requests and identities</text>
+  <rect x="374" y="256" width="148" height="14" rx="7" fill="#38bdf8"/>
+  <text x="644" y="206" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">Webhooks</text>
+  <text x="644" y="236" font-family="Inter, Arial, sans-serif" font-size="13" fill="#475569">Receipt first, work second</text>
+  <rect x="644" y="256" width="164" height="14" rx="7" fill="#14b8a6"/>
+  <text x="914" y="206" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">Enterprise hosts</text>
+  <text x="914" y="236" font-family="Inter, Arial, sans-serif" font-size="13" fill="#475569">Onboarded once, reused everywhere</text>
+  <rect x="914" y="256" width="176" height="14" rx="7" fill="#8b5cf6"/>
+  <rect x="76" y="374" width="1124" height="234" rx="24" fill="#0f172a"/>
+  <text x="106" y="420" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Identity mapping</text>
+  <text x="106" y="450" font-family="Inter, Arial, sans-serif" font-size="14" fill="#94a3b8">GitHub login, GitLab reviewer ID, and enterprise host account all point to the same user.</text>
+  <rect x="106" y="486" width="280" height="82" rx="18" fill="#111827" stroke="#1f2937"/>
+  <rect x="410" y="486" width="280" height="82" rx="18" fill="#111827" stroke="#1f2937"/>
+  <rect x="714" y="486" width="280" height="82" rx="18" fill="#111827" stroke="#1f2937"/>
+  <text x="132" y="522" font-family="Inter, Arial, sans-serif" font-size="14" fill="#94a3b8">Provider login</text>
+  <text x="132" y="552" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">alice</text>
+  <text x="436" y="522" font-family="Inter, Arial, sans-serif" font-size="14" fill="#94a3b8">Reviewer target</text>
+  <text x="436" y="552" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">GitLab ID 42</text>
+  <text x="740" y="522" font-family="Inter, Arial, sans-serif" font-size="14" fill="#94a3b8">Delivery status</text>
+  <text x="740" y="552" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Verified</text>
+</svg>

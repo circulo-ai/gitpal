@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" fill="none" role="img">
+  <title>Self-hosting stack screenshot</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#f1f5f9"/>
+    </linearGradient>
+    <linearGradient id="box" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e293b"/>
+      <stop offset="1" stop-color="#334155"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="36" fill="url(#bg)"/>
+  <rect x="38" y="40" width="1124" height="640" rx="28" fill="#ffffff" stroke="#dbe4f0"/>
+  <text x="74" y="94" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#0f172a">Self-hosting stack</text>
+  <text x="74" y="124" font-family="Inter, Arial, sans-serif" font-size="14" fill="#475569">Run the apps with hot reloads while Docker provides the supporting services.</text>
+  <rect x="92" y="184" width="198" height="120" rx="20" fill="url(#box)"/>
+  <rect x="92" y="332" width="198" height="120" rx="20" fill="url(#box)"/>
+  <rect x="92" y="480" width="198" height="120" rx="20" fill="url(#box)"/>
+  <text x="118" y="226" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">server</text>
+  <text x="118" y="256" font-family="Inter, Arial, sans-serif" font-size="13" fill="#cbd5e1">Hono + tRPC + auth</text>
+  <text x="118" y="374" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">web</text>
+  <text x="118" y="404" font-family="Inter, Arial, sans-serif" font-size="13" fill="#cbd5e1">Next.js dashboard</text>
+  <text x="118" y="522" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">fumadocs</text>
+  <text x="118" y="552" font-family="Inter, Arial, sans-serif" font-size="13" fill="#cbd5e1">Docs with hot reload</text>
+  <rect x="372" y="176" width="230" height="148" rx="24" fill="#0f172a"/>
+  <rect x="632" y="176" width="230" height="148" rx="24" fill="#0f172a"/>
+  <rect x="892" y="176" width="230" height="148" rx="24" fill="#0f172a"/>
+  <rect x="372" y="356" width="230" height="148" rx="24" fill="#0f172a"/>
+  <rect x="632" y="356" width="230" height="148" rx="24" fill="#0f172a"/>
+  <rect x="892" y="356" width="230" height="148" rx="24" fill="#0f172a"/>
+  <text x="400" y="220" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Postgres</text>
+  <text x="400" y="250" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Primary app database</text>
+  <rect x="400" y="266" width="156" height="14" rx="7" fill="#2563eb"/>
+  <text x="660" y="220" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Redis</text>
+  <text x="660" y="250" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Queues and cache</text>
+  <rect x="660" y="266" width="118" height="14" rx="7" fill="#14b8a6"/>
+  <text x="920" y="220" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Inngest</text>
+  <text x="920" y="250" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Durable workflows</text>
+  <rect x="920" y="266" width="130" height="14" rx="7" fill="#f59e0b"/>
+  <text x="400" y="400" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Auth cookies</text>
+  <text x="400" y="430" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Host-only by default</text>
+  <rect x="400" y="446" width="140" height="14" rx="7" fill="#22c55e"/>
+  <text x="660" y="400" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Billing</text>
+  <text x="660" y="430" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Cloud-only checkout</text>
+  <rect x="660" y="446" width="146" height="14" rx="7" fill="#ef4444"/>
+  <text x="920" y="400" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Webhooks</text>
+  <text x="920" y="430" font-family="Inter, Arial, sans-serif" font-size="13" fill="#94a3b8">Public delivery URL</text>
+  <rect x="920" y="446" width="150" height="14" rx="7" fill="#8b5cf6"/>
+</svg>

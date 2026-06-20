@@ -18,13 +18,19 @@ Create app environment files from your deployment secrets, then run the database
 bun run db:push
 ```
 
-Start the local development stack:
+Start the local infrastructure stack:
+
+```bash
+bun run docker:dev:up
+```
+
+Start the local development apps with hot reload:
 
 ```bash
 bun run dev
 ```
 
-The web app runs at [http://localhost:3001](http://localhost:3001). The API runs at [http://localhost:3000](http://localhost:3000).
+The web app runs at [http://localhost:3001](http://localhost:3001), the API runs at [http://localhost:3000](http://localhost:3000), and the docs site runs at [http://localhost:4000](http://localhost:4000).
 
 ## Environment Variables
 
@@ -35,11 +41,13 @@ Core server variables:
 | `DATABASE_URL`           | PostgreSQL connection string used by `@gitpal/db`.            |
 | `BETTER_AUTH_SECRET`     | Better Auth secret, at least 32 characters.                   |
 | `BETTER_AUTH_URL`        | Public auth/server URL.                                       |
+| `BETTER_AUTH_COOKIE_DOMAIN` | Optional shared cookie domain for subdomain deployments. Leave it unset for single-origin or localhost setups. |
 | `CORS_ORIGIN`            | Allowed web origin for the API.                               |
 | `NEXT_PUBLIC_SERVER_URL` | Public API URL used by the web app and baked into web builds. |
 | `REDIS_URL`              | GitPal Redis URL for queues and cache helpers.                |
 | `LOG_LEVEL`              | `fatal`, `error`, `warn`, `info`, `debug`, or `trace`.        |
 | `TRUST_PROXY_HEADERS`    | Enable when the server is behind a trusted reverse proxy.     |
+| `GITPAL_CLOUD_BILLING_ENABLED` | Set to `true` only for the cloud edition when wallet top-ups should be available. |
 
 Database pool variables:
 
@@ -83,6 +91,12 @@ Inngest self-hosted variables:
 | `INNGEST_DASHBOARD_HOST`                                          | Hostname for the optional protected dashboard route.                          |
 | `INNGEST_DASHBOARD_BASIC_AUTH_USERS`                              | Traefik BasicAuth users, generated with `htpasswd`.                           |
 
+Cloud edition variables:
+
+| Variable                                  | Purpose                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED` | Mirrors the cloud billing flag for the web app so billing nav can hide. |
+
 Background flow-control variables:
 
 | Variable                                     | Default | Purpose                                       |
@@ -113,7 +127,25 @@ The Compose stack includes:
 
 The Inngest SDK route does not need to be internet reachable in this deployment. It only needs to be reachable from the Inngest service through the Compose network. Keep `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` identical between `server` and `inngest`.
 
+For local development, use `docker-compose.dev.yml` for the supporting services only. Run `bun run dev` for the hot-reloaded `server`, `web`, and `fumadocs` apps, then point your local env to `localhost` ports for Postgres and Redis.
+
+Typical local overrides are:
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/gitpal
+REDIS_URL=redis://localhost:6379
+INNGEST_BASE_URL=http://localhost:8288
+GITPAL_CLOUD_BILLING_ENABLED=false
+NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false
+```
+
+Keep the same `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` values in both the host env and the Inngest container.
+
+If sign-in starts failing after a deployment, check `BETTER_AUTH_COOKIE_DOMAIN` first. Set it only when the app and API need to share cookies across sibling subdomains. Leave it unset for host-only deployments.
+
 The Inngest dashboard is internal by default. Do not publish its ports directly. If production dashboard access is required, enable the optional Traefik labels with `INNGEST_DASHBOARD_TRAEFIK_ENABLE=true`, set a dedicated `INNGEST_DASHBOARD_HOST`, and require `INNGEST_DASHBOARD_BASIC_AUTH_USERS`.
+
+Wallet top-ups are cloud-only. Set `GITPAL_CLOUD_BILLING_ENABLED=true` and `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=true` only in the cloud edition that is allowed to expose NOWPayments checkout.
 
 ## Architecture
 
@@ -192,7 +224,7 @@ import { Button } from "@gitpal/ui/components/button";
 
 ## Available Scripts
 
-- `bun run dev` - start web, server, and worker development processes.
+- `bun run dev` - start web, server, and docs development processes with hot reload.
 - `bun run build` - build all applications.
 - `bun run dev:web` - start only the web application.
 - `bun run dev:server` - start only the server.
@@ -203,6 +235,9 @@ import { Button } from "@gitpal/ui/components/button";
 - `bun run db:generate` - generate database migrations.
 - `bun run db:migrate` - run database migrations.
 - `bun run db:studio` - open Drizzle Studio.
+- `bun run docker:dev:up` - start the local infrastructure stack for host-run apps.
+- `bun run docker:dev:down` - stop the local infrastructure stack.
+- `bun run docker:dev:logs` - tail local infrastructure logs.
 - `bun run docker:build` - build Compose images.
 - `bun run docker:up` - build and start the Compose stack.
 - `bun run docker:logs` - tail Compose logs.

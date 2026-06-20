@@ -60,6 +60,9 @@ export function BillingPage() {
 	);
 
 	const summary = summaryQuery.data;
+	const cloudBillingLabel = summary?.cloudBillingEnabled
+		? "Cloud billing"
+		: "Self-hosted";
 	const numericAmount = Number(amountUsd);
 	const amountCents = Number.isFinite(numericAmount)
 		? Math.round(numericAmount * 100)
@@ -87,7 +90,7 @@ export function BillingPage() {
 							routes requests through our gateway.
 						</p>
 					</div>
-					<Badge variant="outline">Pay as you go</Badge>
+					<Badge variant="outline">{cloudBillingLabel}</Badge>
 				</div>
 
 				<div className="grid gap-3 md:grid-cols-4">

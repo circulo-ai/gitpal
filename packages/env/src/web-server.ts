@@ -13,6 +13,7 @@ export const env = createEnv({
 		GITHUB_CLIENT_SECRET: z.string().optional(),
 		GITLAB_CLIENT_ID: z.string().optional(),
 		GITLAB_CLIENT_SECRET: z.string().optional(),
+		NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED: z.stringbool().default(false),
 		NODE_ENV: nodeEnvSchema,
 	},
 	runtimeEnv: process.env,

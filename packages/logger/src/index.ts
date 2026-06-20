@@ -101,18 +101,12 @@ function resolveArgs(
 function wrapPino(pinoLogger: Logger): ScopedLogger {
 	const levels = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
 
-	const wrapped: ScopedLogger = {
+	const wrapped = {
 		pino: pinoLogger,
 		child(bindings: LogContext): ScopedLogger {
 			return wrapPino(pinoLogger.child(bindings));
 		},
-		trace: undefined!,
-		debug: undefined!,
-		info: undefined!,
-		warn: undefined!,
-		error: undefined!,
-		fatal: undefined!,
-	};
+	} as ScopedLogger;
 
 	for (const level of levels) {
 		wrapped[level] = (first: unknown, second?: unknown) => {

@@ -12,18 +12,21 @@ GitPal is only production-ready when the webhook path, background jobs, provider
 - Provider credentials are valid for the repos you expect to manage.
 - Wallet and BYOK routing match the organization's billing policy.
 - The settings preview reflects the actual comment structure before rollout.
+- The self-hosted stack can reach the API, the database, Redis, and Inngest without manual retries.
 
 ## Observability
 
 - Webhook receipts show whether an event was received, processed, deduplicated, or failed.
 - Review runs and labeler runs store the final result payload for auditability.
 - AI generation rows capture usage, routing, and settlement state.
+- If you need a full trace, start in observability and then follow the source ID back to the webhook or review run.
 
 ## Security
 
 - Keep provider tokens scoped to the minimum required repository access.
 - Treat webhook secrets as production secrets.
 - Review role-based access carefully before enabling auto-assign reviewers or auto-apply labels.
+- Keep cookie domains host-only unless you explicitly need cross-subdomain auth.
 
 ## Troubleshooting
 
@@ -31,5 +34,6 @@ GitPal is only production-ready when the webhook path, background jobs, provider
 - `Labels are missing`: check the repository label catalog and labeler settings.
 - `Reviewers are not assigned`: check the connected provider account mapping and repository access list.
 - `Wallet balance looks wrong`: check AI generation rows, settlement cost, and ledger updates.
+- `Sign-in resets after deployment`: verify `BETTER_AUTH_COOKIE_DOMAIN` and make sure the API and web app still share the same root domain.
 
 If something looks off, start at the receipt, then the review run, then the generation row. That order usually tells you where the pipeline diverged.

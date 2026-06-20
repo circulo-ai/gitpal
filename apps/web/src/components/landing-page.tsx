@@ -1,3 +1,4 @@
+import type { UrlObject } from "node:url";
 import { env } from "@gitpal/env/web";
 import { Badge } from "@gitpal/ui/components/badge";
 import { Button } from "@gitpal/ui/components/button";
@@ -24,7 +25,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
-import type { UrlObject } from "node:url";
 import { GitPalMark } from "@/components/gitpal-mark";
 import { PrReviewCard } from "@/components/pr-review-card";
 import { Reveal } from "@/components/reveal";

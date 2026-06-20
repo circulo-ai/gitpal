@@ -63,7 +63,6 @@ import {
 	CheckCheckIcon,
 	InboxIcon,
 	PlusCircleIcon,
-	RefreshCcwIcon,
 	SendIcon,
 	Settings2Icon,
 	Trash2Icon,
@@ -477,9 +476,6 @@ export function NotificationsPage() {
 	const channels = (channelsQuery.data ?? []) as NotificationChannel[];
 	const unreadCount = notifications.filter(
 		(notification) => notification.status === "unread",
-	).length;
-	const enabledChannelCount = channels.filter(
-		(channel) => channel.enabled,
 	).length;
 
 	function handleSaveChannel(event: React.FormEvent<HTMLFormElement>) {

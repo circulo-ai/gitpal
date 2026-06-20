@@ -1,0 +1,50 @@
+---
+title: Self-Hosting
+description: Local compose, auth cookies, webhooks, and cloud-only billing.
+---
+
+GitPal is intentionally self-host friendly. The main difference is that a few cloud-only features stay off unless you enable them explicitly.
+
+![GitPal self-hosting stack](/screenshots/self-hosting-stack.svg)
+
+## Local workflow
+
+1. Run `bun run docker:dev:up`.
+2. Run `bun run dev` for the hot-reloaded apps.
+3. Run `bun run db:push` or `bun run db:migrate`.
+4. Point your local env at `localhost` ports for Postgres, Redis, and Inngest.
+
+## Deployment rules
+
+- Keep `GITPAL_CLOUD_BILLING_ENABLED=false` in self-hosted environments.
+- Keep `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false` in the web app when billing should stay hidden.
+- Leave `BETTER_AUTH_COOKIE_DOMAIN` unset unless the app and API need to share cookies across sibling subdomains.
+- Set `GITPAL_WEBHOOK_BASE_URL` when GitHub or GitLab cannot reach the API through the normal app URL.
+
+## Auth and cookies
+
+- Better Auth uses host-only cookies by default when `BETTER_AUTH_COOKIE_DOMAIN` is empty.
+- Add a shared cookie domain only when your web app and API live on different subdomains of the same root domain.
+- If sign-in resets after deployment, the cookie domain is usually the first thing to check.
+
+## What stays the same
+
+- Provider-native reviewer assignment still works.
+- BYOK routing still works.
+- Notifications still work.
+- Observability still works.
+
+## What stays cloud-only
+
+- Wallet top-ups.
+- NOWPayments checkout.
+- The cloud billing badge in the web app.
+
+## Self-host checklist
+
+- Database reachable.
+- Redis reachable.
+- Inngest reachable.
+- Webhook base URL public and stable.
+- Cookie domain configured only when subdomains require it.
+- Billing disabled unless you are intentionally running the cloud edition.

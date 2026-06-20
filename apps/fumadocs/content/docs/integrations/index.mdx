@@ -3,31 +3,42 @@ title: Integrations
 description: GitHub, GitLab, webhook events, and native reviewer assignment.
 ---
 
-GitPal supports both GitHub and GitLab, including self-hosted variants. The app keeps provider-specific behavior where it matters and normalizes the shared flow where it can.
+GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps provider-specific behavior where it matters and normalizes the shared flow where it can.
 
-## GitHub
+![Integrations overview](/screenshots/integrations-catalog.svg)
+
+## The short version
+
+- GitHub and GitLab both flow through the same workspace settings.
+- Provider-native reviewer assignment uses connected identities, not manual usernames typed into a form.
+- Webhooks are received, stored, and then processed by background jobs so the request path stays fast.
+- Enterprise hosts are supported when the provider has been onboarded in the app.
+
+## GitHub and GitLab
 
 - Reviews are posted as pull request comments and inline findings when the provider supports anchors.
-- Reviewers are requested using GitHub usernames resolved from connected GitPal accounts.
+- Reviewer requests use GitHub usernames or GitLab reviewer IDs resolved from connected GitPal accounts.
 - Labels come from the repository's own label list, so the labeler never invents new labels.
-
-## GitLab
-
-- Merge requests are handled with the same review and label workflow.
-- Native reviewers are requested using GitLab reviewer IDs resolved from connected accounts.
-- Webhooks are matched against the repository path and provider ID, so the same path on another provider does not collide.
+- Merge requests follow the same review and label workflow on GitLab.
 
 ## Webhooks
 
 - GitPal stores a webhook receipt before processing begins.
 - Duplicate deliveries are ignored by design.
-- Background jobs handle the actual review and labeler work, which keeps the webhook response fast and stable.
+- Background jobs handle the actual review, labeler, and lifecycle work, which keeps the webhook response fast and stable.
+- If a delivery fails, observability keeps the receipt and the failure reason together.
 
 ## Provider-native reviewer assignment
 
 - Reviewer auto-assignment uses the repository access list plus the connected provider identity for each candidate.
 - The app avoids assigning the automation actor and skips the PR author when it can resolve both identities.
-- This is why there is no manual MCP server-name field for GitHub or GitLab tools in the UI: the provider binding comes from the connected account, not from a user-typed server label.
+- The provider binding comes from the connected account, not from a user-typed server label.
+
+## Enterprise hosts
+
+- Enterprise GitHub and GitLab hosts are onboarded inside the auth flow.
+- GitPal stores the host configuration once and reuses it for OAuth, webhooks, and API calls.
+- Keep the host URL stable so webhooks, OAuth callbacks, and API calls keep resolving to the same provider record.
 
 ## Integration checklist
 

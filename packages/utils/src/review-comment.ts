@@ -214,7 +214,7 @@ function buildSequenceDiagram(kind: ReviewCommentKind) {
 		"  participant Author as PR author",
 		"  participant GitPal",
 		"  participant Repo",
-		"  Author->>GitPal: Open " + label,
+		`  Author->>GitPal: Open ${label}`,
 		"  GitPal->>Repo: Inspect diff and repository context",
 		"  GitPal-->>Author: Publish review feedback",
 	].join("\n");
@@ -364,11 +364,12 @@ export function estimateReviewEffort(
 		"Very heavy",
 	] as const;
 	const minutesMap = [10, 18, 25, 40, 60] as const;
+	const index = score - 1;
 
 	return {
 		score,
-		label: labelMap[score - 1]!,
-		minutes: minutesMap[score - 1]!,
+		label: labelMap[index] ?? labelMap[0],
+		minutes: minutesMap[index] ?? minutesMap[0],
 	};
 }
 
@@ -719,9 +720,7 @@ export function buildRepositoryReviewCommentData(
 		: null;
 	const suggestedReviewers = dedupeStrings(input.suggestedReviewers ?? []);
 	const poem =
-		input.settings.fun.poem && input.poem && input.poem.trim()
-			? input.poem.trim()
-			: null;
+		input.settings.fun.poem && input.poem?.trim() ? input.poem.trim() : null;
 	const sequenceDiagram = input.settings.reviews.walkthrough.sequenceDiagrams
 		? (normalizeSequenceDiagram(input.sequenceDiagram) ??
 			buildSequenceDiagram(input.kind))

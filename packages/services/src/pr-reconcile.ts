@@ -3,7 +3,7 @@ import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitProviderAdapter, GitPullRequest } from "@gitpal/git";
 import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 import { createLogger } from "@gitpal/logger";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getAutomationActorForRepository } from "./git-provider-access";
 import {
 	projectPullRequestSnapshot,
@@ -16,21 +16,20 @@ const log = createLogger("pull-request-reconcile");
 /**
  * Reconcile a single repository's pull requests against the provider.
  *
- * Strategy (bounded API usage):
- *  1. List the provider's OPEN PRs and project each — discovers new PRs and
- *     refreshes still-open ones.
- *  2. For PRs we still hold as `open` locally but the provider no longer lists
- *     as open, fetch each individually — these merged/closed while a webhook
- *     was missed.
+ * Strategy:
+ *  1. List the provider's PRs with `state: "all"` so the sweep is complete,
+ *     not just open-only.
+ *  2. Project every PR snapshot and backfill human review timing in a bounded
+ *     concurrent worker pool.
  *
  * This refreshes mergedAt / closedAt / state / draft / approval-independent
- * lifecycle fields. It also backfills review timing (firstHumanReviewAt /
- * lastHumanReviewAt / approvedAt / approvalState) from
- * adapter.listPullRequestReviews for each projected PR, so a missed
- * pull_request_review webhook self-heals on the next reconcile. Only reviews
- * that carry a real provider timestamp are folded in; GitLab approvals without
- * a system note (hence no timestamp) are skipped to avoid polluting timing with
- * the reconcile time.
+ * lifecycle fields for the full repository, not just the active subset. It
+ * also backfills review timing (firstHumanReviewAt / lastHumanReviewAt /
+ * approvedAt / approvalState) from adapter.listPullRequestReviews for each
+ * projected PR, so a missed pull_request_review webhook self-heals on the next
+ * reconcile. Only reviews that carry a real provider timestamp are folded in;
+ * GitLab approvals without a system note (hence no timestamp) are skipped to
+ * avoid polluting timing with the reconcile time.
  */
 export async function reconcilePullRequestsForRepository({
 	repositoryId,
@@ -58,11 +57,11 @@ export async function reconcilePullRequestsForRepository({
 		return { projected: 0 };
 	}
 
-	let openPullRequests: GitPullRequest[];
+	let pullRequests: GitPullRequest[];
 	try {
-		openPullRequests = await automationActor.adapter.listPullRequests({
+		pullRequests = await automationActor.adapter.listPullRequests({
 			repositoryPath: repository.repositoryPath,
-			state: "open",
+			state: "all",
 		});
 	} catch (error) {
 		log.warn(
@@ -72,75 +71,50 @@ export async function reconcilePullRequestsForRepository({
 		return { projected: 0 };
 	}
 
-	let projected = 0;
-	const seenNumbers = new Set<number>();
-	for (const pullRequest of openPullRequests) {
-		const projectedRow = await projectPullRequestSnapshot({
-			repositoryId: repository.id,
-			pullRequest,
-		});
-		const reviewedRow = await backfillHumanReviews({
-			adapter: automationActor.adapter,
-			repositoryId: repository.id,
-			repositoryPath: repository.repositoryPath,
-			pullRequestNumber: pullRequest.number,
-		});
-		await recordPullRequestMetricEvents({
-			userId: automationActor.userId,
-			repository,
-			pullRequest: reviewedRow ?? projectedRow,
-			source: { type: "reconcile" },
-		});
-		seenNumbers.add(pullRequest.number);
-		projected += 1;
-	}
+	const projectedRows = await runWithConcurrency(
+		pullRequests,
+		3,
+		async (pullRequest) => {
+			try {
+				const projectedRow = await projectPullRequestSnapshot({
+					repositoryId: repository.id,
+					pullRequest,
+				});
+				const reviewedRow = await backfillHumanReviews({
+					adapter: automationActor.adapter,
+					repositoryId: repository.id,
+					repositoryPath: repository.repositoryPath,
+					pullRequestNumber: pullRequest.number,
+				});
+				await recordPullRequestMetricEvents({
+					userId: automationActor.userId,
+					repository,
+					pullRequest: reviewedRow ?? projectedRow,
+					source: { type: "reconcile" },
+				});
+				return 1;
+			} catch (error) {
+				log.warn(
+					{ err: error, repositoryId, pullRequestNumber: pullRequest.number },
+					"Reconcile skipped — pull request projection failed.",
+				);
+				return 0;
+			}
+		},
+	);
 
-	// Heal PRs still marked `open` locally but absent from the provider's open
-	// list — they merged/closed while a webhook was missed.
-	const localOpen = await db
-		.select({ number: dashboardSchema.pullRequest.number })
-		.from(dashboardSchema.pullRequest)
-		.where(
-			and(
-				eq(dashboardSchema.pullRequest.repositoryId, repository.id),
-				eq(dashboardSchema.pullRequest.state, "open"),
-			),
-		);
-	for (const { number } of localOpen) {
-		if (seenNumbers.has(number)) {
-			continue;
-		}
-		try {
-			const pullRequest = await automationActor.adapter.getPullRequest({
-				repositoryPath: repository.repositoryPath,
-				pullRequestNumber: number,
-			});
-			const projectedRow = await projectPullRequestSnapshot({
-				repositoryId: repository.id,
-				pullRequest,
-			});
-			const reviewedRow = await backfillHumanReviews({
-				adapter: automationActor.adapter,
-				repositoryId: repository.id,
-				repositoryPath: repository.repositoryPath,
-				pullRequestNumber: number,
-			});
-			await recordPullRequestMetricEvents({
-				userId: automationActor.userId,
-				repository,
-				pullRequest: reviewedRow ?? projectedRow,
-				source: { type: "reconcile" },
-			});
-			projected += 1;
-		} catch (error) {
-			log.warn(
-				{ err: error, repositoryId, pullRequestNumber: number },
-				"Reconcile failed — getPullRequest error for stale open PR.",
-			);
-		}
-	}
-
-	log.info({ repositoryId, projected }, "Pull request reconcile complete.");
+	const projected = projectedRows.reduce<number>(
+		(total, value) => total + value,
+		0,
+	);
+	log.info(
+		{
+			repositoryId,
+			projected,
+			total: pullRequests.length,
+		},
+		"Pull request reconcile complete.",
+	);
 	return { projected };
 }
 
@@ -220,8 +194,18 @@ export async function dispatchPullRequestReconcile(): Promise<{
 		})
 		.from(dashboardSchema.repositoryAccess)
 		.where(eq(dashboardSchema.repositoryAccess.enabled, true));
-	for (const { repositoryId } of rows) {
-		await enqueuePullRequestSyncJob({ repositoryId, reason: "scheduled" });
+	const results = await Promise.allSettled(
+		rows.map(({ repositoryId }) =>
+			enqueuePullRequestSyncJob({ repositoryId, reason: "scheduled" }),
+		),
+	);
+	for (const result of results) {
+		if (result.status === "rejected") {
+			log.warn(
+				{ err: result.reason },
+				"Pull request reconcile dispatch failed for one repository.",
+			);
+		}
 	}
 	log.info({ dispatched: rows.length }, "Pull request reconcile dispatched.");
 	return { dispatched: rows.length };
@@ -242,4 +226,40 @@ export async function processPullRequestSyncJob(data: {
 		return;
 	}
 	await dispatchPullRequestReconcile();
+}
+
+async function runWithConcurrency<T, R>(
+	items: T[],
+	concurrency: number,
+	mapper: (item: T) => Promise<R>,
+) {
+	if (items.length === 0) {
+		return [] as R[];
+	}
+
+	const results = new Array<R>(items.length);
+	let cursor = 0;
+	const workerCount = Math.min(concurrency, items.length);
+
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			while (true) {
+				const currentIndex = cursor;
+				cursor += 1;
+
+				if (currentIndex >= items.length) {
+					return;
+				}
+
+				const item = items[currentIndex];
+				if (item === undefined) {
+					return;
+				}
+
+				results[currentIndex] = await mapper(item);
+			}
+		}),
+	);
+
+	return results;
 }

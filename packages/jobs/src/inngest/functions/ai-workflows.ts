@@ -93,11 +93,11 @@ const aiWorkflowConcurrency: [
 	{
 		scope: "account",
 		key: `"ai-workflows"`,
-		limit: env.GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY,
+		limit: Number(env.GITPAL_AI_WORKFLOW_ACCOUNT_CONCURRENCY),
 	},
 	{
 		key: "event.data.repositoryId",
-		limit: env.GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY,
+		limit: Number(env.GITPAL_AI_WORKFLOW_REPOSITORY_CONCURRENCY),
 	},
 ];
 
@@ -105,7 +105,7 @@ const aiWorkflowFlowControl = {
 	retries: 3 as const,
 	concurrency: aiWorkflowConcurrency,
 	throttle: {
-		limit: env.GITPAL_AI_WORKFLOW_THROTTLE_LIMIT,
+		limit: Number(env.GITPAL_AI_WORKFLOW_THROTTLE_LIMIT),
 		period:
 			`${env.GITPAL_AI_WORKFLOW_THROTTLE_PERIOD_SECONDS}s` as `${number}s`,
 		key: `"ai-provider"`,

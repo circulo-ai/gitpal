@@ -2780,19 +2780,19 @@ export async function processRepositoryLabelerRunJob(
 			let forcedTarget: GitIssue | null = null;
 			let forcedKind: "issue" | "pull_request" = "issue";
 			try {
-			await automationActor.adapter.getPullRequest({
-				repositoryPath: repository.repositoryPath,
-				pullRequestNumber: data.targetNumber,
-			});
-			// It's a PR — forcedTarget stays null; runWebhookLabeler will re-fetch
-			// via getPullRequest itself in the pull_request dispatch branch.
-			forcedKind = "pull_request";
+				await automationActor.adapter.getPullRequest({
+					repositoryPath: repository.repositoryPath,
+					pullRequestNumber: data.targetNumber,
+				});
+				// It's a PR — forcedTarget stays null; runWebhookLabeler will re-fetch
+				// via getPullRequest itself in the pull_request dispatch branch.
+				forcedKind = "pull_request";
 			} catch {
-			forcedTarget = await automationActor.adapter.getIssue({
-				repositoryPath: repository.repositoryPath,
-				issueNumber: data.targetNumber,
-			});
-			forcedKind = "issue";
+				forcedTarget = await automationActor.adapter.getIssue({
+					repositoryPath: repository.repositoryPath,
+					issueNumber: data.targetNumber,
+				});
+				forcedKind = "issue";
 			}
 			const result = await runWebhookLabeler({
 				repository,

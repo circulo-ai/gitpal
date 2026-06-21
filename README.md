@@ -41,7 +41,7 @@ Core server variables:
 | `DATABASE_URL`           | PostgreSQL connection string used by `@gitpal/db`.            |
 | `BETTER_AUTH_SECRET`     | Better Auth secret, at least 32 characters.                   |
 | `BETTER_AUTH_URL`        | Public auth/server URL.                                       |
-| `BETTER_AUTH_COOKIE_DOMAIN` | Optional shared cookie domain for sibling-subdomain deployments. Cookies remain `SameSite=Lax`; leave unset for single-origin or localhost setups. |
+| `BETTER_AUTH_COOKIE_DOMAIN` | Optional shared cookie domain for sibling-subdomain deployments. GitPal falls back to a client-side session check when the web origin cannot see the auth cookie, but a shared domain keeps the first workspace render server-side. Cookies remain `SameSite=Lax`; leave unset for single-origin or localhost setups. |
 | `CORS_ORIGIN`            | Allowed web origin for the API.                               |
 | `NEXT_PUBLIC_SERVER_URL` | Public API URL used by the web app and baked into web builds. |
 | `REDIS_URL`              | GitPal Redis URL for queues and cache helpers.                |
@@ -142,7 +142,7 @@ NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false
 
 Keep the same `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` values in both the host env and the Inngest container.
 
-If sign-in starts failing after a deployment, check `BETTER_AUTH_COOKIE_DOMAIN` first. Set it only when the app and API need to share cookies across sibling subdomains. Leave it unset for host-only deployments.
+If sign-in feels like it bounces back to `/login` after GitHub or GitLab authorization, check `BETTER_AUTH_COOKIE_DOMAIN` first. Set it when the app and API need to share cookies across sibling subdomains and you want the first workspace render to stay server-side. Leave it unset for host-only deployments or when you are happy with the client-side fallback.
 
 The Inngest dashboard is internal by default. Do not publish its ports directly. If production dashboard access is required, enable the optional Traefik labels with `INNGEST_DASHBOARD_TRAEFIK_ENABLE=true`, set a dedicated `INNGEST_DASHBOARD_HOST`, and require `INNGEST_DASHBOARD_BASIC_AUTH_USERS`.
 

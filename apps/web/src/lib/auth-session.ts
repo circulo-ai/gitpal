@@ -1,5 +1,4 @@
 import { env } from "@gitpal/env/web-server";
-import { redirect } from "next/navigation";
 
 type AuthUser = {
 	id: string;
@@ -35,20 +34,28 @@ export async function getServerAuthSession(
 	const cookie = requestHeaders.get("cookie");
 
 	if (!cookie) {
-		redirect("/login");
+		return null;
 	}
 
-	const response = await fetch(
-		`${env.NEXT_PUBLIC_SERVER_URL}/api/auth/get-session`,
-		{
-			cache: "no-store",
-			headers: {
-				cookie,
+	try {
+		const response = await fetch(
+			`${env.NEXT_PUBLIC_SERVER_URL}/api/auth/get-session`,
+			{
+				cache: "no-store",
+				headers: {
+					cookie,
+				},
 			},
-		},
-	);
+		);
 
-	const session = (await response.json()) as ServerAuthSession;
+		if (!response.ok) {
+			return null;
+		}
 
-	return session;
+		const session = (await response.json()) as ServerAuthSession;
+
+		return session;
+	} catch {
+		return null;
+	}
 }

@@ -23,6 +23,22 @@ describe("repository webhook access errors", () => {
 		).toBe(true);
 	});
 
+	test("detects wrapped GitHub webhook permission errors", async () => {
+		const { isGitHubRepositoryWebhookAccessError } =
+			await repositoryWebhooksModulePromise;
+
+		expect(
+			isGitHubRepositoryWebhookAccessError({
+				response: {
+					data: {
+						message:
+							"Resource not accessible by integration - https://docs.github.com/rest/repos/webhooks#list-repository-webhooks",
+					},
+				},
+			}),
+		).toBe(true);
+	});
+
 	test("ignores unrelated errors", async () => {
 		const { isGitHubRepositoryWebhookAccessError } =
 			await repositoryWebhooksModulePromise;

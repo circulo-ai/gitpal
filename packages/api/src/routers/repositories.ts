@@ -131,34 +131,6 @@ export const repositoriesRouter = router({
 			});
 		}),
 
-	syncWebhooks: protectedMutationProcedure
-		.input(
-			organizationScopeSchema
-				.merge(z.object({ repositoryId: z.string().min(1).optional() }))
-				.optional(),
-		)
-		.mutation(async ({ ctx, input }) => {
-			const organizationId =
-				input?.organizationId ??
-				ctx.session.session.activeOrganizationId ??
-				null;
-
-			if (organizationId) {
-				await requireOrganizationPermission({
-					userId: ctx.session.user.id,
-					organizationId,
-					permissions: { repository: ["sync"] },
-				});
-			}
-
-			return queueRepositoryWebhookSyncForUser({
-				userId: ctx.session.user.id,
-				organizationId: organizationId ?? undefined,
-				repositoryId: input?.repositoryId,
-				reason: "sync",
-			});
-		}),
-
 	addRepository: protectedMutationProcedure
 		.input(repositoryAddSchema)
 		.mutation(async ({ ctx, input }) => {

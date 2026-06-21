@@ -53,6 +53,7 @@ import { toast } from "sonner";
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { InstallWizardLink } from "./install-wizard-link";
+import { ProviderSyncButton } from "./provider-sync-button";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
 import { formatWorkspaceScope } from "./workspace-scope";
 
@@ -163,15 +164,15 @@ export function TeamManagementPage() {
 
 				if (result.queued) {
 					toast.success(
-						"Workspace sync queued. Repository data will refresh shortly.",
+						"Provider sync queued. Repository data will refresh shortly.",
 					);
 					return;
 				}
 
 				toast.error(
 					result.error
-						? `Workspace sync could not be queued: ${result.error}`
-						: "Workspace sync could not be queued.",
+						? `Provider sync could not be queued: ${result.error}`
+						: "Provider sync could not be queued.",
 				);
 			},
 			onError: (error) => {
@@ -233,26 +234,24 @@ export function TeamManagementPage() {
 					<p className="max-w-3xl text-muted-foreground text-sm">
 						GitPal mirrors the repository access granted by your Git providers.
 						Personal repos and organization or group repos are synced
-						automatically, and webhook refreshes are queued in the background.
+						automatically, and provider member sync runs in the background.
 					</p>
 				</div>
 				<div className="flex flex-wrap gap-2">
-					<Button
-						type="button"
-						size="icon"
-						variant="outline"
-						tooltip={syncMutation.isPending ? "Syncing..." : "Sync workspace"}
-						disabled={syncMutation.isPending}
-						onClick={() =>
-							syncMutation.mutate(
-								activeWorkspaceId
-									? { organizationId: activeWorkspaceId }
-									: undefined,
-							)
-						}
-					>
-						<RefreshCcwIcon />
-					</Button>
+					<ProviderSyncButton
+						target={activeWorkspace}
+						isPending={syncMutation.isPending}
+						onClick={() => {
+							if (!activeWorkspace) {
+								return;
+							}
+
+							syncMutation.mutate({
+								organizationId: activeWorkspaceId ?? undefined,
+								providerId: activeWorkspace.providerId,
+							});
+						}}
+					/>
 				</div>
 			</div>
 

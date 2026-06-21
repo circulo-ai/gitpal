@@ -207,21 +207,79 @@ function getWebhookBaseUrl() {
 	return env.GITPAL_WEBHOOK_BASE_URL ?? env.BETTER_AUTH_URL;
 }
 
+function getGitHubRepositoryWebhookAccessErrorMessages(error: unknown) {
+	const messages = new Set<string>();
+	const add = (value: unknown) => {
+		if (typeof value === "string") {
+			const trimmed = value.trim();
+			if (trimmed) {
+				messages.add(trimmed);
+			}
+		}
+	};
+
+	add(error);
+
+	if (error instanceof Error) {
+		add(error.message);
+		add(error.cause);
+	}
+
+	const record = asRecord(error);
+	const response = asRecord(record?.response);
+	const data = asRecord(response?.data);
+	const cause = asRecord(record?.cause);
+	const causeResponse = asRecord(cause?.response);
+	const causeData = asRecord(causeResponse?.data);
+
+	for (const candidate of [
+		record?.message,
+		record?.error,
+		record?.reason,
+		response?.message,
+		data?.message,
+		data?.error,
+		cause?.message,
+		causeResponse?.message,
+		causeData?.message,
+		causeData?.error,
+	]) {
+		add(candidate);
+	}
+
+	for (const errors of [data?.errors, causeData?.errors]) {
+		if (!Array.isArray(errors)) {
+			continue;
+		}
+
+		for (const item of errors) {
+			if (typeof item === "string") {
+				add(item);
+				continue;
+			}
+			const message = asRecord(item)?.message;
+			add(message);
+		}
+	}
+
+	return [...messages];
+}
+
 export function isGitHubRepositoryWebhookAccessError(error: unknown) {
-	const message =
-		error instanceof Error
-			? error.message
-			: typeof error === "string"
-				? error
-				: "";
-	const normalizedMessage = message.toLowerCase();
+	const normalizedMessages = getGitHubRepositoryWebhookAccessErrorMessages(
+		error,
+	).map((message) => message.toLowerCase());
 
 	return (
-		normalizedMessage.includes("resource not accessible by integration") ||
-		normalizedMessage.includes("webhooks repository permissions") ||
-		normalizedMessage.includes("admin:repo_hook") ||
-		normalizedMessage.includes("read:repo_hook") ||
-		normalizedMessage.includes("write:repo_hook")
+		normalizedMessages.some((message) =>
+			message.includes("resource not accessible by integration"),
+		) ||
+		normalizedMessages.some((message) =>
+			message.includes("webhooks repository permissions"),
+		) ||
+		normalizedMessages.some((message) => message.includes("admin:repo_hook")) ||
+		normalizedMessages.some((message) => message.includes("read:repo_hook")) ||
+		normalizedMessages.some((message) => message.includes("write:repo_hook"))
 	);
 }
 

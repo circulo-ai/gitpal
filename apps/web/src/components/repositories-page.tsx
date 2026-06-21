@@ -56,6 +56,7 @@ import { toast } from "sonner";
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { InstallWizardLink } from "./install-wizard-link";
+import { ProviderSyncButton } from "./provider-sync-button";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
 
 const PAGE_SIZE_OPTIONS = ["10", "25", "50", "100"].map((size) => ({
@@ -123,14 +124,14 @@ export function RepositoriesPage() {
 				await invalidateRepositoryData(activeWorkspaceId);
 
 				if (result.queued) {
-					toast.success("Repository sync queued.");
+					toast.success("Provider sync queued.");
 					return;
 				}
 
 				toast.error(
 					result.error
-						? `Repository sync could not be queued: ${result.error}`
-						: "Repository sync could not be queued.",
+						? `Provider sync could not be queued: ${result.error}`
+						: "Provider sync could not be queued.",
 				);
 			},
 			onError: (error) => {
@@ -326,50 +327,25 @@ export function RepositoriesPage() {
 					</h1>
 					<p className="max-w-3xl text-muted-foreground text-sm">
 						Manage repository sync, visibility, and overrides inside the active
-						provider-synced workspace. Webhook refreshes run in the background.
+						provider-synced workspace. Provider sync and webhook reconciliation
+						run in the background.
 					</p>
 				</div>
 				<div className="flex gap-2">
-					<Button
-						type="button"
-						variant="outline"
-						size="icon"
-						tooltip={
-							syncMutation.isPending
-								? "Syncing..."
-								: activeWorkspaceId
-									? "Sync workspace"
-									: "Sync repositories"
-						}
+					<ProviderSyncButton
+						target={activeWorkspace}
+						isPending={syncMutation.isPending}
 						onClick={() => {
-							syncMutation.mutate(
-								activeWorkspaceId
-									? { organizationId: activeWorkspaceId }
-									: undefined,
-							);
-						}}
-						disabled={syncMutation.isPending}
-					>
-						<RefreshCcwIcon />
-					</Button>
-					{/* <Button
-						type="button"
-						variant="outline"
-						size="icon"
-						tooltip={
-							syncWebhooksMutation.isPending
-								? "Queueing webhook refresh..."
-								: "Queue webhook refresh"
-						}
-						disabled={syncWebhooksMutation.isPending || !activeWorkspaceId}
-						onClick={() =>
-							syncWebhooksMutation.mutate({
+							if (!activeWorkspace) {
+								return;
+							}
+
+							syncMutation.mutate({
 								organizationId: activeWorkspaceId ?? undefined,
-							})
-						}
-					>
-						<WebhookIcon />
-					</Button> */}
+								providerId: activeWorkspace.providerId,
+							});
+						}}
+					/>
 					<Button
 						size="icon"
 						tooltip="Manage provider access"
@@ -837,7 +813,7 @@ export function RepositoriesPage() {
 								<EmptyDescription>
 									{search.trim()
 										? "Try a different search term or clear the filter."
-										: "Update the provider installation scope if needed, then queue a webhook refresh to populate this workspace."}
+										: "Open the install wizard if the provider installation needs broader access, then sync the provider again."}
 								</EmptyDescription>
 							</EmptyHeader>
 						</Empty>

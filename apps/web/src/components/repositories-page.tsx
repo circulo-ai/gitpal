@@ -55,6 +55,7 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import { InstallWizardLink } from "./install-wizard-link";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
 
 const PAGE_SIZE_OPTIONS = ["10", "25", "50", "100"].map((size) => ({
@@ -221,7 +222,7 @@ export function RepositoriesPage() {
 					<CardHeader>
 						<CardTitle>Repositories</CardTitle>
 						<CardDescription>
-							Sync provider access first, then choose a workspace to manage
+							Install a provider first, then choose a workspace to manage
 							repositories.
 						</CardDescription>
 					</CardHeader>
@@ -245,28 +246,13 @@ export function RepositoriesPage() {
 					<CardHeader>
 						<CardTitle>Provider access</CardTitle>
 						<CardDescription>
-							Open the provider app settings to update repository visibility,
-							then queue a webhook refresh if needed.
+							Open the provider app settings to update repository visibility, or
+							sync a provider individually when access changes.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-3">
 						<div className="flex flex-wrap gap-2">
-							<Button
-								type="button"
-								variant="outline"
-								disabled={syncMutation.isPending}
-								onClick={() => syncMutation.mutate()}
-							>
-								<RefreshCcwIcon />
-								{syncMutation.isPending ? "Syncing..." : "Sync workspaces"}
-							</Button>
-							<Link
-								href="/login"
-								className={buttonVariants({ variant: "outline" })}
-							>
-								<ExternalLinkIcon />
-								Open install wizard
-							</Link>
+							<InstallWizardLink />
 							<Link
 								href="/account/team-management"
 								className={buttonVariants({})}
@@ -289,17 +275,34 @@ export function RepositoriesPage() {
 													{provider.type} installation scope
 												</div>
 											</div>
-											{provider.settingsUrl ? (
-												<a
-													href={provider.settingsUrl}
-													target="_blank"
-													rel="noreferrer noopener"
-													className={buttonVariants({ variant: "outline" })}
+											<div className="flex flex-wrap justify-end gap-2">
+												{provider.settingsUrl ? (
+													<a
+														href={provider.settingsUrl}
+														target="_blank"
+														rel="noreferrer noopener"
+														className={buttonVariants({ variant: "outline" })}
+													>
+														<ExternalLinkIcon />
+														Manage access
+													</a>
+												) : null}
+												<Button
+													type="button"
+													variant="outline"
+													disabled={syncMutation.isPending}
+													onClick={() =>
+														syncMutation.mutate({
+															providerId: provider.providerId,
+														})
+													}
 												>
-													<ExternalLinkIcon />
-													Manage access
-												</a>
-											) : null}
+													<RefreshCcwIcon />
+													{syncMutation.isPending
+														? "Syncing..."
+														: `Sync ${provider.label}`}
+												</Button>
+											</div>
 										</div>
 									</div>
 								))}

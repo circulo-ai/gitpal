@@ -48,11 +48,11 @@ import {
 	UserCheckIcon,
 	UsersIcon,
 } from "lucide-react";
-import Link from "next/link";
 import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import { InstallWizardLink } from "./install-wizard-link";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
 import { formatWorkspaceScope } from "./workspace-scope";
 
@@ -356,13 +356,7 @@ export function TeamManagementPage() {
 								</EmptyHeader>
 							</Empty>
 							<div className="mt-4 flex flex-wrap gap-2">
-								<Link
-									href="/login"
-									className={buttonVariants({ variant: "outline" })}
-								>
-									<ExternalLinkIcon />
-									Open install wizard
-								</Link>
+								<InstallWizardLink />
 							</div>
 						</>
 					) : teamMembersQuery.isLoading ? (

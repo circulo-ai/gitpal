@@ -68,13 +68,6 @@ export const repositoriesRouter = router({
 				ctx.session.session.activeOrganizationId ??
 				null;
 
-			await queueRepositorySyncForUser({
-				userId: ctx.session.user.id,
-				organizationId,
-				reason: "auto",
-				force: false,
-			});
-
 			if (organizationId) {
 				await requireOrganizationPermission({
 					userId: ctx.session.user.id,

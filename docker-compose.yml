@@ -11,8 +11,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - gitpal-network
     restart: on-failure
 
   web:
@@ -39,8 +37,6 @@ services:
     depends_on:
       server:
         condition: service_healthy
-    networks:
-      - gitpal-network
     restart: unless-stopped
 
   fumadocs:
@@ -50,8 +46,6 @@ services:
     init: true
     environment:
       NEXT_TELEMETRY_DISABLED: 1
-    networks:
-      - gitpal-network
     restart: unless-stopped
 
   server:
@@ -121,8 +115,6 @@ services:
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       INNGEST_BASE_URL: http://inngest:8288
       INNGEST_DEV: 0
-    networks:
-      - gitpal-network
     healthcheck:
       test:
         [
@@ -148,15 +140,12 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: gitpal-postgres
     environment:
       POSTGRES_DB: gitpal
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - gitpal_postgres_data:/var/lib/postgresql/data
-    networks:
-      - gitpal-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -166,11 +155,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: gitpal-redis
     volumes:
       - gitpal_redis_data:/data
-    networks:
-      - gitpal-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -218,8 +204,6 @@ services:
         condition: service_healthy
     volumes:
       - inngest_data:/home/inngest/.inngest
-    networks:
-      - gitpal-network
     healthcheck:
       test: ["CMD", "inngest", "api", "--api-host", "http://127.0.0.1", "--api-port", "8288", "health"]
       interval: 30s
@@ -241,12 +225,9 @@ services:
         condition: service_healthy
       inngest:
         condition: service_healthy
-    networks:
-      - gitpal-network
 
   postgres-inngest:
     image: postgres:17
-    container_name: inngest-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_DB=${INNGEST_POSTGRES_DB}
@@ -258,8 +239,6 @@ services:
       - inngest_postgres:/var/lib/postgresql/data
     expose:
       - "5432"
-    networks:
-      - gitpal-network
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${INNGEST_POSTGRES_USER} -d ${INNGEST_POSTGRES_DB}']
       interval: 10s
@@ -268,7 +247,6 @@ services:
 
   redis-inngest:
     image: redis:7-alpine
-    container_name: inngest-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 512mb --save 60 1000
     sysctls:
@@ -277,8 +255,6 @@ services:
       - inngest_redis_data:/data
     expose:
       - "6379"
-    networks:
-      - gitpal-network
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -291,7 +267,3 @@ volumes:
   inngest_data:
   inngest_postgres:
   inngest_redis_data:
-
-networks:
-  gitpal-network:
-    internal: true

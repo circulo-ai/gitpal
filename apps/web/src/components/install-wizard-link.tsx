@@ -12,7 +12,7 @@ export function InstallWizardLink({
 }) {
 	return (
 		<Link
-			href="/login"
+			href="/install"
 			className={cn(buttonVariants({ variant: "outline" }), className)}
 		>
 			<ExternalLinkIcon />

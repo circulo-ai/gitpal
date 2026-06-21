@@ -40,8 +40,11 @@ type ProviderMode = "cloud" | "enterprise";
 
 type ProviderAvailability = Record<ProviderId, Record<ProviderMode, boolean>>;
 
+type AuthPageMode = "login" | "install";
+
 type AuthPageProps = {
 	availability: ProviderAvailability;
+	mode?: AuthPageMode;
 };
 
 type ProviderConfig = {
@@ -419,7 +422,10 @@ function PromptDialog({
 	);
 }
 
-export default function AuthPage({ availability }: AuthPageProps) {
+export default function AuthPage({
+	availability,
+	mode = "login",
+}: AuthPageProps) {
 	const [providerModes, setProviderModes] = useState<StoredModes>(() =>
 		defaultModes(),
 	);
@@ -559,6 +565,24 @@ export default function AuthPage({ availability }: AuthPageProps) {
 		}
 	}
 
+	const heroHeadline =
+		mode === "install"
+			? "Install GitPal in two clicks."
+			: "Two clicks from better reviews.";
+	const heroDescription =
+		mode === "install"
+			? "Connect GitHub or GitLab, choose cloud or enterprise, and GitPal will remember the workspace setup on this device."
+			: "Keep developers moving while GitHub and GitLab auth stays straightforward across cloud and enterprise installs.";
+	const panelTitle = mode === "install" ? "Install GitPal" : "Sign into GitPal";
+	const panelDescription =
+		mode === "install"
+			? "Pick the provider and installation mode that matches your workspace."
+			: "Welcome back, let's start reviewing.";
+	const footerNote =
+		mode === "install"
+			? "Built for GitHub and GitLab across cloud and enterprise installations."
+			: "Built for GitHub and GitLab across cloud and enterprise deployments.";
+
 	return (
 		<div className="dark relative min-h-svh overflow-hidden bg-[#0b0910] text-white">
 			<div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.09),transparent_18%),radial-gradient(circle_at_80%_22%,rgba(255,126,74,0.12),transparent_14%),radial-gradient(circle_at_50%_50%,rgba(123,92,255,0.06),transparent_34%)]" />
@@ -577,18 +601,17 @@ export default function AuthPage({ availability }: AuthPageProps) {
 					<div className="flex flex-1 items-center justify-center py-12 lg:py-0">
 						<div className="max-w-190 text-center">
 							<h1 className="mx-auto mt-8 max-w-[16ch] text-balance font-semibold text-4xl text-white leading-[1.04] tracking-[-0.045em] sm:text-5xl lg:text-[4.3rem]">
-								Two clicks from better reviews.
+								{heroHeadline}
 							</h1>
 
 							<p className="mx-auto mt-6 max-w-[36ch] text-balance text-base text-white/68 leading-7 sm:text-lg">
-								Keep developers moving while GitHub and GitLab auth stays
-								straightforward across cloud and enterprise installs.
+								{heroDescription}
 							</p>
 						</div>
 					</div>
 
 					<div className="mb-8 hidden text-white/36 text-xs lg:block">
-						Built for GitHub and GitLab across cloud and enterprise deployments.
+						{footerNote}
 					</div>
 				</section>
 
@@ -596,11 +619,9 @@ export default function AuthPage({ availability }: AuthPageProps) {
 					<div className="w-full max-w-95 space-y-5">
 						<div className="space-y-2 text-center">
 							<h2 className="font-semibold text-2xl text-white tracking-tight">
-								Sign into GitPal
+								{panelTitle}
 							</h2>
-							<p className="text-sm text-white/60">
-								Welcome back, let&apos;s start reviewing.
-							</p>
+							<p className="text-sm text-white/60">{panelDescription}</p>
 						</div>
 
 						<div className="space-y-4">

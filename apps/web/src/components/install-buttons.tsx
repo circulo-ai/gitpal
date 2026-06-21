@@ -16,7 +16,7 @@ export function InstallButtons({
 	return (
 		<div className={cn("flex flex-col gap-3 sm:flex-row", className)}>
 			<Button
-				render={(props) => <Link {...props} href="/login" />}
+				render={(props) => <Link {...props} href="/install" />}
 				nativeButton={false}
 				size="lg"
 				className="rounded-xl px-5 text-[15px] transition-transform hover:-translate-y-0.5"
@@ -25,7 +25,7 @@ export function InstallButtons({
 				Install on GitHub
 			</Button>
 			<Button
-				render={(props) => <Link {...props} href="/login" />}
+				render={(props) => <Link {...props} href="/install" />}
 				size="lg"
 				variant="outline"
 				nativeButton={false}

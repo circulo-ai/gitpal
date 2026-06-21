@@ -180,13 +180,16 @@ function FeatureCard({ feature }: { feature: Feature }) {
 				</div>
 			</CardHeader>
 			<CardContent>
-				<Link
-					href="/login"
+				<a
+					href={DOCS_URL}
+					target="_blank"
+					rel="noreferrer noopener"
+					aria-label={`Read the docs for ${feature.title}`}
 					className="inline-flex w-fit items-center gap-2 font-medium text-[0.92rem] text-primary transition-all hover:gap-3"
 				>
-					Learn more
+					Read the docs
 					<HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
-				</Link>
+				</a>
 			</CardContent>
 		</Card>
 	);
@@ -309,7 +312,7 @@ export default function LandingPage({
 							{formatGitHubStarsCompact(githubStars)}
 						</span>
 					</Button>
-					<Button className="w-max" render={<Link href="/dashboard" />}>
+					<Button className="w-max" render={<Link href="/install" />}>
 						Get started
 					</Button>
 				</div>

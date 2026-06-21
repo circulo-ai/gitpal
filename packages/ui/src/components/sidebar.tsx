@@ -24,8 +24,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftIcon } from "lucide-react";
 import * as React from "react";
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state";
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+const SIDEBAR_STORAGE_KEY = "sidebar_state";
 const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
@@ -42,6 +41,31 @@ type SidebarContextProps = {
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
+
+function readSidebarState() {
+	if (typeof window === "undefined") {
+		return null;
+	}
+
+	try {
+		const value = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+		return value === null ? null : value === "true";
+	} catch {
+		return null;
+	}
+}
+
+function writeSidebarState(open: boolean) {
+	if (typeof window === "undefined") {
+		return;
+	}
+
+	try {
+		window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(open));
+	} catch {
+		// Best-effort preference persistence only.
+	}
+}
 
 function useSidebar() {
 	const context = React.useContext(SidebarContext);
@@ -70,7 +94,10 @@ function SidebarProvider({
 
 	// This is the internal state of the sidebar.
 	// We use openProp and setOpenProp for control from outside the component.
-	const [_open, _setOpen] = React.useState(defaultOpen);
+	const [_open, _setOpen] = React.useState(() => {
+		const storedOpen = readSidebarState();
+		return storedOpen ?? defaultOpen;
+	});
 	const open = openProp ?? _open;
 	const setOpen = React.useCallback(
 		(value: boolean | ((value: boolean) => boolean)) => {
@@ -81,8 +108,8 @@ function SidebarProvider({
 				_setOpen(openState);
 			}
 
-			// This sets the cookie to keep the sidebar state.
-			document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+			// Persist the sidebar preference locally without sending it on requests.
+			writeSidebarState(openState);
 		},
 		[setOpenProp, open],
 	);

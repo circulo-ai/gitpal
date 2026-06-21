@@ -5,8 +5,7 @@ import * as React from "react";
 import { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
 
-const ACTIVE_WORKSPACE_COOKIE = "gitpal_active_workspace";
-const ACTIVE_WORKSPACE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+const ACTIVE_WORKSPACE_STORAGE_KEY = "gitpal_active_workspace";
 
 type WorkspaceSummary = {
 	id: string;
@@ -42,29 +41,32 @@ const ActiveWorkspaceContext =
 	React.createContext<ActiveWorkspaceContextValue | null>(null);
 
 function readActiveWorkspaceId() {
-	if (typeof document === "undefined") {
+	if (typeof window === "undefined") {
 		return null;
 	}
 
-	const encodedCookie = document.cookie
-		.split("; ")
-		.find((entry) => entry.startsWith(`${ACTIVE_WORKSPACE_COOKIE}=`))
-		?.split("=")[1];
-
-	return encodedCookie ? decodeURIComponent(encodedCookie) : null;
+	try {
+		return window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+	} catch {
+		return null;
+	}
 }
 
 function writeActiveWorkspaceId(organizationId: string | null) {
-	if (typeof document === "undefined") {
+	if (typeof window === "undefined") {
 		return;
 	}
 
-	if (!organizationId) {
-		document.cookie = `${ACTIVE_WORKSPACE_COOKIE}=; path=/; max-age=0; samesite=lax`;
-		return;
-	}
+	try {
+		if (!organizationId) {
+			window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+			return;
+		}
 
-	document.cookie = `${ACTIVE_WORKSPACE_COOKIE}=${encodeURIComponent(organizationId)}; path=/; max-age=${ACTIVE_WORKSPACE_COOKIE_MAX_AGE}; samesite=lax`;
+		window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, organizationId);
+	} catch {
+		// Best-effort preference persistence only.
+	}
 }
 
 function getPreferredWorkspaceId({

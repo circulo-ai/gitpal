@@ -261,6 +261,13 @@ export function RepositoriesPage() {
 								{syncMutation.isPending ? "Syncing..." : "Sync workspaces"}
 							</Button>
 							<Link
+								href="/login"
+								className={buttonVariants({ variant: "outline" })}
+							>
+								<ExternalLinkIcon />
+								Open install wizard
+							</Link>
+							<Link
 								href="/account/team-management"
 								className={buttonVariants({})}
 							>
@@ -325,10 +332,18 @@ export function RepositoriesPage() {
 						variant="outline"
 						size="icon"
 						tooltip={
-							syncMutation.isPending ? "Syncing..." : "Sync repositories"
+							syncMutation.isPending
+								? "Syncing..."
+								: activeWorkspaceId
+									? "Sync workspace"
+									: "Sync repositories"
 						}
 						onClick={() => {
-							syncMutation.mutate();
+							syncMutation.mutate(
+								activeWorkspaceId
+									? { organizationId: activeWorkspaceId }
+									: undefined,
+							);
 						}}
 						disabled={syncMutation.isPending}
 					>

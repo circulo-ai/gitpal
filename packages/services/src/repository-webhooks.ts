@@ -34,6 +34,7 @@ import type { WorkspaceSettings } from "@gitpal/utils";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
 	createAdapterFromAccount,
+	createAppAdapterForRepository,
 	type EnterpriseProvider,
 	type GitAccount,
 	getAutomationActorForRepository,
@@ -124,7 +125,13 @@ type RepositoryWebhookSyncResult = {
 	existing: number;
 	skipped: number;
 	failed: number;
+	warnings: string[];
 	errors: string[];
+};
+type RepositoryWebhookSubscriptionResult = {
+	status: "created" | "existing" | "skipped";
+	error: string | null;
+	severity: "warning" | "error" | null;
 };
 type WebhookReceiptResult = {
 	receiptId: string;
@@ -199,6 +206,29 @@ function asNumber(value: unknown) {
 function getWebhookBaseUrl() {
 	return env.GITPAL_WEBHOOK_BASE_URL ?? env.BETTER_AUTH_URL;
 }
+
+export function isGitHubRepositoryWebhookAccessError(error: unknown) {
+	const message =
+		error instanceof Error
+			? error.message
+			: typeof error === "string"
+				? error
+				: "";
+	const normalizedMessage = message.toLowerCase();
+
+	return (
+		normalizedMessage.includes("resource not accessible by integration") ||
+		normalizedMessage.includes("webhooks repository permissions") ||
+		normalizedMessage.includes("admin:repo_hook") ||
+		normalizedMessage.includes("read:repo_hook") ||
+		normalizedMessage.includes("write:repo_hook")
+	);
+}
+
+function buildGitHubRepositoryWebhookAccessMessage(repositoryFullName: string) {
+	return `${repositoryFullName}: GitHub blocked repository webhook access for this repository. Reauthorize the connected account or installation with repository webhook permission, then sync again.`;
+}
+
 function formatSecretPreview(secret: string) {
 	if (secret.length <= 6) {
 		return "*".repeat(secret.length);
@@ -2924,171 +2954,189 @@ async function ensureRepositoryWebhookSubscription({
 	repository: RepositoryRow;
 	adapter: GitProviderAdapter;
 	target: ProviderWebhookTarget;
-}) {
+}): Promise<RepositoryWebhookSubscriptionResult> {
 	const webhookSecret = target.secret ?? target.signingSecret;
 	if (!webhookSecret || !getWebhookBaseUrl()) {
 		return {
 			status: "skipped" as const,
 			error: `${repository.fullName}: webhook base URL or secret is not configured.`,
+			severity: "error" as const,
 		};
 	}
-	const deliveryUrl = normalizeWebhookUrl(buildDeliveryUrl(target));
-	const requiredEvents = getRequiredWebhookEvents(target.providerType);
-	const existingWebhooks = await adapter.listWebhooks({
-		repositoryPath: repository.repositoryPath,
-	});
-	const matchingWebhooks = existingWebhooks.filter(
-		(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
-	);
-	const configuredSecretPreview = formatSecretPreview(webhookSecret);
-	const matchingWebhookIds = matchingWebhooks.map((webhook) =>
-		String(webhook.id),
-	);
-	const recordedWebhooks = matchingWebhookIds.length
-		? await db
-				.select({
-					providerWebhookId:
-						dashboardSchema.repositoryWebhook.providerWebhookId,
-					secretPreview: dashboardSchema.repositoryWebhook.secretPreview,
-				})
-				.from(dashboardSchema.repositoryWebhook)
-				.where(
-					and(
-						eq(dashboardSchema.repositoryWebhook.repositoryId, repository.id),
-						eq(
-							dashboardSchema.repositoryWebhook.providerId,
-							repository.providerId,
-						),
-						inArray(
-							dashboardSchema.repositoryWebhook.providerWebhookId,
-							matchingWebhookIds,
-						),
-					),
-				)
-		: [];
-	const recordedWebhookSecretPreviewById = new Map(
-		recordedWebhooks.map((recordedWebhook) => [
-			recordedWebhook.providerWebhookId,
-			recordedWebhook.secretPreview,
-		]),
-	);
-	const compatibleWebhook = matchingWebhooks.find(
-		(webhook) =>
-			Boolean(webhook.active) &&
-			requiredEvents.every((event) => webhook.events.includes(event)) &&
-			recordedWebhookSecretPreviewById.get(String(webhook.id)) ===
-				configuredSecretPreview,
-	);
-	let createdWebhook = false;
-	let activeWebhook = compatibleWebhook ?? null;
-	const deleteWebhook = async (webhook: (typeof matchingWebhooks)[number]) => {
-		await adapter.deleteWebhook({
+	try {
+		const deliveryUrl = normalizeWebhookUrl(buildDeliveryUrl(target));
+		const requiredEvents = getRequiredWebhookEvents(target.providerType);
+		const existingWebhooks = await adapter.listWebhooks({
 			repositoryPath: repository.repositoryPath,
-			webhookId: webhook.id,
 		});
-	};
-	const createWebhook = async () => {
-		try {
-			const webhook = await adapter.createWebhook({
+		const matchingWebhooks = existingWebhooks.filter(
+			(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
+		);
+		const configuredSecretPreview = formatSecretPreview(webhookSecret);
+		const matchingWebhookIds = matchingWebhooks.map((webhook) =>
+			String(webhook.id),
+		);
+		const recordedWebhooks = matchingWebhookIds.length
+			? await db
+					.select({
+						providerWebhookId:
+							dashboardSchema.repositoryWebhook.providerWebhookId,
+						secretPreview: dashboardSchema.repositoryWebhook.secretPreview,
+					})
+					.from(dashboardSchema.repositoryWebhook)
+					.where(
+						and(
+							eq(dashboardSchema.repositoryWebhook.repositoryId, repository.id),
+							eq(
+								dashboardSchema.repositoryWebhook.providerId,
+								repository.providerId,
+							),
+							inArray(
+								dashboardSchema.repositoryWebhook.providerWebhookId,
+								matchingWebhookIds,
+							),
+						),
+					)
+			: [];
+		const recordedWebhookSecretPreviewById = new Map(
+			recordedWebhooks.map((recordedWebhook) => [
+				recordedWebhook.providerWebhookId,
+				recordedWebhook.secretPreview,
+			]),
+		);
+		const compatibleWebhook = matchingWebhooks.find(
+			(webhook) =>
+				Boolean(webhook.active) &&
+				requiredEvents.every((event) => webhook.events.includes(event)) &&
+				recordedWebhookSecretPreviewById.get(String(webhook.id)) ===
+					configuredSecretPreview,
+		);
+		let createdWebhook = false;
+		let activeWebhook = compatibleWebhook ?? null;
+		const deleteWebhook = async (
+			webhook: (typeof matchingWebhooks)[number],
+		) => {
+			await adapter.deleteWebhook({
 				repositoryPath: repository.repositoryPath,
-				url: deliveryUrl,
-				events: requiredEvents,
-				secret: target.secret ?? undefined,
-				signingSecret: target.signingSecret ?? undefined,
-				active: true,
+				webhookId: webhook.id,
 			});
-			createdWebhook = true;
-			return webhook;
-		} catch (error) {
-			if (
-				target.providerType === "github" &&
-				isGitHubDuplicateWebhookError(error)
-			) {
-				// GitHub can surface "hook already exists" when a stale duplicate
-				// webhook is still present or another sync created the hook between
-				// our list and create calls. Re-list and adopt the existing hook so
-				// sync stays idempotent instead of failing the whole job.
-				const recovered = await findWebhookAfterDuplicate({
-					listWebhooks: () =>
-						adapter.listWebhooks({
-							repositoryPath: repository.repositoryPath,
-						}),
-					isMatch: (webhook) =>
-						normalizeWebhookUrl(webhook.url) === deliveryUrl &&
-						Boolean(webhook.active) &&
-						requiredEvents.every((event) => webhook.events.includes(event)),
+		};
+		const createWebhook = async () => {
+			try {
+				const webhook = await adapter.createWebhook({
+					repositoryPath: repository.repositoryPath,
+					url: deliveryUrl,
+					events: requiredEvents,
+					secret: target.secret ?? undefined,
+					signingSecret: target.signingSecret ?? undefined,
+					active: true,
 				});
-				if (recovered) {
-					const refreshedMatchingWebhooks = recovered.webhooks.filter(
-						(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
-					);
-					for (const webhook of refreshedMatchingWebhooks) {
-						if (webhook.id !== recovered.webhook.id) {
-							await deleteWebhook(webhook);
+				createdWebhook = true;
+				return webhook;
+			} catch (error) {
+				if (
+					target.providerType === "github" &&
+					isGitHubDuplicateWebhookError(error)
+				) {
+					// GitHub can surface "hook already exists" when a stale duplicate
+					// webhook is still present or another sync created the hook between
+					// our list and create calls. Re-list and adopt the existing hook so
+					// sync stays idempotent instead of failing the whole job.
+					const recovered = await findWebhookAfterDuplicate({
+						listWebhooks: () =>
+							adapter.listWebhooks({
+								repositoryPath: repository.repositoryPath,
+							}),
+						isMatch: (webhook) =>
+							normalizeWebhookUrl(webhook.url) === deliveryUrl &&
+							Boolean(webhook.active) &&
+							requiredEvents.every((event) => webhook.events.includes(event)),
+					});
+					if (recovered) {
+						const refreshedMatchingWebhooks = recovered.webhooks.filter(
+							(webhook) => normalizeWebhookUrl(webhook.url) === deliveryUrl,
+						);
+						for (const webhook of refreshedMatchingWebhooks) {
+							if (webhook.id !== recovered.webhook.id) {
+								await deleteWebhook(webhook);
+							}
 						}
+						createdWebhook = false;
+						return recovered.webhook;
 					}
-					createdWebhook = false;
-					return recovered.webhook;
+				}
+				throw error;
+			}
+		};
+		if (activeWebhook) {
+			for (const webhook of matchingWebhooks) {
+				if (webhook.id !== activeWebhook.id) {
+					await deleteWebhook(webhook);
 				}
 			}
-			throw error;
-		}
-	};
-	if (activeWebhook) {
-		for (const webhook of matchingWebhooks) {
-			if (webhook.id !== activeWebhook.id) {
+		} else {
+			for (const webhook of matchingWebhooks) {
 				await deleteWebhook(webhook);
 			}
+			activeWebhook = await createWebhook();
 		}
-	} else {
-		for (const webhook of matchingWebhooks) {
-			await deleteWebhook(webhook);
-		}
-		activeWebhook = await createWebhook();
-	}
-	const now = new Date();
-	await db
-		.delete(dashboardSchema.repositoryWebhook)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryWebhook.repositoryId, repository.id),
-				eq(dashboardSchema.repositoryWebhook.providerId, repository.providerId),
-			),
-		);
-	await db
-		.insert(dashboardSchema.repositoryWebhook)
-		.values({
-			id: `repository_webhook_${randomUUID()}`,
-			repositoryId: repository.id,
-			providerId: repository.providerId,
-			providerWebhookId: String(activeWebhook.id),
-			deliveryUrl,
-			events: requiredEvents,
-			enabled: activeWebhook.active,
-			secretPreview: configuredSecretPreview,
-			verifiedAt: null,
-			lastDeliveredAt: null,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: [
-				dashboardSchema.repositoryWebhook.repositoryId,
-				dashboardSchema.repositoryWebhook.providerId,
-				dashboardSchema.repositoryWebhook.providerWebhookId,
-			],
-			set: {
+		const now = new Date();
+		await db
+			.delete(dashboardSchema.repositoryWebhook)
+			.where(
+				and(
+					eq(dashboardSchema.repositoryWebhook.repositoryId, repository.id),
+					eq(
+						dashboardSchema.repositoryWebhook.providerId,
+						repository.providerId,
+					),
+				),
+			);
+		await db
+			.insert(dashboardSchema.repositoryWebhook)
+			.values({
+				id: `repository_webhook_${randomUUID()}`,
+				repositoryId: repository.id,
+				providerId: repository.providerId,
+				providerWebhookId: String(activeWebhook.id),
 				deliveryUrl,
 				events: requiredEvents,
 				enabled: activeWebhook.active,
 				secretPreview: configuredSecretPreview,
+				verifiedAt: null,
+				lastDeliveredAt: null,
+				createdAt: now,
 				updatedAt: now,
-			},
-		});
-	return {
-		status: createdWebhook ? ("created" as const) : ("existing" as const),
-		error: null,
-	};
+			})
+			.onConflictDoUpdate({
+				target: [
+					dashboardSchema.repositoryWebhook.repositoryId,
+					dashboardSchema.repositoryWebhook.providerId,
+					dashboardSchema.repositoryWebhook.providerWebhookId,
+				],
+				set: {
+					deliveryUrl,
+					events: requiredEvents,
+					enabled: activeWebhook.active,
+					secretPreview: configuredSecretPreview,
+					updatedAt: now,
+				},
+			});
+		return {
+			status: createdWebhook ? ("created" as const) : ("existing" as const),
+			error: null,
+			severity: null,
+		};
+	} catch (error) {
+		if (isGitHubRepositoryWebhookAccessError(error)) {
+			return {
+				status: "skipped" as const,
+				error: buildGitHubRepositoryWebhookAccessMessage(repository.fullName),
+				severity: "warning" as const,
+			};
+		}
+		throw error;
+	}
 }
 export async function syncRepositoryWebhooksForUser({
 	userId,
@@ -3135,6 +3183,7 @@ export async function syncRepositoryWebhooksForUser({
 		existing: 0,
 		skipped: 0,
 		failed: 0,
+		warnings: [],
 		errors: [],
 	};
 	for (const { repository } of repositories) {
@@ -3154,12 +3203,29 @@ export async function syncRepositoryWebhooksForUser({
 			result.skipped += 1;
 			continue;
 		}
-		const adapter = await createAdapterFromAccount({
+		const accountAdapter = await createAdapterFromAccount({
 			account: account as GitAccount,
 			enterpriseProviders,
 			webhookSecrets: target.secret ? [target.secret] : [],
 			webhookSigningSecrets: target.signingSecret ? [target.signingSecret] : [],
 		});
+		const webhookAdapter =
+			repository.providerId === "github"
+				? await createAppAdapterForRepository({
+						repository,
+					}).catch((error) => {
+						log.debug(
+							{
+								err: error,
+								repositoryId: repository.id,
+								providerId: repository.providerId,
+							},
+							"GitHub App installation adapter could not be created for webhook sync.",
+						);
+						return null;
+					})
+				: null;
+		const adapter = webhookAdapter ?? accountAdapter;
 		if (!adapter) {
 			result.skipped += 1;
 			continue;
@@ -3177,7 +3243,11 @@ export async function syncRepositoryWebhooksForUser({
 			} else {
 				result.skipped += 1;
 				if (syncResult.error) {
-					result.errors.push(syncResult.error);
+					if (syncResult.severity === "warning") {
+						result.warnings.push(syncResult.error);
+					} else {
+						result.errors.push(syncResult.error);
+					}
 				}
 			}
 		} catch (error) {

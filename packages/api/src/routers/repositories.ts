@@ -40,6 +40,11 @@ const repositoryAddSchema = z.object({
 	repositoryPath: z.string().min(1),
 });
 
+const repositorySyncSchema = organizationScopeSchema.extend({
+	repositoryId: z.string().min(1).optional(),
+	providerId: z.string().min(1).optional(),
+});
+
 const organizationSettingsUpdateSchema = z.object({
 	settings: workspaceSettingsSchema,
 });
@@ -65,6 +70,7 @@ export const repositoriesRouter = router({
 
 			await queueRepositorySyncForUser({
 				userId: ctx.session.user.id,
+				organizationId,
 				reason: "auto",
 				force: false,
 			});
@@ -88,22 +94,26 @@ export const repositoriesRouter = router({
 	}),
 
 	workspaces: protectedProcedure.query(async ({ ctx }) => {
-		await queueRepositorySyncForUser({
-			userId: ctx.session.user.id,
-			reason: "auto",
-			force: false,
-		});
-
 		return listWorkspacesForUser({ userId: ctx.session.user.id });
 	}),
 
-	sync: protectedMutationProcedure.mutation(async ({ ctx }) => {
-		return queueRepositorySyncForUser({
-			userId: ctx.session.user.id,
-			reason: "manual",
-			force: true,
-		});
-	}),
+	sync: protectedMutationProcedure
+		.input(repositorySyncSchema.optional())
+		.mutation(async ({ ctx, input }) => {
+			const organizationId =
+				input?.organizationId ??
+				ctx.session.session.activeOrganizationId ??
+				null;
+
+			return queueRepositorySyncForUser({
+				userId: ctx.session.user.id,
+				organizationId,
+				repositoryId: input?.repositoryId,
+				providerId: input?.providerId,
+				reason: "manual",
+				force: true,
+			});
+		}),
 
 	reconcile: protectedMutationProcedure
 		.input(

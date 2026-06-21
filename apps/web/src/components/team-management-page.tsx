@@ -48,6 +48,7 @@ import {
 	UserCheckIcon,
 	UsersIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
@@ -240,9 +241,15 @@ export function TeamManagementPage() {
 						type="button"
 						size="icon"
 						variant="outline"
-						tooltip={syncMutation.isPending ? "Syncing..." : "Sync workspaces"}
+						tooltip={syncMutation.isPending ? "Syncing..." : "Sync workspace"}
 						disabled={syncMutation.isPending}
-						onClick={() => syncMutation.mutate()}
+						onClick={() =>
+							syncMutation.mutate(
+								activeWorkspaceId
+									? { organizationId: activeWorkspaceId }
+									: undefined,
+							)
+						}
 					>
 						<RefreshCcwIcon />
 					</Button>
@@ -335,18 +342,29 @@ export function TeamManagementPage() {
 					) : null}
 
 					{!activeWorkspaceId ? (
-						<Empty className="min-h-64">
-							<EmptyHeader>
-								<EmptyMedia variant="icon">
-									<UsersIcon />
-								</EmptyMedia>
-								<EmptyTitle>Select a workspace</EmptyTitle>
-								<EmptyDescription>
-									Choose a synced workspace to view provider members and manage
-									GitPal access.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
+						<>
+							<Empty className="min-h-64">
+								<EmptyHeader>
+									<EmptyMedia variant="icon">
+										<UsersIcon />
+									</EmptyMedia>
+									<EmptyTitle>Select a workspace</EmptyTitle>
+									<EmptyDescription>
+										Choose a synced workspace to view provider members and
+										manage GitPal access.
+									</EmptyDescription>
+								</EmptyHeader>
+							</Empty>
+							<div className="mt-4 flex flex-wrap gap-2">
+								<Link
+									href="/login"
+									className={buttonVariants({ variant: "outline" })}
+								>
+									<ExternalLinkIcon />
+									Open install wizard
+								</Link>
+							</div>
+						</>
 					) : teamMembersQuery.isLoading ? (
 						<TeamMembersSkeleton />
 					) : teamMembers.length === 0 ? (

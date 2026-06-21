@@ -43,7 +43,8 @@ export async function processRepositoryWebhookSyncJob(
 		repositoryId: data.repositoryId,
 	});
 
-	const failed = result.failed > 0 || result.errors.length > 0;
+	const hasErrors = result.failed > 0 || result.errors.length > 0;
+	const hasWarnings = result.warnings.length > 0;
 	const failureNotificationKey =
 		getRepositoryWebhookSyncFailureNotificationKey(data);
 
@@ -53,12 +54,17 @@ export async function processRepositoryWebhookSyncJob(
 		repositoryId: data.repositoryId ?? null,
 		kind: "job",
 		action: "repository-webhook-sync",
-		status: failed ? "processed_with_errors" : "completed",
-		severity: failed ? "error" : "success",
-		title: failed
+		status: hasErrors || hasWarnings ? "processed_with_errors" : "completed",
+		severity: hasErrors ? "error" : hasWarnings ? "warning" : "success",
+		title: hasErrors
 			? "Repository webhook sync completed with errors"
-			: "Repository webhook sync completed",
-		body: result.errors.slice(0, 3).join("\n") || null,
+			: hasWarnings
+				? "Repository webhook sync completed with warnings"
+				: "Repository webhook sync completed",
+		body:
+			result.errors.slice(0, 3).join("\n") ||
+			result.warnings.slice(0, 3).join("\n") ||
+			null,
 		sourceType: "repository-webhook-sync",
 		sourceId: data.repositoryId ?? data.organizationId ?? `user:${data.userId}`,
 		dedupeKey: [
@@ -67,7 +73,7 @@ export async function processRepositoryWebhookSyncJob(
 			data.organizationId ?? "all",
 			data.repositoryId ?? "all",
 			data.reason ?? "sync",
-			failed ? "failed" : "completed",
+			hasErrors ? "failed" : hasWarnings ? "warning" : "completed",
 		].join(":"),
 		metadata: {
 			reason: data.reason ?? null,
@@ -75,28 +81,35 @@ export async function processRepositoryWebhookSyncJob(
 			existing: result.existing,
 			skipped: result.skipped,
 			failed: result.failed,
+			warnings: result.warnings,
 			errors: result.errors,
 		},
 	});
 
-	if (failed) {
+	if (hasErrors || hasWarnings) {
 		await sendUserNotification({
 			userId: data.userId,
 			organizationId: data.organizationId ?? null,
 			repositoryId: data.repositoryId ?? null,
-			type: "repository_webhook_sync_failed",
+			type: hasErrors
+				? "repository_webhook_sync_failed"
+				: "repository_webhook_sync_warning",
 			category: "webhook",
-			severity: "error",
-			title: "Webhook sync needs attention",
+			severity: hasErrors ? "error" : "warning",
+			title: hasErrors
+				? "Webhook sync needs attention"
+				: "Webhook sync needs access",
 			body:
 				result.errors[0] ??
+				result.warnings[0] ??
 				"One or more repository webhooks could not be synced.",
-			actionHref: "/observability",
+			actionHref: hasErrors ? "/observability" : "/repositories",
 			sourceType: "repository-webhook-sync",
 			sourceId: data.repositoryId ?? data.organizationId ?? data.userId,
 			dedupeKey: failureNotificationKey,
 			metadata: {
 				reason: data.reason ?? null,
+				warnings: result.warnings,
 				errors: result.errors,
 			},
 		});

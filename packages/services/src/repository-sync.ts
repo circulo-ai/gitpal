@@ -319,6 +319,75 @@ async function getLatestSyncAt({
 	return row?.lastSyncedAt ?? null;
 }
 
+async function resolveTargetProviderIds({
+	userId,
+	organizationId,
+	repositoryId,
+	providerId,
+}: {
+	userId: string;
+	organizationId?: string | null;
+	repositoryId?: string | null;
+	providerId?: string | null;
+}) {
+	if (providerId) {
+		return [providerId];
+	}
+
+	if (repositoryId) {
+		const [repository] = await db
+			.select({
+				providerId: dashboardSchema.repository.providerId,
+			})
+			.from(dashboardSchema.repository)
+			.where(eq(dashboardSchema.repository.id, repositoryId))
+			.limit(1);
+
+		return repository ? [repository.providerId] : [];
+	}
+
+	if (organizationId) {
+		const [organization] = await db
+			.select({
+				metadata: authSchema.organization.metadata,
+			})
+			.from(authSchema.organization)
+			.where(eq(authSchema.organization.id, organizationId))
+			.limit(1);
+
+		const workspace = organization
+			? readWorkspaceMetadata(organization.metadata)
+			: null;
+		if (workspace?.providerId) {
+			return [workspace.providerId];
+		}
+
+		const rows = await db
+			.selectDistinct({
+				providerId: dashboardSchema.repository.providerId,
+			})
+			.from(dashboardSchema.repositoryAccess)
+			.innerJoin(
+				dashboardSchema.repository,
+				eq(
+					dashboardSchema.repositoryAccess.repositoryId,
+					dashboardSchema.repository.id,
+				),
+			)
+			.where(
+				and(
+					eq(dashboardSchema.repositoryAccess.userId, userId),
+					eq(dashboardSchema.repositoryAccess.enabled, true),
+					eq(dashboardSchema.repository.organizationId, organizationId),
+				),
+			);
+
+		return rows.map((row) => row.providerId);
+	}
+
+	return null;
+}
+
 function shouldRefreshRepositorySync(lastSyncedAt: Date | null, ttlMs: number) {
 	if (!lastSyncedAt) {
 		return true;
@@ -697,9 +766,15 @@ async function refreshRepositoriesForAccount(
 
 export async function ensureRepositoriesSyncedForUser({
 	userId,
+	organizationId = null,
+	repositoryId = null,
+	providerId = null,
 	ttlMs = DEFAULT_REPOSITORY_SYNC_TTL_MS,
 }: {
 	userId: string;
+	organizationId?: string | null;
+	repositoryId?: string | null;
+	providerId?: string | null;
 	ttlMs?: number;
 }): Promise<RepositorySyncResult> {
 	const accounts = await db
@@ -708,6 +783,17 @@ export async function ensureRepositoriesSyncedForUser({
 		.where(eq(authSchema.account.userId, userId));
 
 	const enterpriseProviders = await getEnterpriseProviderMap();
+	const targetProviderIds = await resolveTargetProviderIds({
+		userId,
+		organizationId,
+		repositoryId,
+		providerId,
+	});
+	const accountsToSync = targetProviderIds
+		? accounts.filter((account) =>
+				targetProviderIds.includes(account.providerId),
+			)
+		: accounts;
 
 	const result: RepositorySyncResult = {
 		syncedRepositories: 0,
@@ -717,7 +803,7 @@ export async function ensureRepositoriesSyncedForUser({
 		workspaceIds: [],
 	};
 
-	for (const account of accounts) {
+	for (const account of accountsToSync) {
 		const lastSyncedAt = await getLatestSyncAt({
 			userId,
 			providerId: account.providerId,
@@ -768,6 +854,7 @@ export async function ensureRepositoriesSyncedForUser({
 			syncedRepositories: result.syncedRepositories,
 			syncedProviders: result.syncedProviders,
 			skippedProviders: result.skippedProviders,
+			targetProviderIds,
 		});
 	}
 
@@ -789,6 +876,9 @@ export async function processRepositorySyncJob(input: RepositorySyncJobData) {
 
 	const sync = await ensureRepositoriesSyncedForUser({
 		userId: data.userId,
+		organizationId: data.organizationId ?? null,
+		repositoryId: data.repositoryId ?? null,
+		providerId: data.providerId ?? null,
 		ttlMs: data.force ? 0 : DEFAULT_REPOSITORY_SYNC_TTL_MS,
 	});
 	const webhookSync = await queueRepositoryWebhookSyncForUser({
@@ -865,8 +955,19 @@ export async function queueRepositorySyncForUser(
 			.select({ providerId: authSchema.account.providerId })
 			.from(authSchema.account)
 			.where(eq(authSchema.account.userId, data.userId));
+		const targetProviderIds = await resolveTargetProviderIds({
+			userId: data.userId,
+			organizationId: data.organizationId ?? null,
+			repositoryId: data.repositoryId ?? null,
+			providerId: data.providerId ?? null,
+		});
+		const accountsToConsider = targetProviderIds
+			? accounts.filter((account) =>
+					targetProviderIds.includes(account.providerId),
+				)
+			: accounts;
 		const latestSyncs = await Promise.all(
-			accounts.map((account) =>
+			accountsToConsider.map((account) =>
 				getLatestSyncAt({
 					userId: data.userId,
 					providerId: account.providerId,
@@ -874,7 +975,7 @@ export async function queueRepositorySyncForUser(
 			),
 		);
 		if (
-			accounts.length === 0 ||
+			accountsToConsider.length === 0 ||
 			latestSyncs.every(
 				(lastSyncedAt) =>
 					!shouldRefreshRepositorySync(

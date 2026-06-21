@@ -182,7 +182,7 @@ export async function createAdapterFromAccount({
 	});
 }
 
-async function createAppAdapterForRepository({
+export async function createAppAdapterForRepository({
 	repository,
 	webhookSecrets = [],
 }: {

@@ -294,4 +294,4 @@ volumes:
 
 networks:
   gitpal-network:
-    driver: bridge
+    internal: true

@@ -177,6 +177,7 @@ const markdownComponents: React.ComponentProps<
 	),
 	img: ({ src, alt }) => (
 		// eslint-disable-next-line @next/next/no-img-element
+		// biome-ignore lint/performance/noImgElement: <it's ok>
 		<img src={src} alt={alt} className="my-3 max-w-full rounded-md" />
 	),
 };

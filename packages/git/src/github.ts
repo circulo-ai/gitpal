@@ -502,14 +502,126 @@ async function resolveGitHubRepositoryInstallationId({
 	return installationId;
 }
 
+export type GitHubAppInstallationSummary = {
+	installationId: number;
+	account: GitActor | null;
+	targetType: "User" | "Organization" | null;
+};
+
+function createGitHubAppOctokit({
+	appId,
+	privateKey,
+	installationId,
+	apiBaseUrl = "https://api.github.com",
+	userAgent = "GitPal",
+}: {
+	appId: string;
+	privateKey: string;
+	installationId?: number;
+	apiBaseUrl?: string;
+	userAgent?: string;
+}) {
+	return new Octokit({
+		baseUrl: normalizeBaseUrl(apiBaseUrl),
+		userAgent,
+		authStrategy: createAppAuth,
+		auth: {
+			appId,
+			privateKey,
+			installationId,
+		},
+	});
+}
+
+export async function listGitHubAppInstallations({
+	appId,
+	privateKey,
+	apiBaseUrl,
+	userAgent,
+}: {
+	appId: string;
+	privateKey: string;
+	apiBaseUrl?: string;
+	userAgent?: string;
+}): Promise<GitHubAppInstallationSummary[]> {
+	const octokit = createGitHubAppOctokit({
+		appId,
+		privateKey,
+		apiBaseUrl,
+		userAgent,
+	});
+	const installations = (await octokit.paginate("GET /app/installations", {
+		per_page: 100,
+	})) as Array<Record<string, unknown>>;
+
+	return installations
+		.map((installation) => {
+			const targetType = installation.target_type;
+			return {
+				installationId: Number(installation.id),
+				account: mapActor(
+					typeof installation.account === "object" &&
+						installation.account !== null
+						? (installation.account as Record<string, unknown>)
+						: null,
+				),
+				targetType:
+					targetType === "Organization"
+						? ("Organization" as const)
+						: targetType === "User"
+							? ("User" as const)
+							: null,
+			};
+		})
+		.filter(
+			(installation) =>
+				Number.isInteger(installation.installationId) &&
+				installation.installationId > 0,
+		);
+}
+
+export async function listGitHubAppInstallationRepositories({
+	providerId = "github",
+	appId,
+	privateKey,
+	installationId,
+	apiBaseUrl,
+	userAgent,
+}: {
+	providerId?: string;
+	appId: string;
+	privateKey: string;
+	installationId: number;
+	apiBaseUrl?: string;
+	userAgent?: string;
+}): Promise<GitRepository[]> {
+	const octokit = createGitHubAppOctokit({
+		appId,
+		privateKey,
+		installationId,
+		apiBaseUrl,
+		userAgent,
+	});
+	const repositories = (await octokit.paginate(
+		"GET /installation/repositories",
+		{ per_page: 100 },
+	)) as Array<Record<string, unknown>>;
+
+	return repositories.map((repository) =>
+		mapRepository(
+			repository,
+			providerId,
+			String(repository.full_name ?? repository.name ?? "unknown/unknown"),
+		),
+	);
+}
+
 function createGitHubWebhookVerifier(
 	providerId: string,
 	webhookSecrets: string[] = [],
 ): GitWebhookAdapter {
 	return {
 		providerId,
-		// GitHub signs the raw body with an HMAC-SHA256 signature, so a successful
-		// verify proves both secret knowledge AND body integrity.
 		verificationStrength: "hmac",
 		verify: async ({ headers, rawBody }) => {
 			const signature = getHeaderValue(headers, "x-hub-signature-256");
@@ -767,6 +879,8 @@ export function createGitHubAdapter({
 		input: GitRepositoryRef & { state?: GitIssueState; updatedAfter?: string },
 	): Promise<GitIssue[]> {
 		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
+
+		// Use a conditional spread to keep the strict types intact for Octokit
 		const request = {
 			owner,
 			repo,
@@ -774,30 +888,25 @@ export function createGitHubAdapter({
 			sort: "updated" as const,
 			direction: "desc" as const,
 			per_page: 100,
+			...(input.updatedAfter ? { since: input.updatedAfter } : {}),
 		};
-		const response: Awaited<
-			ReturnType<typeof octokit.rest.issues.listForRepo>
-		>["data"] = [];
-		const updatedAfter = input.updatedAfter
-			? Date.parse(input.updatedAfter)
-			: null;
-		for await (const page of octokit.paginate.iterator(
+
+		const response = await octokit.paginate(
 			octokit.rest.issues.listForRepo,
 			request,
-		)) {
-			const pageItems = page.data.filter((item) => {
-				if (updatedAfter === null) return true;
-				return Date.parse(String(item.updated_at)) > updatedAfter;
-			});
-			response.push(...pageItems);
-			if (updatedAfter !== null && pageItems.length < page.data.length) break;
-		}
+		);
 
 		return response
-			.filter((item) => !("pull_request" in item))
+			.filter((item) => {
+				// Safely cast to a Record so TypeScript allows the 'in' operator check
+				const record = item as Record<string, unknown>;
+				return (
+					record && typeof record === "object" && !("pull_request" in record)
+				);
+			})
 			.map((item) =>
 				mapIssue(
-					item as unknown as Record<string, unknown>,
+					item as Record<string, unknown>,
 					providerId,
 					input.repositoryPath,
 				),
@@ -1180,10 +1289,6 @@ export function createGitHubAdapter({
 			commit_message: input.message,
 		});
 
-		// GitHub does not delete the source branch as part of merging. When the
-		// caller opts in (parity with GitLab's should_remove_source_branch), delete
-		// the head ref explicitly. Best-effort: a failure here (e.g. protected or
-		// already-deleted branch, or a fork) must not fail the merge itself.
 		if (input.removeSourceBranch) {
 			try {
 				const pullRequest = await octokit.rest.pulls.get({
@@ -1195,8 +1300,6 @@ export function createGitHubAdapter({
 				const sameRepo =
 					pullRequest.data.head?.repo?.full_name ===
 					pullRequest.data.base?.repo?.full_name;
-				// Only delete when the head branch lives in the same repo; deleting a
-				// fork's branch is neither possible nor desirable.
 				if (headRef && sameRepo) {
 					await octokit.rest.git.deleteRef({
 						owner,

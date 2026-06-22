@@ -15,7 +15,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import {
-	createAdapterFromAccount,
+	createAppInstallationAdapterForOwner,
 	getAccountForProvider,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
@@ -309,11 +309,10 @@ export async function syncWorkspaceTeamMembersForUser({
 		};
 	}
 
-	const { metadata, account, enterpriseProviders } =
-		await getProviderWorkspaceContext({
-			userId,
-			organizationId,
-		});
+	const { metadata, account } = await getProviderWorkspaceContext({
+		userId,
+		organizationId,
+	});
 
 	if (!metadata) {
 		return {
@@ -336,9 +335,15 @@ export async function syncWorkspaceTeamMembersForUser({
 	}
 
 	try {
-		const adapter = await createAdapterFromAccount({
-			account,
-			enterpriseProviders,
+		// App-installation-only: provider access is authenticated as the GitHub
+		// App installation that owns this workspace. We never fall back to the
+		// OAuth login token the user authenticated to GitPal with. GitLab and
+		// enterprise workspaces cannot authenticate as a GitHub App, so their
+		// team-member sync is disabled rather than borrowing user credentials.
+		const adapter = await createAppInstallationAdapterForOwner({
+			providerId: metadata.providerId,
+			ownerId: metadata.ownerId,
+			ownerPath: metadata.ownerPath,
 		});
 
 		if (!adapter) {
@@ -347,7 +352,8 @@ export async function syncWorkspaceTeamMembersForUser({
 				skipped: true,
 				count: 0,
 				lastSyncedAt: latestSyncAt?.toISOString() ?? null,
-				error: "Git provider adapter is not configured for this workspace.",
+				error:
+					"No GitHub App installation is available for this workspace; team-member sync is disabled (GitLab and enterprise providers are not supported).",
 			};
 		}
 

@@ -13,10 +13,11 @@ import { createLogger } from "@gitpal/logger";
 import { and, count, desc, eq, inArray, max, notInArray } from "drizzle-orm";
 import { mapWithConcurrency } from "./bounded-concurrency";
 import {
-	createAdapterFromAccount,
+	createAppAdapterForRepositoryPath,
 	type EnterpriseProvider,
 	getAccountForProvider,
 	getEnterpriseProviderMap,
+	listAppRepositoriesForAccount,
 } from "./git-provider-access";
 import { recordObservabilityEvent } from "./observability";
 import { queueRepositoryWebhookSyncForUser } from "./repository-webhook-sync";
@@ -661,12 +662,16 @@ async function refreshRepositoriesForAccount(
 	account: Account,
 	enterpriseProviders: Map<string, EnterpriseProvider>,
 ) {
-	const adapter = await createAdapterFromAccount({
-		account,
-		enterpriseProviders,
-	});
-
-	if (!adapter) {
+	// App-installation-only discovery. Repositories are enumerated from the
+	// GitHub App installations (App + installation credentials), never from the
+	// OAuth login token the user authenticated to GitPal with. GitLab and
+	// enterprise providers have no GitHub App installation concept, so their
+	// repository discovery is disabled rather than borrowing user credentials.
+	if (account.providerId !== "github") {
+		log.info(
+			"Repository discovery skipped (App installation discovery is only available for cloud GitHub).",
+			{ providerId: account.providerId, userId },
+		);
 		return {
 			syncedRepositories: 0,
 			workspaceIds: [] as string[],
@@ -676,13 +681,11 @@ async function refreshRepositoriesForAccount(
 	}
 
 	try {
-		const provider = account.providerId.startsWith("enterprise-git:")
-			? enterpriseProviders.get(
-					account.providerId.replace("enterprise-git:", ""),
-				)
-			: null;
+		// Cloud GitHub repositories have no enterprise provider record; provider
+		// naming falls back to the GitHub defaults.
+		const provider = null;
 
-		const repositories = await adapter.listRepositories();
+		const repositories = await listAppRepositoriesForAccount(account);
 		const seenRepositoryIds = new Set<string>();
 		const seenWorkspaceIds = new Set<string>();
 
@@ -1178,12 +1181,20 @@ export async function addRepositoryForUser({
 		? enterpriseProviders.get(account.providerId.replace("enterprise-git:", ""))
 		: null;
 
-	const adapter = await createAdapterFromAccount({
-		account,
-		enterpriseProviders,
+	// App-installation-only: resolve the GitHub App installation for this
+	// repository instead of using the OAuth login token of the user. GitLab and
+	// enterprise providers cannot authenticate as a GitHub App, so adding their
+	// repositories this way is disabled.
+	const adapter = await createAppAdapterForRepositoryPath({
+		providerId: account.providerId,
+		repositoryPath,
 	});
 
 	if (!adapter) {
+		log.info(
+			"Repository could not be added (App installation access is unavailable; GitLab and enterprise providers are not supported).",
+			{ providerId: account.providerId, userId, repositoryPath },
+		);
 		return null;
 	}
 

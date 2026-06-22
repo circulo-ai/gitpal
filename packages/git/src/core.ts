@@ -469,6 +469,20 @@ export function getGitProviderLabel(provider: string) {
 	return provider;
 }
 
+export function splitMultiSegmentPath(repositoryPath: string) {
+    const segments = repositoryPath.split("/").filter(Boolean);
+    if (segments.length < 2) {
+        throw new Error("Invalid repository path layout.");
+    }
+    // For GitHub: owner = segments[0], repo = segments[1]
+    // For GitLab: path_with_namespace requires encoding everything safely
+    return {
+        firstSegment: segments[0],
+        lastSegment: segments[segments.length - 1],
+        fullNamespacePath: segments.join("/"),
+    };
+}
+
 export function splitRepositoryPath(repositoryPath: string) {
 	const segments = repositoryPath.split("/").filter(Boolean);
 

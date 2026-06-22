@@ -34,7 +34,6 @@ import { createLogger } from "@gitpal/logger";
 import type { WorkspaceSettings } from "@gitpal/utils";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
-	createAdapterFromAccount,
 	createAppAdapterForRepository,
 	type EnterpriseProvider,
 	type GitAccount,
@@ -1353,11 +1352,43 @@ async function requestProviderNativeReviewers({
 			reviewerIds: [] as number[],
 		};
 	}
-	const enterpriseProviders = await getEnterpriseProviderMap();
+	// Stored-identity mapping: resolve each reviewer candidate provider identity
+	// from data we already have (their connected account id plus synced workspace
+	// member logins). We never authenticate as the candidate to call the
+	// provider, so no user OAuth login token is used here.
+	const providerMembers = await db
+		.select({
+			providerMemberId:
+				dashboardSchema.providerWorkspaceMember.providerMemberId,
+			login: dashboardSchema.providerWorkspaceMember.login,
+		})
+		.from(dashboardSchema.providerWorkspaceMember)
+		.where(
+			and(
+				eq(
+					dashboardSchema.providerWorkspaceMember.organizationId,
+					repository.organizationId,
+				),
+				eq(
+					dashboardSchema.providerWorkspaceMember.providerId,
+					repository.providerId,
+				),
+			),
+		);
+	const loginByMemberId = new Map(
+		providerMembers.map((member) => [member.providerMemberId, member.login]),
+	);
 	const automationIdentity = await automationActor.adapter
 		.getCurrentUser()
 		.catch(() => null);
-	const pullRequestAuthorIdentity = pullRequest.author;
+	const automationIdentityKey = getActorIdentityKey(
+		automationIdentity,
+		providerType,
+	);
+	const pullRequestAuthorIdentityKey = getActorIdentityKey(
+		pullRequest.author,
+		providerType,
+	);
 	const target = {
 		reviewers: new Set<string>(),
 		reviewerIds: new Set<number>(),
@@ -1366,64 +1397,47 @@ async function requestProviderNativeReviewers({
 		if (candidate.access.userId === automationActor.userId) {
 			continue;
 		}
-		const candidateAdapter = await createAdapterFromAccount({
-			account: candidate.account as GitAccount,
-			enterpriseProviders,
-		}).catch((error) => {
-			log.warn(
-				{
-					err: error,
-					repositoryId: repository.id,
-					providerId: repository.providerId,
-					userId: candidate.access.userId,
-				},
-				"Reviewer candidate provider credentials were unavailable.",
-			);
-			return null;
-		});
-		if (!candidateAdapter?.capabilities.reviewers) {
+		const account = candidate.account as GitAccount;
+		if (account.providerId !== repository.providerId || !account.accountId) {
 			continue;
 		}
-		const providerActor = await candidateAdapter
-			.getCurrentUser()
-			.catch(() => null);
-		if (!providerActor) {
-			continue;
-		}
+		// Build the candidate provider identity from stored data only.
+		const candidateActor: GitActor = {
+			id: account.accountId,
+			login: loginByMemberId.get(account.accountId) ?? null,
+			name: null,
+			email: null,
+			avatarUrl: null,
+			htmlUrl: null,
+			kind: "user",
+		};
 		const providerIdentityKey = getActorIdentityKey(
-			providerActor,
+			candidateActor,
 			providerType,
 		);
-		const automationIdentityKey = getActorIdentityKey(
-			automationIdentity,
-			providerType,
-		);
-		const pullRequestAuthorIdentityKey = getActorIdentityKey(
-			pullRequestAuthorIdentity,
-			providerType,
-		);
+		if (!providerIdentityKey) {
+			continue;
+		}
 		if (
-			providerIdentityKey &&
 			automationIdentityKey &&
 			providerIdentityKey === automationIdentityKey
 		) {
 			continue;
 		}
 		if (
-			providerIdentityKey &&
 			pullRequestAuthorIdentityKey &&
 			providerIdentityKey === pullRequestAuthorIdentityKey
 		) {
 			continue;
 		}
 		if (providerType === "github") {
-			const login = providerActor.login?.trim();
+			const login = candidateActor.login?.trim();
 			if (!login) {
 				continue;
 			}
 			target.reviewers.add(login);
 		} else {
-			const reviewerId = Number(providerActor.id);
+			const reviewerId = Number(candidateActor.id);
 			if (!Number.isInteger(reviewerId) || reviewerId <= 0) {
 				continue;
 			}
@@ -3289,16 +3303,15 @@ export async function syncRepositoryWebhooksForUser({
 			result.skipped += 1;
 			continue;
 		}
-		const accountAdapter = await createAdapterFromAccount({
-			account: account as GitAccount,
-			enterpriseProviders,
-			webhookSecrets: target.secret ? [target.secret] : [],
-			webhookSigningSecrets: target.signingSecret ? [target.signingSecret] : [],
-		});
-		const webhookAdapter =
+		// App-installation-only: webhook setup authenticates as the GitHub App
+		// installation. We never fall back to the OAuth login token of the user.
+		// GitLab and enterprise providers cannot authenticate as a GitHub App, so
+		// their webhook setup is disabled rather than borrowing user credentials.
+		const adapter =
 			repository.providerId === "github"
 				? await createAppAdapterForRepository({
 						repository,
+						webhookSecrets: target.secret ? [target.secret] : [],
 					}).catch((error) => {
 						log.debug(
 							{
@@ -3311,9 +3324,11 @@ export async function syncRepositoryWebhooksForUser({
 						return null;
 					})
 				: null;
-		const adapter = webhookAdapter ?? accountAdapter;
 		if (!adapter) {
 			result.skipped += 1;
+			result.errors.push(
+				`${repository.fullName}: webhook setup requires GitHub App installation access (GitLab and enterprise providers are not supported).`,
+			);
 			continue;
 		}
 		try {

@@ -8,10 +8,7 @@ import {
 	enqueueRepositoryReviewRunJob,
 } from "@gitpal/jobs/inngest/functions/ai-workflows";
 import { and, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
-import {
-	createAdapterForUserProvider,
-	getAutomationActorForRepository,
-} from "./git-provider-access";
+import { getAutomationActorForRepository } from "./git-provider-access";
 import { projectIssueSnapshot } from "./issue-projection";
 import { projectPullRequestSnapshot } from "./pr-projection";
 import { listRepositoriesForUser } from "./repository-sync";
@@ -313,23 +310,17 @@ export async function getWorkItemDetail({
 }
 
 async function adapterForWorkItem(
-	userId: string,
 	repository: Awaited<ReturnType<typeof accessibleRepository>>,
 ) {
 	if (!repository) return null;
-	const userAdapter = await createAdapterForUserProvider({
-		userId,
+	// App/installation-only: automation credentials always come from the
+	// provider App installation resolved for this repository. We never fall back
+	// to the OAuth login token the user authenticated to GitPal with.
+	const automationActor = await getAutomationActorForRepository({
+		repositoryId: repository.id,
 		providerId: repository.providerId,
 	});
-	if (userAdapter) return userAdapter;
-	return (
-		(
-			await getAutomationActorForRepository({
-				repositoryId: repository.id,
-				providerId: repository.providerId,
-			})
-		)?.adapter ?? null
-	);
+	return automationActor?.adapter ?? null;
 }
 
 export async function refreshWorkItem(input: {
@@ -341,7 +332,7 @@ export async function refreshWorkItem(input: {
 }) {
 	const repository = await accessibleRepository(input);
 	if (!repository) return null;
-	const adapter = await adapterForWorkItem(input.userId, repository);
+	const adapter = await adapterForWorkItem(repository);
 	if (!adapter)
 		throw new Error(
 			"No provider credentials are available for this repository.",

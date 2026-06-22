@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
 	type GitActor,
@@ -197,9 +197,6 @@ const capabilities: GitProviderCapabilities = {
 	reviewers: true,
 	webhooks: true,
 	commitStatuses: true,
-	// The GitLab adapter intentionally rejects GitHub App authentication (see
-	// createGitLabRequestHeaders), so it cannot perform app-based auth. Reporting
-	// true here would be a capability lie that misleads trust-sensitive callers.
 	appAuthentication: false,
 };
 const GITLAB_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
@@ -418,11 +415,6 @@ const gitlabMergeRequestReviewersSchema = z.object({
 		.default([]),
 });
 
-/**
- * Classify a GitLab MR system note into a review state. GitLab emits system
- * notes such as "approved this merge request" / "unapproved this merge request"
- * — the only approval signal that carries a timestamp.
- */
 function classifyGitLabApprovalNote(
 	body: string,
 ): GitPullRequestReview["state"] | null {
@@ -603,18 +595,9 @@ function getGitLabFileStatus(change: {
 	renamed_file?: boolean;
 	deleted_file?: boolean;
 }): GitPullRequestFileStatus {
-	if (change.deleted_file) {
-		return "removed";
-	}
-
-	if (change.renamed_file) {
-		return "renamed";
-	}
-
-	if (change.new_file) {
-		return "added";
-	}
-
+	if (change.deleted_file) return "removed";
+	if (change.renamed_file) return "renamed";
+	if (change.new_file) return "added";
 	return "modified";
 }
 
@@ -756,11 +739,8 @@ function createMergeRequestUrl(
 }
 
 function constantTimeEquals(a: string, b: string): boolean {
-	const aBuffer = Buffer.from(a);
-	const bBuffer = Buffer.from(b);
-	// timingSafeEqual throws if the buffers differ in length, so guard first.
-	// The early length check is not itself a meaningful timing leak for opaque
-	// random tokens.
+	const aBuffer = Buffer.from(a, "utf8");
+	const bBuffer = Buffer.from(b, "utf8");
 	if (aBuffer.length !== bBuffer.length) {
 		return false;
 	}
@@ -820,7 +800,7 @@ function verifyGitLabWebhookSignature({
 	}
 
 	const receivedSignatures = signatureHeader
-		.split(/\s+/)
+		.split(",")
 		.map((signature) => signature.trim())
 		.filter(Boolean);
 	if (receivedSignatures.length === 0) {
@@ -849,10 +829,6 @@ function verifyGitLabWebhookSignature({
 	return false;
 }
 
-// Maps a raw GitLab event name (header value or object_kind, lowercased) onto
-// the unified event taxonomy. Order matters: "tag push" must be checked before
-// the generic "push" check, otherwise tag pushes are misclassified as branch
-// pushes and the tag_push branch becomes dead code.
 function mapGitLabWebhookEvent(rawEvent: string): string {
 	if (rawEvent.includes("merge request")) return "pull_request";
 	if (rawEvent.includes("tag")) return "tag_push";
@@ -906,8 +882,6 @@ function createGitLabWebhookVerifier(
 				return false;
 			}
 
-			// Constant-time comparison against every configured secret to avoid
-			// leaking the secret through response-timing side channels.
 			return legacySecrets.some((secret) => constantTimeEquals(token, secret));
 		},
 		parse: ({ headers, rawBody }) => {
@@ -930,7 +904,8 @@ function createGitLabWebhookVerifier(
 				deliveryId:
 					getHeaderValue(headers, "webhook-id") ??
 					getHeaderValue(headers, "x-gitlab-event-uuid") ??
-					getHeaderValue(headers, "idempotency-key"),
+					getHeaderValue(headers, "idempotency-key") ??
+					createHash("sha256").update(rawBody).digest("hex"),
 				repository:
 					payload.project && typeof payload.project === "object"
 						? mapRepository(
@@ -959,10 +934,6 @@ function createGitLabWebhookVerifier(
 											? (payload.project
 													.namespace as GitLabProject["namespace"])
 											: null,
-									// NOTE: a GitLab webhook's `payload.user` is the *sender* of
-									// the event, not the repository owner. Passing it as owner
-									// mislabels every webhook-sourced repository. Leave it null so
-									// mapWorkspace derives ownership from the project namespace.
 									owner: null,
 								},
 								providerId,
@@ -1087,28 +1058,21 @@ export function createGitLabAdapter({
 			];
 		}
 
-		const members: GitWorkspaceMember[] = [];
-		for (let page = 1; page <= 100; page += 1) {
-			const response = await requestJson<unknown>(
-				`${normalizedApiBaseUrl}/groups/${encodeURIComponent(
-					workspace.providerOwnerPath,
-				)}/members/all?per_page=100&page=${page}`,
-				{
-					headers: {
-						...createGitLabRequestHeaders(auth),
-					},
+		const response = await requestJsonPages<unknown>(
+			`${normalizedApiBaseUrl}/groups/${encodeURIComponent(
+				workspace.providerOwnerPath,
+			)}/members/all`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(auth),
 				},
-				providerId,
-			);
-			const pageMembers = z.array(gitlabGroupMemberSchema).parse(response);
-			members.push(...pageMembers.map(mapWorkspaceMember));
+			},
+			providerId,
+			{ maxPages: 100 },
+		);
 
-			if (pageMembers.length < 100) {
-				break;
-			}
-		}
-
-		return members;
+		const members = z.array(gitlabGroupMemberSchema).parse(response);
+		return members.map(mapWorkspaceMember);
 	}
 
 	async function getRepository(
@@ -1300,10 +1264,6 @@ export function createGitLabAdapter({
 		const reviews: GitPullRequestReview[] = [];
 		const seenApprovers = new Set<string>();
 
-		// GitLab has no GitHub-style "reviews" resource. The closest signal that
-		// carries a timestamp is the system note emitted when a user approves or
-		// unapproves an MR, so we derive reviews from those. (Ordinary review
-		// comments are returned by listPullRequestComments, not here.)
 		const notesResponse = await requestJsonPages<unknown>(
 			`${mergeRequestUrl}/notes`,
 			{
@@ -1318,13 +1278,11 @@ export function createGitLabAdapter({
 			.catch([])
 			.parse(notesResponse);
 		for (const note of notes) {
-			if (!note.system) {
-				continue;
-			}
+			if (!note.system) continue;
+			
 			const state = classifyGitLabApprovalNote(note.body);
-			if (!state) {
-				continue;
-			}
+			if (!state) continue;
+			
 			const author = mapActor(note.author ?? undefined);
 			if (author?.id) {
 				seenApprovers.add(author.id);
@@ -1342,11 +1300,6 @@ export function createGitLabAdapter({
 			});
 		}
 
-		// Fold in the current approval state so approvals that predate the notes
-		// history (or were recorded without a system note) are still represented.
-		// The approvals endpoint exposes no per-user timestamp, so submittedAt is
-		// null for these. Best-effort: the endpoint may be unavailable on some
-		// plans / permission levels.
 		try {
 			const approvalsResponse = await requestJson<unknown>(
 				`${mergeRequestUrl}/approvals`,
@@ -1362,9 +1315,7 @@ export function createGitLabAdapter({
 				.parse(approvalsResponse);
 			for (const entry of approvals.approved_by ?? []) {
 				const author = mapActor(entry.user ?? undefined);
-				if (author?.id && seenApprovers.has(author.id)) {
-					continue;
-				}
+				if (author?.id && seenApprovers.has(author.id)) continue;
 				if (author?.id) {
 					seenApprovers.add(author.id);
 				}
@@ -1381,7 +1332,6 @@ export function createGitLabAdapter({
 				});
 			}
 		} catch {
-			// Notes-derived reviews already cover the timestamped signal; ignore.
 		}
 
 		return reviews.sort((left, right) =>
@@ -1509,36 +1459,27 @@ export function createGitLabAdapter({
 		const limit = Math.min(Math.max(input.limit ?? 100, 1), 100);
 		const query = input.query?.trim();
 		const searchParams = query ? `&search=${encodeURIComponent(query)}` : "";
-		const pageSize = 100;
-		const labels: GitRepositoryLabel[] = [];
 
-		for (let page = 1; page <= 100; page += 1) {
-			const response = await requestJson<unknown>(
-				`${createRepositoryUrl(
-					normalizedApiBaseUrl,
-					input.repositoryPath,
-				)}/labels?with_counts=false&per_page=${pageSize}&page=${page}${searchParams}`,
-				{
-					headers: {
-						...createGitLabRequestHeaders(auth),
-					},
+		const response = await requestJsonPages<unknown>(
+			`${createRepositoryUrl(
+				normalizedApiBaseUrl,
+				input.repositoryPath,
+			)}/labels?with_counts=false${searchParams}`,
+			{
+				headers: {
+					...createGitLabRequestHeaders(auth),
 				},
-				providerId,
+			},
+			providerId,
+			{ maxPages: 100 },
+		);
+
+		const labels = z
+			.array(gitlabLabelSchema)
+			.parse(response)
+			.map((label) =>
+				mapRepositoryLabel(label, providerId, input.repositoryPath),
 			);
-
-			const pageLabels = z
-				.array(gitlabLabelSchema)
-				.parse(response)
-				.map((label) =>
-					mapRepositoryLabel(label, providerId, input.repositoryPath),
-				);
-
-			labels.push(...pageLabels);
-
-			if (pageLabels.length < pageSize || labels.length >= limit) {
-				break;
-			}
-		}
 
 		return labels.slice(0, limit);
 	}
@@ -1577,9 +1518,6 @@ export function createGitLabAdapter({
 			input.pullRequestNumber,
 		);
 
-		// When the caller supplies file/line context AND the diff SHAs GitLab needs
-		// to anchor an inline comment, post a diff discussion so the behavior
-		// matches GitHub's review comments. Otherwise fall back to a plain MR note.
 		const canPostDiffComment =
 			Boolean(input.path) &&
 			typeof input.line === "number" &&
@@ -1592,13 +1530,10 @@ export function createGitLabAdapter({
 				position_type: "text",
 				base_sha: input.baseSha,
 				head_sha: input.headSha,
-				// GitLab requires start_sha; default it to base_sha when the caller did
-				// not provide an explicit one.
 				start_sha: input.startSha ?? input.baseSha,
 				new_path: input.path,
 				old_path: input.path,
 			};
-			// GitLab anchors a line on either the old or new side of the diff.
 			if (onOldSide) {
 				position.old_line = input.line;
 			} else {
@@ -1631,8 +1566,6 @@ export function createGitLabAdapter({
 					input.pullRequestNumber,
 				);
 			}
-			// If GitLab somehow returned an empty discussion, fall through to a plain
-			// note so the contract still resolves with a comment.
 		}
 
 		const response = await requestJson<unknown>(
@@ -1746,9 +1679,6 @@ export function createGitLabAdapter({
 			teamReviewers?: string[];
 		},
 	) {
-		// GitLab assigns reviewers by numeric user id. Start from any explicit ids,
-		// then resolve usernames -> ids so the unified `reviewers` field is honored
-		// the same way GitHub honors it (GitHub accepts usernames directly).
 		const reviewerIds = new Set<number>(input.reviewerIds ?? []);
 
 		for (const username of input.reviewers ?? []) {
@@ -1758,8 +1688,6 @@ export function createGitLabAdapter({
 			}
 		}
 
-		// GitLab has no first-class "team reviewers" concept on an MR. Rather than
-		// silently dropping them (a trust hazard), surface it explicitly.
 		if ((input.teamReviewers?.length ?? 0) > 0) {
 			throw new GitProviderConfigurationError(
 				"GitLab does not support team reviewers on merge requests.",
@@ -1776,11 +1704,6 @@ export function createGitLabAdapter({
 			input.pullRequestNumber,
 		);
 
-		// GitLab's MR update REPLACES reviewer_ids wholesale, whereas GitHub's
-		// requestReviewers is additive. Read the current reviewers first and union
-		// them so previously-assigned reviewers are never silently dropped (parity
-		// with GitHub). Best-effort: if the read fails we fall back to setting just
-		// the resolved set rather than failing the assignment outright.
 		try {
 			const current = await requestJson<unknown>(
 				mergeRequestUrl,
@@ -1798,7 +1721,6 @@ export function createGitLabAdapter({
 				reviewerIds.add(reviewer.id);
 			}
 		} catch {
-			// Could not read existing reviewers; proceed with the resolved set only.
 		}
 
 		await requestJson<unknown>(
@@ -1826,15 +1748,10 @@ export function createGitLabAdapter({
 			removeSourceBranch?: boolean;
 		},
 	) {
-		// Map the unified merge method onto GitLab's flags. GitLab's merge endpoint
-		// only distinguishes squash vs. a normal merge commit; a true "rebase"
-		// merge uses a different endpoint, so it is approximated by a normal merge.
 		const squash = input.mergeMethod === "squash";
 
 		const body: Record<string, unknown> = {
 			merge_commit_message: input.message,
-			// Default to false so behavior matches GitHub, which never deletes the
-			// source branch on merge. Branch cleanup must be opted into explicitly.
 			should_remove_source_branch: input.removeSourceBranch ?? false,
 			squash,
 		};

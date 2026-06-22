@@ -380,7 +380,7 @@ export function RepositoriesPage() {
 												>
 													<RefreshCcwIcon />
 													{syncMutation.isPending
-												? "Syncing…"
+														? "Syncing…"
 														: `Sync ${provider.label}`}
 												</Button>
 											</div>

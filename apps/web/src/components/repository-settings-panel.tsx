@@ -151,7 +151,7 @@ export function RepositorySettingsPanel({
 			<Card>
 				<CardHeader>
 					<CardTitle>Repository settings</CardTitle>
-				<CardDescription>Loading repository settings…</CardDescription>
+					<CardDescription>Loading repository settings…</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<div className="h-96 rounded-2xl border border-border/60 bg-muted/10" />

@@ -121,7 +121,10 @@ export const auth = createAuth();
 
 function isLikelyEncryptedProviderToken(token: string | null) {
 	if (!token) return true;
-	return token.startsWith("$ba$") || (token.length % 2 === 0 && /^[0-9a-f]+$/i.test(token));
+	return (
+		token.startsWith("$ba$") ||
+		(token.length % 2 === 0 && /^[0-9a-f]+$/i.test(token))
+	);
 }
 
 async function encryptLegacyProviderTokens() {

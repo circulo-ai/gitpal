@@ -52,7 +52,6 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
-import { InstallWizardLink } from "./install-wizard-link";
 import { ProviderSyncButton } from "./provider-sync-button";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
 import { formatWorkspaceScope } from "./workspace-scope";
@@ -354,9 +353,6 @@ export function TeamManagementPage() {
 									</EmptyDescription>
 								</EmptyHeader>
 							</Empty>
-							<div className="mt-4 flex flex-wrap gap-2">
-								<InstallWizardLink />
-							</div>
 						</>
 					) : teamMembersQuery.isLoading ? (
 						<TeamMembersSkeleton />

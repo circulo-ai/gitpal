@@ -85,7 +85,7 @@ services:
       INNGEST_LOG_LEVEL: ${INNGEST_LOG_LEVEL:-info}
       INNGEST_JSON: ${INNGEST_JSON:-false}
       INNGEST_VERBOSE: ${INNGEST_VERBOSE:-false}
-      INNGEST_DEV: 0
+      INNGEST_DEV: 1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

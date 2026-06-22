@@ -40,11 +40,8 @@ type ProviderMode = "cloud" | "enterprise";
 
 type ProviderAvailability = Record<ProviderId, Record<ProviderMode, boolean>>;
 
-type AuthPageMode = "login" | "install";
-
 type AuthPageProps = {
 	availability: ProviderAvailability;
-	mode?: AuthPageMode;
 };
 
 type ProviderConfig = {
@@ -422,10 +419,7 @@ function PromptDialog({
 	);
 }
 
-export default function AuthPage({
-	availability,
-	mode = "login",
-}: AuthPageProps) {
+export default function AuthPage({ availability }: AuthPageProps) {
 	const [providerModes, setProviderModes] = useState<StoredModes>(() =>
 		defaultModes(),
 	);
@@ -565,23 +559,13 @@ export default function AuthPage({
 		}
 	}
 
-	const heroHeadline =
-		mode === "install"
-			? "Install GitPal in two clicks."
-			: "Two clicks from better reviews.";
+	const heroHeadline = "Two clicks from better reviews.";
 	const heroDescription =
-		mode === "install"
-			? "Connect GitHub or GitLab, choose cloud or enterprise, and GitPal will remember the workspace setup on this device."
-			: "Keep developers moving while GitHub and GitLab auth stays straightforward across cloud and enterprise installs.";
-	const panelTitle = mode === "install" ? "Install GitPal" : "Sign into GitPal";
-	const panelDescription =
-		mode === "install"
-			? "Pick the provider and installation mode that matches your workspace."
-			: "Welcome back, let's start reviewing.";
+		"Keep developers moving while GitHub and GitLab auth stays straightforward across cloud and enterprise installs.";
+	const panelTitle = "Sign into GitPal";
+	const panelDescription = "Welcome back, let's start reviewing.";
 	const footerNote =
-		mode === "install"
-			? "Built for GitHub and GitLab across cloud and enterprise installations."
-			: "Built for GitHub and GitLab across cloud and enterprise deployments.";
+		"Built for GitHub and GitLab across cloud and enterprise deployments.";
 
 	return (
 		<div className="dark relative min-h-svh overflow-hidden bg-[#0b0910] text-white">

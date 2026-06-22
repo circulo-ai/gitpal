@@ -6,7 +6,6 @@ import AuthPage from "@/components/auth-page";
 export default function LoginPage() {
 	return (
 		<AuthPage
-			mode="login"
 			availability={{
 				github: {
 					cloud: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),

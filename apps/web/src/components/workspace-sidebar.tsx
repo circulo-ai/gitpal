@@ -75,8 +75,8 @@ function WorkspaceSwitcher() {
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SidebarMenuButton
-								tooltip="Open install wizard"
-								render={<Link href="/install" />}
+								tooltip="Sync workspaces"
+								render={<Link href="/login" />}
 							>
 								<span>Open install wizard</span>
 							</SidebarMenuButton>

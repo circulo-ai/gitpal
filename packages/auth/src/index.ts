@@ -107,12 +107,15 @@ export function createAuth() {
 			}),
 		],
 		advanced: {
-			defaultCookieAttributes: {
-				sameSite: "lax",
-				secure: env.NODE_ENV === "production",
-				httpOnly: true,
-				domain: env.BETTER_AUTH_COOKIE_DOMAIN ?? undefined,
-			},
+			defaultCookieAttributes:
+				env.NODE_ENV === "production"
+					? {
+							sameSite: "lax",
+							secure: env.NODE_ENV === "production",
+							httpOnly: true,
+							domain: env.BETTER_AUTH_COOKIE_DOMAIN ?? undefined,
+						}
+					: undefined,
 		},
 	});
 }

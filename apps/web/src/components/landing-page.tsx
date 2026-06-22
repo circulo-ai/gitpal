@@ -269,7 +269,7 @@ export default function LandingPage({
 			</div>
 
 			{/* header */}
-			<header className="mx-auto grid max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-6 px-6 pt-6 sm:px-8 lg:px-10">
+			<header className="mx-auto grid max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-6 ps-6 pt-6 sm:px-8 lg:px-10">
 				<Link href="/" className="flex items-center gap-3">
 					<GitPalMark title="GitPal" />
 					<span className="font-semibold text-[1.45rem] tracking-[-0.04em]">
@@ -290,13 +290,12 @@ export default function LandingPage({
 						</Link>
 					))}
 				</nav>
-				<div className="ms-auto flex items-center gap-2">
+				<div className="ms-auto flex items-center justify-end gap-2">
 					<Button
 						variant="outline"
 						className="w-max"
 						render={
-							// biome-ignore lint/a11y/useAnchorContent: Base UI renders this anchor with the Button children below.
-							<a
+							<Link
 								href="https://github.com/circulo-ai/gitpal"
 								target="_blank"
 								rel="noreferrer"
@@ -312,7 +311,7 @@ export default function LandingPage({
 							{formatGitHubStarsCompact(githubStars)}
 						</span>
 					</Button>
-					<Button className="w-max" render={<Link href="/install" />}>
+					<Button className="w-max" render={<Link href="/login" />}>
 						Get started
 					</Button>
 				</div>

@@ -25,6 +25,7 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	output: "standalone",
 	poweredByHeader: false,
+	devIndicators: false,
 	async headers() {
 		return [
 			{

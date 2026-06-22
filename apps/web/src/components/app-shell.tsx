@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-const AUTH_ROUTES = ["/login", "/signup", "/install"];
+const AUTH_ROUTES = ["/login", "/signup"];
 const WORKSPACE_ROUTES = [
 	"/dashboard",
 	"/repositories",

@@ -506,7 +506,7 @@ async function findEnterpriseGitProvider(
 	return provider ?? null;
 }
 
-async function findEnterpriseGitProviderById(id: string) {
+export async function findEnterpriseGitProviderById(id: string) {
 	const [provider] = await db
 		.select()
 		.from(schema.enterpriseGitProvider)
@@ -516,7 +516,9 @@ async function findEnterpriseGitProviderById(id: string) {
 	return provider ?? null;
 }
 
-function createEnterpriseGitOAuthConfig(provider: EnterpriseGitProviderRecord) {
+export function createEnterpriseGitOAuthConfig(
+	provider: EnterpriseGitProviderRecord,
+) {
 	const clientSecret = decryptSecret(provider.encryptedClientSecret);
 
 	return provider.type === "github"

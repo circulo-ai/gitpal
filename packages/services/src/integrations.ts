@@ -72,6 +72,12 @@ export type PublicIntegrationConnection = {
 	knowledgeBase: ConnectorKnowledgeBaseSettings | null;
 	lastValidatedAt: string | null;
 	lastUsedAt: string | null;
+	oauthHealth: {
+		state: "not_applicable" | "healthy" | "refresh_due" | "reconnect_required";
+		expiresAt: string | null;
+		lastRefreshedAt: string | null;
+		lastError: string | null;
+	};
 	createdAt: string;
 	updatedAt: string;
 };
@@ -108,6 +114,8 @@ export type LinearIssueSearchResult = {
 
 const log = createLogger("integrations");
 const oauthStateTtlMs = 10 * 60 * 1000;
+const oauthRefreshSkewMs = 5 * 60 * 1000;
+const scheduledOAuthRefreshWindowMs = 24 * 60 * 60 * 1000;
 const notionVersion = "2026-03-11";
 const connectorCredentialSchema = z.object({
 	apiKey: z.string().optional(),
@@ -167,6 +175,41 @@ function getConnectionMetadata(row: IntegrationConnectionRow) {
 	return row.metadata && typeof row.metadata === "object"
 		? (row.metadata as Record<string, unknown>)
 		: {};
+}
+
+function getOAuthHealth(
+	row: IntegrationConnectionRow,
+	credential: StoredConnectorCredential | null,
+) {
+	if (row.authMethod !== "oauth") {
+		return {
+			state: "not_applicable" as const,
+			expiresAt: null,
+			lastRefreshedAt: null,
+			lastError: null,
+		};
+	}
+	const metadata = getConnectionMetadata(row);
+	const expiresAt = credential?.oauth?.expiresAt ?? null;
+	const expiresAtMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+	return {
+		state:
+			metadata.oauthReconnectRequired === true
+				? ("reconnect_required" as const)
+				: Number.isFinite(expiresAtMs) &&
+						expiresAtMs <= Date.now() + oauthRefreshSkewMs
+					? ("refresh_due" as const)
+					: ("healthy" as const),
+		expiresAt,
+		lastRefreshedAt:
+			typeof metadata.oauthLastRefreshedAt === "string"
+				? metadata.oauthLastRefreshedAt
+				: null,
+		lastError:
+			typeof metadata.oauthLastRefreshError === "string"
+				? metadata.oauthLastRefreshError
+				: null,
+	};
 }
 
 function getKnowledgeBaseSettings({
@@ -265,6 +308,7 @@ function buildConnectorRequestHeaders(
 
 function toPublicConnection(
 	row: IntegrationConnectionRow,
+	includeSensitive = true,
 ): PublicIntegrationConnection {
 	const credential = decryptCredential(row.credentialEnvelope);
 	const metadata = getConnectionMetadata(row);
@@ -279,10 +323,14 @@ function toPublicConnection(
 		usageGuidance: row.usageGuidance,
 		authMethod: parseConnectorAuthMethod(row.authMethod),
 		headerPreview:
-			row.headerPreview && typeof row.headerPreview === "object"
+			includeSensitive &&
+			row.headerPreview &&
+			typeof row.headerPreview === "object"
 				? row.headerPreview
 				: {},
-		credentialPreview: getCredentialPreview(credential),
+		credentialPreview: includeSensitive
+			? getCredentialPreview(credential)
+			: null,
 		status: parseConnectorStatus(row.status),
 		enabled: row.enabled,
 		rateLimit: {
@@ -295,6 +343,7 @@ function toPublicConnection(
 		}),
 		lastValidatedAt: row.lastValidatedAt?.toISOString() ?? null,
 		lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+		oauthHealth: getOAuthHealth(row, credential),
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 	};
@@ -413,9 +462,11 @@ export function listIntegrationProviderCatalog(type?: ConnectorType) {
 export async function listIntegrationConnections({
 	organizationId,
 	type,
+	includeSensitive = true,
 }: {
 	organizationId: string;
 	type?: ConnectorType;
+	includeSensitive?: boolean;
 }) {
 	const rows = await db
 		.select()
@@ -433,7 +484,7 @@ export async function listIntegrationConnections({
 
 	return rows
 		.filter((row) => (type ? row.providerType === type : true))
-		.map(toPublicConnection);
+		.map((row) => toPublicConnection(row, includeSensitive));
 }
 
 export async function upsertIntegrationConnection({
@@ -897,6 +948,20 @@ export async function createEnabledMcpToolSetForOrganization({
 				eq(integrationSchema.integrationConnection.enabled, true),
 			),
 		);
+	const credentials = new Map(
+		await Promise.all(
+			connections.map(async (connection) => {
+				try {
+					return [
+						connection.id,
+						await getFreshConnectionCredential(connection),
+					] as const;
+				} catch {
+					return [connection.id, null] as const;
+				}
+			}),
+		),
+	);
 	const connectionById = new Map(
 		connections.map((connection) => [connection.id, connection]),
 	);
@@ -904,7 +969,8 @@ export async function createEnabledMcpToolSetForOrganization({
 	return createConnectorMcpToolSet({
 		connections: connections.flatMap((connection) => {
 			const provider = getConnectorProvider(connection.providerId);
-			if (!provider || connection.status !== "connected") {
+			const credential = credentials.get(connection.id) ?? null;
+			if (!provider || connection.status !== "connected" || !credential) {
 				return [];
 			}
 
@@ -927,9 +993,7 @@ export async function createEnabledMcpToolSetForOrganization({
 					providerId: connection.providerId,
 					label: connection.label,
 					serverUrl: connection.serverUrl,
-					headers: buildConnectorRequestHeaders(
-						decryptCredential(connection.credentialEnvelope),
-					),
+					headers: buildConnectorRequestHeaders(credential),
 				},
 			];
 		}),
@@ -1046,6 +1110,180 @@ function parseOAuthTokenResponse(value: unknown) {
 		expiresAt,
 		scopes,
 		raw: token,
+	};
+}
+
+async function requestRefreshedOAuthToken({
+	credential,
+	providerId,
+}: {
+	credential: StoredConnectorCredential;
+	providerId: string;
+}) {
+	const provider = getConnectorProvider(providerId);
+	const config = getOAuthClientConfig(providerId);
+	const refreshToken = credential.oauth?.refreshToken;
+	if (!provider?.oauth || !config || !refreshToken) {
+		throw new Error(
+			"OAuth refresh is unavailable. Reconnect this integration.",
+		);
+	}
+	const isNotion = config.provider === "notion";
+	const response = await fetch(provider.oauth.tokenUrl, {
+		method: "POST",
+		headers: isNotion
+			? {
+					Accept: "application/json",
+					"Content-Type": "application/json",
+					"Notion-Version": notionVersion,
+					Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
+				}
+			: {
+					Accept: "application/json",
+					"Content-Type": "application/x-www-form-urlencoded",
+				},
+		body: isNotion
+			? JSON.stringify({
+					grant_type: "refresh_token",
+					refresh_token: refreshToken,
+				})
+			: new URLSearchParams({
+					grant_type: "refresh_token",
+					refresh_token: refreshToken,
+					client_id: config.clientId,
+					client_secret: config.clientSecret,
+				}),
+	});
+	if (!response.ok) {
+		const reconnectRequired = [400, 401, 403].includes(response.status);
+		const error = new Error(
+			reconnectRequired
+				? "OAuth refresh was rejected. Reconnect this integration."
+				: `OAuth refresh returned ${response.status}; GitPal will retry.`,
+		) as Error & { reconnectRequired?: boolean };
+		error.reconnectRequired = reconnectRequired;
+		throw error;
+	}
+	return parseOAuthTokenResponse(await response.json());
+}
+
+async function getFreshConnectionCredential(
+	connection: IntegrationConnectionRow,
+	refreshWindowMs = oauthRefreshSkewMs,
+	refreshUnknownExpiry = false,
+) {
+	if (connection.authMethod !== "oauth") {
+		return decryptCredential(connection.credentialEnvelope);
+	}
+	try {
+		return await db.transaction(async (tx) => {
+			const [locked] = await tx
+				.select()
+				.from(integrationSchema.integrationConnection)
+				.where(eq(integrationSchema.integrationConnection.id, connection.id))
+				.limit(1)
+				.for("update");
+			if (!locked) return null;
+			const credential = decryptCredential(locked.credentialEnvelope);
+			const expiresAt = credential?.oauth?.expiresAt;
+			const metadata = getConnectionMetadata(locked);
+			const lastRefreshedAt =
+				typeof metadata.oauthLastRefreshedAt === "string"
+					? Date.parse(metadata.oauthLastRefreshedAt)
+					: locked.updatedAt.getTime();
+			const shouldRefreshUnknownExpiry =
+				refreshUnknownExpiry &&
+				Boolean(credential?.oauth?.refreshToken) &&
+				!expiresAt &&
+				Date.now() - lastRefreshedAt >= scheduledOAuthRefreshWindowMs;
+			if (
+				!credential?.oauth ||
+				(expiresAt
+					? Date.parse(expiresAt) > Date.now() + refreshWindowMs
+					: !shouldRefreshUnknownExpiry)
+			) {
+				return credential;
+			}
+			const token = await requestRefreshedOAuthToken({
+				credential,
+				providerId: locked.providerId,
+			});
+			const now = new Date();
+			const nextCredential: StoredConnectorCredential = {
+				...credential,
+				oauth: {
+					...credential.oauth,
+					accessToken: token.accessToken,
+					refreshToken: token.refreshToken ?? credential.oauth.refreshToken,
+					expiresAt: token.expiresAt,
+					scopes: token.scopes ?? credential.oauth.scopes,
+				},
+			};
+			await tx
+				.update(integrationSchema.integrationConnection)
+				.set({
+					credentialEnvelope: encryptCredential(nextCredential),
+					status: "connected",
+					metadata: {
+						...getConnectionMetadata(locked),
+						oauthLastRefreshedAt: now.toISOString(),
+						oauthLastRefreshError: null,
+						oauthReconnectRequired: false,
+					},
+					updatedAt: now,
+				})
+				.where(eq(integrationSchema.integrationConnection.id, locked.id));
+			return nextCredential;
+		});
+	} catch (error) {
+		const reconnectRequired =
+			(error as { reconnectRequired?: unknown })?.reconnectRequired === true;
+		const [current] = await db
+			.select()
+			.from(integrationSchema.integrationConnection)
+			.where(eq(integrationSchema.integrationConnection.id, connection.id))
+			.limit(1);
+		await db
+			.update(integrationSchema.integrationConnection)
+			.set({
+				status: reconnectRequired
+					? "error"
+					: (current?.status ?? connection.status),
+				metadata: {
+					...getConnectionMetadata(current ?? connection),
+					oauthLastRefreshError:
+						error instanceof Error ? error.message : "OAuth refresh failed.",
+					oauthReconnectRequired: reconnectRequired,
+				},
+				updatedAt: new Date(),
+			})
+			.where(eq(integrationSchema.integrationConnection.id, connection.id));
+		throw error;
+	}
+}
+
+export async function refreshExpiringIntegrationTokens() {
+	const connections = await db
+		.select()
+		.from(integrationSchema.integrationConnection)
+		.where(
+			and(
+				eq(integrationSchema.integrationConnection.authMethod, "oauth"),
+				eq(integrationSchema.integrationConnection.enabled, true),
+			),
+		);
+	const results = await Promise.allSettled(
+		connections.map((connection) =>
+			getFreshConnectionCredential(
+				connection,
+				scheduledOAuthRefreshWindowMs,
+				true,
+			),
+		),
+	);
+	return {
+		checked: connections.length,
+		failed: results.filter((result) => result.status === "rejected").length,
 	};
 }
 
@@ -1245,7 +1483,12 @@ export async function searchLinearIssuesForOrganization({
 		return [];
 	}
 
-	const credential = decryptCredential(connection.credentialEnvelope);
+	let credential: StoredConnectorCredential | null;
+	try {
+		credential = await getFreshConnectionCredential(connection);
+	} catch {
+		return [];
+	}
 	const knowledgeBase = getKnowledgeBaseSettings({
 		providerId: connection.providerId,
 		metadata: getConnectionMetadata(connection),

@@ -141,7 +141,7 @@ export function OrganizationSettingsPanel() {
 				open={isDirty}
 				title="Workspace defaults changed"
 				description="These edits apply to repositories that inherit workspace-level settings."
-				saveLabel={saveMutation.isPending ? "Saving..." : "Save defaults"}
+				saveLabel={saveMutation.isPending ? "Saving…" : "Save defaults"}
 				disabled={saveMutation.isPending || !settings}
 				onDiscard={() => {
 					if (savedSettings) {

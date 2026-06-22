@@ -5,7 +5,10 @@ import { type Database, db } from "@gitpal/db";
 import { env } from "@gitpal/env/server";
 import { createFunctions, inngest } from "@gitpal/jobs";
 import { createLogger } from "@gitpal/logger";
-import { expireStaleDurableState } from "@gitpal/services/durable-maintenance";
+import {
+	expireStaleDurableState,
+	refreshDurableCredentials,
+} from "@gitpal/services/durable-maintenance";
 import { completeIntegrationOAuthCallback } from "@gitpal/services/integrations";
 import {
 	isNowPaymentsWebhookEnabled,
@@ -57,6 +60,7 @@ const functions = createFunctions({
 			errorMessage,
 		}),
 	expireStaleDurableState,
+	refreshDurableCredentials,
 	dispatchPullRequestReconcile,
 	reconcilePullRequestsForRepository,
 	markPullRequestReconcileFailed,

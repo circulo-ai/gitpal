@@ -38,6 +38,7 @@ export type JobsDependencies = {
 	processRepositoryLabelerRunJob: RepositoryLabelerRunProcessor;
 	processRepositoryRunFailure: RepositoryRunFailureProcessor;
 	expireStaleDurableState: DurableStateMaintenanceProcessor;
+	refreshDurableCredentials: DurableStateMaintenanceProcessor;
 	dispatchPullRequestReconcile: PullRequestDispatchProcessor;
 	reconcilePullRequestsForRepository: PullRequestReconcileProcessor;
 	markPullRequestReconcileFailed: PullRequestReconcileFailureProcessor;
@@ -61,7 +62,10 @@ export function createFunctions(dependencies: JobsDependencies) {
 			dependencies.processRepositoryLabelerRunJob,
 			dependencies.processRepositoryRunFailure,
 		),
-		createDurableStateMaintenanceFunction(dependencies.expireStaleDurableState),
+		createDurableStateMaintenanceFunction(
+			dependencies.expireStaleDurableState,
+			dependencies.refreshDurableCredentials,
+		),
 		createPullRequestSyncFunction({
 			dispatchPullRequestReconcile: dependencies.dispatchPullRequestReconcile,
 			reconcilePullRequestsForRepository:

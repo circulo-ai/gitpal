@@ -9,6 +9,7 @@ export * from "./notifications";
 export * from "./nowpayments";
 export * from "./observability";
 export * from "./organization-access";
+export * from "./organization-budget";
 export * from "./pr-projection";
 export * from "./pr-reconcile";
 export * from "./rate-limit";

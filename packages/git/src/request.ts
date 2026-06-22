@@ -1,4 +1,4 @@
-import { GitProviderRequestError } from "./errors";
+import { GitProviderRateLimitError, GitProviderRequestError } from "./errors";
 
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const RETRYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -61,6 +61,16 @@ export async function requestJson<T>(
 				}
 
 				const body = await response.text();
+				if (response.status === 429) {
+					const retryAfterMs =
+						parseRetryAfter(response.headers.get("retry-after")) ?? 60_000;
+					throw new GitProviderRateLimitError(
+						`${providerId} rate limit reached. Retry in ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`,
+						providerId,
+						Math.max(1, Math.ceil(retryAfterMs / 1000)),
+						body || undefined,
+					);
+				}
 				throw new GitProviderRequestError(
 					`Request to ${url} failed with ${response.status} ${response.statusText}.`,
 					response.status,

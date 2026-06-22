@@ -250,6 +250,9 @@ export function IntegrationsPage() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
+	const canManageIntegrations = ["owner", "admin"].includes(
+		activeWorkspace?.role ?? "",
+	);
 	const [selectedType, setSelectedType] = React.useState<ConnectorType>("mcp");
 	const [dialogState, setDialogState] = React.useState<DialogState | null>(
 		null,
@@ -481,6 +484,15 @@ export function IntegrationsPage() {
 					</div>
 				</div>
 			</div>
+			{!canManageIntegrations ? (
+				<Alert>
+					<AlertTitle>Read-only integration access</AlertTitle>
+					<AlertDescription>
+						Members can inspect connector health and tools. Owners and admins
+						manage credentials and settings.
+					</AlertDescription>
+				</Alert>
+			) : null}
 
 			<Tabs
 				value={selectedType}
@@ -532,6 +544,7 @@ export function IntegrationsPage() {
 												<CardAction>
 													<Button
 														type="button"
+														disabled={!canManageIntegrations}
 														size="sm"
 														variant={primaryConnection ? "outline" : "default"}
 														onClick={() =>
@@ -576,6 +589,32 @@ export function IntegrationsPage() {
 															Scoped key
 														</Badge>
 													) : null}
+													{primaryConnection?.authMethod === "oauth" ? (
+														<div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm">
+															<div className="flex flex-wrap items-center justify-between gap-2">
+																<span className="font-medium">
+																	Background token refresh
+																</span>
+																<Badge
+																	variant={
+																		primaryConnection.oauthHealth.state ===
+																		"reconnect_required"
+																			? "destructive"
+																			: "secondary"
+																	}
+																>
+																	{primaryConnection.oauthHealth.state ===
+																	"reconnect_required"
+																		? "Reconnect required"
+																		: "Two-token refresh active"}
+																</Badge>
+															</div>
+															<p className="mt-2 text-muted-foreground text-xs">
+																{primaryConnection.oauthHealth.lastError ??
+																	"GitPal refreshes short-lived access tokens with the encrypted refresh token before expiry, even when nobody is signed in."}
+															</p>
+														</div>
+													) : null}
 												</div>
 												{primaryConnection ? (
 													<div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
@@ -591,7 +630,10 @@ export function IntegrationsPage() {
 														</div>
 														<Switch
 															checked={primaryConnection.enabled}
-															disabled={toggleMutation.isPending}
+															disabled={
+																toggleMutation.isPending ||
+																!canManageIntegrations
+															}
 															onCheckedChange={(enabled) =>
 																toggleMutation.mutate({
 																	organizationId: activeWorkspaceId,

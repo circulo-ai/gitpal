@@ -11,6 +11,7 @@ import {
 	type GitActor,
 	type GitProviderAdapter,
 	type GitPullRequest,
+	type GitPullRequestFile,
 	type GitRepository,
 	type GitRepositoryLabel,
 	type GitWebhookEnvelope,
@@ -53,6 +54,7 @@ import {
 	type RepositoryReviewOutput,
 	runRepositoryReview,
 } from "./review-agent";
+import { resolveDiffAnchor } from "./review-anchors";
 import { failActiveReviewRun } from "./review-runs";
 import {
 	finishRunStep,
@@ -1208,12 +1210,18 @@ async function finalizeReviewRun({
 	summary,
 	finalCommentBody,
 	result,
+	promptVersion,
+	reviewTemplate,
+	confidence,
 }: {
 	reviewRunId: string;
 	status: string;
 	summary: string | null;
 	finalCommentBody: string | null;
 	result: Record<string, unknown>;
+	promptVersion?: string | null;
+	reviewTemplate?: string | null;
+	confidence?: RepositoryReviewOutput["confidence"] | null;
 }) {
 	const now = new Date();
 	await db
@@ -1223,6 +1231,11 @@ async function finalizeReviewRun({
 			summary,
 			finalCommentBody,
 			result: sanitizeRunDetails(result),
+			promptVersion: promptVersion ?? undefined,
+			reviewTemplate: reviewTemplate ?? undefined,
+			confidenceLevel: confidence?.risk ?? undefined,
+			confidenceScore: confidence?.score ?? undefined,
+			confidenceSummary: confidence?.summary ?? undefined,
 			completedAt: now,
 			updatedAt: now,
 		})
@@ -1534,6 +1547,7 @@ async function createReviewCommentRecords({
 	headSha,
 	baseSha,
 	output,
+	files,
 }: {
 	reviewRunId: string;
 	repository: RepositoryRow;
@@ -1543,15 +1557,17 @@ async function createReviewCommentRecords({
 	headSha: string | null;
 	baseSha: string | null;
 	output: RepositoryReviewOutput;
+	files: GitPullRequestFile[];
 }) {
 	for (const finding of output.findings) {
 		let providerCommentId: string | null = null;
 		const now = new Date();
+		const anchor = resolveDiffAnchor(files, finding.filePath, finding.line);
 		if (
 			settings.ai.reviewer.postInlineFindings &&
-			repository.providerType === "github" &&
+			["github", "gitlab"].includes(repository.providerType) &&
 			finding.filePath &&
-			finding.line &&
+			anchor.line &&
 			headSha
 		) {
 			try {
@@ -1560,7 +1576,7 @@ async function createReviewCommentRecords({
 					pullRequestNumber: pullRequest.number,
 					body: formatFindingBody(finding),
 					path: finding.filePath,
-					line: finding.line,
+					line: anchor.line,
 					commitSha: headSha,
 					baseSha: baseSha ?? undefined,
 					headSha,
@@ -1583,9 +1599,13 @@ async function createReviewCommentRecords({
 			title: finding.title,
 			body: finding.body,
 			filePath: finding.filePath,
-			line: finding.line,
-			startLine: finding.line,
-			metadata: {},
+			line: anchor.line ?? finding.line,
+			startLine: anchor.line ?? finding.line,
+			metadata: {
+				anchorStatus: anchor.status,
+				requestedLine: anchor.originalLine,
+				publishedInline: Boolean(providerCommentId),
+			},
 			accepted: false,
 			resolved: false,
 			createdAt: now,
@@ -1860,6 +1880,7 @@ async function runWebhookReview({
 			headSha: context.headSha,
 			baseSha: context.baseSha,
 			output: reviewResult.output,
+			files,
 		});
 		await createPreMergeCheckRecords({
 			reviewRunId: reviewRun.id,
@@ -1877,6 +1898,9 @@ async function runWebhookReview({
 			status: "completed",
 			summary: reviewResult.output.summary,
 			finalCommentBody: reviewResult.commentMarkdown,
+			promptVersion: reviewResult.promptVersion,
+			reviewTemplate: reviewResult.reviewTemplate,
+			confidence: reviewResult.output.confidence,
 			result: {
 				output: reviewResult.output,
 				commentMarkdown: reviewResult.commentMarkdown,
@@ -1885,6 +1909,9 @@ async function runWebhookReview({
 				nativeReviewerRequest,
 				text: reviewResult.text,
 				stepCount: reviewResult.steps.length,
+				promptVersion: reviewResult.promptVersion,
+				reviewTemplate: reviewResult.reviewTemplate,
+				confidence: reviewResult.output.confidence,
 			},
 		});
 		await recordCompletedRunStep({
@@ -2250,6 +2277,7 @@ async function runWebhookLabeler({
 		});
 		const labelResult = await runRepositoryLabeler({
 			userId: automationActor.userId,
+			organizationId: repository.organizationId,
 			adapter: automationActor.adapter,
 			repository: toGitRepository(repository),
 			settings,

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">GitHub and GitLab webhook setup guidance</title>
+  <desc id="desc">Two provider setup cards with payload URL, signing secret, events, and verification steps.</desc>
+  <rect width="1200" height="680" rx="28" fill="#0b0d12"/>
+  <text x="72" y="84" fill="#f7f7f8" font-family="Arial, sans-serif" font-size="34" font-weight="700">Provider webhook setup</text>
+  <text x="72" y="124" fill="#a9afbd" font-family="Arial, sans-serif" font-size="20">Use the deployment URL shown by GitPal. Verify one test delivery before enabling automation.</text>
+  <g transform="translate(72 170)">
+    <rect width="500" height="430" rx="22" fill="#151922" stroke="#303746"/>
+    <circle cx="48" cy="50" r="22" fill="#f7f7f8"/>
+    <text x="88" y="58" fill="#f7f7f8" font-family="Arial, sans-serif" font-size="26" font-weight="700">GitHub</text>
+    <text x="32" y="112" fill="#8f98aa" font-family="Arial, sans-serif" font-size="16">PAYLOAD URL</text>
+    <rect x="32" y="130" width="436" height="54" rx="10" fill="#0d1118"/>
+    <text x="48" y="164" fill="#d8dce5" font-family="monospace" font-size="15">https://your-host/webhooks/github</text>
+    <text x="32" y="224" fill="#d8dce5" font-family="Arial, sans-serif" font-size="18">1. Content type: application/json</text>
+    <text x="32" y="262" fill="#d8dce5" font-family="Arial, sans-serif" font-size="18">2. Add the GitPal signing secret</text>
+    <text x="32" y="300" fill="#d8dce5" font-family="Arial, sans-serif" font-size="18">3. Select PR, review, issue, and push events</text>
+    <rect x="32" y="342" width="206" height="50" rx="25" fill="#2563eb"/>
+    <text x="62" y="374" fill="#ffffff" font-family="Arial, sans-serif" font-size="17" font-weight="700">Send test delivery</text>
+  </g>
+  <g transform="translate(628 170)">
+    <rect width="500" height="430" rx="22" fill="#151922" stroke="#303746"/>
+    <circle cx="48" cy="50" r="22" fill="#fc6d26"/>
+    <text x="88" y="58" fill="#f7f7f8" font-family="Arial, sans-serif" font-size="26" font-weight="700">GitLab</text>
+    <text x="32" y="112" fill="#8f98aa" font-family="Arial, sans-serif" font-size="16">WEBHOOK URL</text>
+    <rect x="32" y="130" width="436" height="54" rx="10" fill="#0d1118"/>
+    <text x="48" y="164" fill="#d8dce5" font-family="monospace" font-size="15">https://your-host/webhooks/gitlab</text>
+    <text x="32" y="224" fill="#d8dce5" font-family="Arial, sans-serif" font-size="18">1. Add the GitPal secret token</text>
+    <text x="32" y="262" fill="#d8dce5" font-family="Arial, sans-serif" font-size="18">2. Enable MR, note, issue, and push events</text>
+    <text x="32" y="300" fill="#d8dce5" font-family="Arial, sans-serif" font-size="18">3. Add HMAC signing when the host supports it</text>
+    <rect x="32" y="342" width="206" height="50" rx="25" fill="#fc6d26"/>
+    <text x="67" y="374" fill="#ffffff" font-family="Arial, sans-serif" font-size="17" font-weight="700">Verify in GitPal</text>
+  </g>
+</svg>

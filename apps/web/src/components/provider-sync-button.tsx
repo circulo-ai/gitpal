@@ -31,7 +31,7 @@ export function ProviderSyncButton({
 			type="button"
 			variant="outline"
 			size="icon"
-			tooltip={isPending ? "Syncing..." : label}
+			tooltip={isPending ? "Syncing…" : label}
 			aria-label={label}
 			disabled={isPending}
 			onClick={onClick}

@@ -86,6 +86,9 @@ export type RepositorySummary = {
 	lastReconciledAt: string | null;
 	lastReconcileFailedAt: string | null;
 	lastReconcileError: string | null;
+	nextRetryAt: string | null;
+	retryHint: string | null;
+	webhookGapDetectedAt: string | null;
 	lastSeenAt: string;
 	webhookConnected: boolean;
 	webhookLastDeliveredAt: string | null;
@@ -1402,6 +1405,10 @@ function mapRepositorySummary(
 		lastReconcileFailedAt:
 			repository.lastReconcileFailedAt?.toISOString() ?? null,
 		lastReconcileError: repository.lastReconcileError,
+		nextRetryAt: repository.nextRetryAt?.toISOString() ?? null,
+		retryHint: repository.retryHint,
+		webhookGapDetectedAt:
+			repository.webhookGapDetectedAt?.toISOString() ?? null,
 		lastSeenAt: access.lastSeenAt.toISOString(),
 		webhookConnected: webhook?.connected ?? false,
 		webhookLastDeliveredAt: webhook?.lastDeliveredAt?.toISOString() ?? null,

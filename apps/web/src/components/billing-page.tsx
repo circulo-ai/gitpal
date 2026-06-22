@@ -10,6 +10,8 @@ import {
 	CardTitle,
 } from "@gitpal/ui/components/card";
 import { Input } from "@gitpal/ui/components/input";
+import { Progress } from "@gitpal/ui/components/progress";
+import { Switch } from "@gitpal/ui/components/switch";
 import {
 	Table,
 	TableBody,
@@ -31,6 +33,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
+import { useActiveWorkspace } from "./active-workspace-provider";
 
 function formatUsd(cents: number) {
 	return new Intl.NumberFormat("en-US", {
@@ -42,8 +45,29 @@ function formatUsd(cents: number) {
 const presetAmounts = [25, 50, 100, 250];
 
 export function BillingPage() {
-	const summaryQuery = useQuery(trpc.billing.summary.queryOptions());
+	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
+	const canManageBilling = ["owner", "admin"].includes(
+		activeWorkspace?.role ?? "",
+	);
+	const summaryQuery = useQuery({
+		...trpc.billing.summary.queryOptions({
+			organizationId: activeWorkspaceId ?? undefined,
+		}),
+		enabled: Boolean(activeWorkspaceId && canManageBilling),
+	});
 	const [amountUsd, setAmountUsd] = React.useState("50");
+	const [budgetEnabled, setBudgetEnabled] = React.useState(false);
+	const [budgetUsd, setBudgetUsd] = React.useState("100");
+	const [budgetThreshold, setBudgetThreshold] = React.useState("80");
+	React.useEffect(() => {
+		const budget = summaryQuery.data?.organizationBudget;
+		if (!budget) return;
+		setBudgetEnabled(budget.enabled);
+		if (budget.monthlyLimitCents !== null) {
+			setBudgetUsd(String(budget.monthlyLimitCents / 100));
+		}
+		setBudgetThreshold(String(budget.alertThresholdPercent));
+	}, [summaryQuery.data?.organizationBudget]);
 	const createTopupMutation = useMutation(
 		trpc.billing.createTopup.mutationOptions({
 			onSuccess: async (data) => {
@@ -56,6 +80,17 @@ export function BillingPage() {
 			onError: (error) => {
 				toast.error(error.message);
 			},
+		}),
+	);
+	const updateBudgetMutation = useMutation(
+		trpc.billing.updateBudget.mutationOptions({
+			onSuccess: async () => {
+				await queryClient.invalidateQueries({
+					queryKey: trpc.billing.summary.queryKey(),
+				});
+				toast.success("Workspace budget updated.");
+			},
+			onError: (error) => toast.error(error.message),
 		}),
 	);
 
@@ -75,6 +110,32 @@ export function BillingPage() {
 	const checkoutDisabledReason =
 		summary?.checkoutDisabledReason ??
 		"Wallet top-ups are not available right now.";
+	const budget = summary?.organizationBudget;
+	const budgetPercent = budget?.monthlyLimitCents
+		? Math.min(
+				100,
+				Math.round((budget.spentCents / budget.monthlyLimitCents) * 100),
+			)
+		: 0;
+
+	if (!canManageBilling) {
+		return (
+			<main className="flex flex-col gap-6">
+				<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
+					Billing
+				</h1>
+				<Card>
+					<CardHeader>
+						<CardTitle>Restricted settings</CardTitle>
+						<CardDescription>
+							Only workspace owners and admins can view wallet details or change
+							spend controls.
+						</CardDescription>
+					</CardHeader>
+				</Card>
+			</main>
+		);
+	}
 
 	return (
 		<TooltipProvider>
@@ -127,6 +188,90 @@ export function BillingPage() {
 						</CardHeader>
 					</Card>
 				</div>
+
+				<Card>
+					<CardHeader>
+						<CardTitle>Workspace spend cap</CardTitle>
+						<CardDescription>
+							Stop new cloud-billed AI runs after this workspace reaches its
+							monthly cap, and alert admins before the limit.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+						<div className="space-y-3">
+							<div className="flex items-center justify-between gap-3 text-sm">
+								<span>
+									{budget
+										? `${formatUsd(budget.spentCents)} spent this month`
+										: "No workspace usage yet"}
+								</span>
+								<span className="tabular-nums">{budgetPercent}%</span>
+							</div>
+							<Progress
+								value={budgetPercent}
+								aria-label="Workspace budget used"
+							/>
+							<p className="text-muted-foreground text-xs">
+								The cap applies to shared gateway spend. Direct calls with
+								user-owned provider keys remain outside wallet billing.
+							</p>
+						</div>
+						<div className="space-y-4 rounded-xl border border-border/60 bg-muted/20 p-4">
+							<label
+								className="flex items-center justify-between gap-3 text-sm"
+								htmlFor="budget-enabled"
+							>
+								<span className="font-medium">Enforce monthly cap</span>
+								<Switch
+									id="budget-enabled"
+									checked={budgetEnabled}
+									onCheckedChange={setBudgetEnabled}
+								/>
+							</label>
+							<div className="grid grid-cols-2 gap-3">
+								<label className="space-y-1 text-sm" htmlFor="budget-usd">
+									<span>Monthly USD</span>
+									<Input
+										id="budget-usd"
+										name="budgetUsd"
+										type="number"
+										inputMode="decimal"
+										min="1"
+										value={budgetUsd}
+										onChange={(event) => setBudgetUsd(event.target.value)}
+									/>
+								</label>
+								<label className="space-y-1 text-sm" htmlFor="budget-threshold">
+									<span>Alert at %</span>
+									<Input
+										id="budget-threshold"
+										name="budgetThreshold"
+										type="number"
+										inputMode="numeric"
+										min="1"
+										max="100"
+										value={budgetThreshold}
+										onChange={(event) => setBudgetThreshold(event.target.value)}
+									/>
+								</label>
+							</div>
+							<Button
+								type="button"
+								disabled={updateBudgetMutation.isPending || !activeWorkspaceId}
+								onClick={() =>
+									updateBudgetMutation.mutate({
+										organizationId: activeWorkspaceId ?? undefined,
+										enabled: budgetEnabled,
+										monthlyLimitUsd: Number(budgetUsd),
+										alertThresholdPercent: Number(budgetThreshold),
+									})
+								}
+							>
+								{updateBudgetMutation.isPending ? "Saving…" : "Save Spend Cap"}
+							</Button>
+						</div>
+					</CardContent>
+				</Card>
 
 				<div className="grid gap-6 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
 					<Card>
@@ -203,7 +348,7 @@ export function BillingPage() {
 									>
 										<ArrowUpRightIcon />
 										{createTopupMutation.isPending
-											? "Opening checkout..."
+											? "Opening checkout…"
 											: checkoutEnabled
 												? "Continue to checkout"
 												: "Checkout unavailable"}

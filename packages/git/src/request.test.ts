@@ -1,10 +1,44 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import {
+	GitProviderRateLimitError,
+	toGitProviderRateLimitError,
+} from "./errors";
 import { requestJsonPages } from "./request";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
 	globalThis.fetch = originalFetch;
+});
+
+describe("provider rate limits", () => {
+	test("uses a provider reset timestamp when retry-after is absent", () => {
+		const error = toGitProviderRateLimitError(
+			{
+				status: 403,
+				response: {
+					headers: {
+						"x-ratelimit-remaining": "0",
+						"x-ratelimit-reset": "1030",
+					},
+				},
+			},
+			"github-cloud",
+			1_000_000,
+		);
+
+		expect(error).toBeInstanceOf(GitProviderRateLimitError);
+		expect(error?.retryAfterSeconds).toBe(30);
+	});
+
+	test("uses a conservative provider-specific fallback", () => {
+		const error = toGitProviderRateLimitError(
+			{ status: 429, response: { headers: {} } },
+			"gitlab-enterprise",
+		);
+
+		expect(error?.retryAfterSeconds).toBe(30);
+	});
 });
 
 describe("requestJsonPages", () => {

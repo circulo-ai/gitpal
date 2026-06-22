@@ -1,4 +1,4 @@
-import { eventType, staticSchema } from "inngest";
+import { eventType, RetryAfterError, staticSchema } from "inngest";
 import { z } from "zod";
 import { buildEventId } from "../../idempotency";
 import { inngest } from "../client";
@@ -65,9 +65,22 @@ export function createPullRequestSyncFunction({
 
 			if (repositoryId) {
 				await step.run("reconcile-repository", async () => {
-					await reconcilePullRequestsForRepository({
-						repositoryId,
-					});
+					try {
+						await reconcilePullRequestsForRepository({ repositoryId });
+					} catch (error) {
+						const retryAfterSeconds = Number(
+							(error as { retryAfterSeconds?: unknown })?.retryAfterSeconds,
+						);
+						if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+							throw new RetryAfterError(
+								error instanceof Error
+									? error.message
+									: "Provider rate limited.",
+								`${Math.ceil(retryAfterSeconds)}s`,
+							);
+						}
+						throw error;
+					}
 				});
 			} else {
 				await step.run("dispatch-all", async () => {

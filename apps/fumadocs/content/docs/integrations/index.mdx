@@ -25,6 +25,17 @@ GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps
 - Labels come from the repository's own label list, so the labeler never invents new labels.
 - Merge requests follow the same review and label workflow on GitLab.
 
+### Choose the right connection
+
+| Provider | Recommended connection | When to use another option |
+| --- | --- | --- |
+| GitHub.com | GitHub App installation | Use OAuth only for user-scoped actions that an installation cannot perform. |
+| GitLab.com | OAuth with offline refresh | Use a project or group access token only when your deployment policy requires a service identity. |
+| GitHub Enterprise Server | Enterprise host OAuth plus a GitHub App when available | Use a personal token only for a short-lived diagnostic. |
+| Self-managed GitLab | Enterprise host OAuth | Confirm the host token lifetime and refresh-token policy with the instance administrator. |
+
+The install wizard validates the host, explains the callback URL, and keeps cloud and enterprise credentials separate. Repository cards then show the next required action: enable automation, connect the webhook, run the first sync, or open the review queue.
+
 ## Webhooks
 
 - GitPal stores a webhook receipt before processing begins.
@@ -33,12 +44,34 @@ GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps
 - Background jobs handle the actual review, labeler, and lifecycle work, which keeps the webhook response fast and stable.
 - If a delivery fails, observability keeps the receipt and the failure reason together.
 
+![Provider webhook setup examples](/screenshots/webhook-setup.svg)
+
+### Provider-specific setup
+
+**GitHub**
+
+1. Open the GitHub App installation or repository webhook settings.
+2. Set the payload URL to the GitPal GitHub webhook URL shown by your deployment.
+3. Choose `application/json`, enter the same webhook secret configured in GitPal, and subscribe to pull requests, reviews, issues, comments, and repository events.
+4. Send a test delivery, then confirm that the repository card shows `Webhook connected`.
+
+**GitLab**
+
+1. Open **Settings > Webhooks** for the project or group.
+2. Set the URL to the GitPal GitLab webhook URL shown by your deployment.
+3. Enter the GitPal secret token. When Standard Webhooks signing is available, configure the signing secret as well.
+4. Enable merge request, note, issue, and push events, then use **Test** and confirm the receipt in Observability.
+
+GitPal never hardcodes the public host. The displayed delivery URL comes from your server environment, so reverse proxies and enterprise domains remain deployer-controlled.
+
 ![Repository sync health](/screenshots/repository-sync-health.svg)
 
 ## Repository sync health
 
 - The repositories page shows the last successful PR reconciliation and the current sync state for each repository.
-- Use `Sync now` to queue a full provider-state reconcile. Failed syncs retain a safe error summary and expose a retry action.
+- Scheduled syncs use provider update timestamps with a short overlap, while a daily full sweep still heals deleted, closed, merged, and missed state.
+- Use `Sync now` to queue an immediate reconcile. Failed syncs retain a safe error summary, the provider retry time, and a plain-language next action.
+- When provider activity is newer than the last webhook delivery, GitPal marks a delivery gap and queues a reconcile automatically.
 - A duplicate-hook validation error does not require deleting a healthy GitHub hook manually. Retry the sync after deploying the current release; GitPal will reconcile the existing hook.
 
 ## Provider-native reviewer assignment
@@ -52,6 +85,18 @@ GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps
 - Enterprise GitHub and GitLab hosts are onboarded inside the auth flow.
 - GitPal stores the host configuration once and reuses it for OAuth, webhooks, and API calls.
 - Keep the host URL stable so webhooks, OAuth callbacks, and API calls keep resolving to the same provider record.
+
+## Long-lived authorization
+
+GitPal uses the OAuth two-token model where a provider supports it:
+
+- The short-lived access token authorizes API calls.
+- The refresh token stays encrypted at rest and is exchanged before the access token expires.
+- A durable maintenance job refreshes idle connections even when nobody signs in, and refresh-on-use closes the race before an API call.
+- Rotated refresh tokens replace the prior token atomically. Rejected or revoked grants switch the connection to `Reconnect required` instead of retrying forever.
+- GitHub App installation tokens are minted from the app installation when needed and do not depend on a user's browser session.
+
+No OAuth design can override a provider revocation, removed app installation, expired enterprise policy, or deleted user. Those states require an administrator to reconnect; GitPal surfaces that state in Integrations instead of silently losing access.
 
 ## Integration checklist
 

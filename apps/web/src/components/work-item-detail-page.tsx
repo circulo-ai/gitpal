@@ -424,6 +424,14 @@ function ContextRail({
 								<code className="min-w-0 truncate text-xs">{run.traceId}</code>
 								<CopyButton value={run.traceId} label="Trace ID" />
 							</div>
+							<div className="mt-1 flex flex-wrap gap-1">
+								{run.promptVersion ? (
+									<Badge variant="outline">{run.promptVersion}</Badge>
+								) : null}
+								{run.reviewTemplate ? (
+									<Badge variant="outline">{run.reviewTemplate}</Badge>
+								) : null}
+							</div>
 						</div>
 						{run.providerDeliveryId ? (
 							<div>
@@ -795,8 +803,41 @@ export function WorkItemDetailPage({
 										</CardDescription>
 									</CardHeader>
 									{selectedRun ? (
-										<CardContent>
+										<CardContent className="space-y-4">
 											<UsageSummary run={selectedRun} />
+											{selectedRun.confidenceSummary ? (
+												<div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+													<div className="flex flex-wrap items-center gap-2">
+														<Badge
+															variant={
+																selectedRun.confidenceLevel === "high"
+																	? "destructive"
+																	: "outline"
+															}
+														>
+															{selectedRun.confidenceLevel ?? "moderate"} risk
+														</Badge>
+														{selectedRun.confidenceScore !== null ? (
+															<Badge variant="secondary">
+																{selectedRun.confidenceScore}% confidence
+															</Badge>
+														) : null}
+														{selectedRun.promptVersion ? (
+															<Badge variant="outline">
+																{selectedRun.promptVersion}
+															</Badge>
+														) : null}
+														{selectedRun.reviewTemplate ? (
+															<Badge variant="outline">
+																{selectedRun.reviewTemplate}
+															</Badge>
+														) : null}
+													</div>
+													<p className="mt-3 text-sm leading-relaxed">
+														{selectedRun.confidenceSummary}
+													</p>
+												</div>
+											) : null}
 										</CardContent>
 									) : null}
 								</Card>

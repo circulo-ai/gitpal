@@ -38,8 +38,13 @@ export const repository = pgTable(
 		reconcileState: text("reconcile_state").default("idle").notNull(),
 		lastReconcileStartedAt: timestamp("last_reconcile_started_at"),
 		lastReconciledAt: timestamp("last_reconciled_at"),
+		lastFullReconciledAt: timestamp("last_full_reconciled_at"),
+		incrementalSyncCursor: timestamp("incremental_sync_cursor"),
 		lastReconcileFailedAt: timestamp("last_reconcile_failed_at"),
 		lastReconcileError: text("last_reconcile_error"),
+		nextRetryAt: timestamp("next_retry_at"),
+		retryHint: text("retry_hint"),
+		webhookGapDetectedAt: timestamp("webhook_gap_detected_at"),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
 		updatedAt: timestamp("updated_at")
 			.defaultNow()
@@ -62,6 +67,9 @@ export const repository = pgTable(
 		index("repository_org_enabled_idx").on(table.organizationId, table.enabled),
 		index("repository_reconcile_state_idx").on(table.reconcileState),
 		index("repository_last_reconciled_at_idx").on(table.lastReconciledAt),
+		index("repository_incremental_sync_cursor_idx").on(
+			table.incrementalSyncCursor,
+		),
 	],
 );
 
@@ -250,6 +258,11 @@ export const reviewRun = pgTable(
 		status: text("status").default("queued").notNull(),
 		modelId: text("model_id"),
 		thinkingEnabled: boolean("thinking_enabled").default(false).notNull(),
+		promptVersion: text("prompt_version"),
+		reviewTemplate: text("review_template"),
+		confidenceLevel: text("confidence_level"),
+		confidenceScore: integer("confidence_score"),
+		confidenceSummary: text("confidence_summary"),
 		summary: text("summary"),
 		finalCommentBody: text("final_comment_body"),
 		result: jsonb("result")

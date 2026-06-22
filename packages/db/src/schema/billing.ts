@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+	boolean,
 	index,
 	integer,
 	jsonb,
@@ -9,7 +10,32 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import { user } from "./auth";
+import { organization, user } from "./auth";
+
+export const organizationBudget = pgTable(
+	"organization_budget",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		monthlyLimitCents: integer("monthly_limit_cents").notNull(),
+		alertThresholdPercent: integer("alert_threshold_percent")
+			.default(80)
+			.notNull(),
+		enabled: boolean("enabled").default(true).notNull(),
+		createdAt: timestamp("created_at").defaultNow().notNull(),
+		updatedAt: timestamp("updated_at")
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("organization_budget_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
 
 export const wallet = pgTable(
 	"wallet",
@@ -144,6 +170,16 @@ export const walletRelations = relations(wallet, ({ one, many }) => ({
 	topups: many(walletTopup),
 	ledgerEntries: many(walletLedgerEntry),
 }));
+
+export const organizationBudgetRelations = relations(
+	organizationBudget,
+	({ one }) => ({
+		organization: one(organization, {
+			fields: [organizationBudget.organizationId],
+			references: [organization.id],
+		}),
+	}),
+);
 
 export const walletTopupRelations = relations(walletTopup, ({ one }) => ({
 	wallet: one(wallet, {

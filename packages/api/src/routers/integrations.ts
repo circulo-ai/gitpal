@@ -55,7 +55,7 @@ export const integrationsRouter = router({
 				ctx.session.session.activeOrganizationId,
 			);
 
-			await requireOrganizationPermission({
+			const access = await requireOrganizationPermission({
 				userId: ctx.session.user.id,
 				organizationId,
 				permissions: { integrations: ["read"] },
@@ -64,6 +64,7 @@ export const integrationsRouter = router({
 			return listIntegrationConnections({
 				organizationId,
 				type: input?.type,
+				includeSensitive: ["owner", "admin"].includes(access.member.role),
 			});
 		}),
 

@@ -78,6 +78,13 @@
 			"when": 1781974929249,
 			"tag": "0010_elite_shape",
 			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "7",
+			"when": 1782088178790,
+			"tag": "0011_chemical_johnny_storm",
+			"breakpoints": true
 		}
 	]
 }

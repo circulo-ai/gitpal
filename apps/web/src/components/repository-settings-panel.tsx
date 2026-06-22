@@ -151,7 +151,7 @@ export function RepositorySettingsPanel({
 			<Card>
 				<CardHeader>
 					<CardTitle>Repository settings</CardTitle>
-					<CardDescription>Loading repository settings...</CardDescription>
+				<CardDescription>Loading repository settings…</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<div className="h-96 rounded-2xl border border-border/60 bg-muted/10" />
@@ -244,7 +244,7 @@ export function RepositorySettingsPanel({
 				open={isDirty}
 				title="Repository overrides changed"
 				description="Save the current repository configuration or discard it to keep the last saved state."
-				saveLabel={saveMutation.isPending ? "Saving..." : "Apply changes"}
+				saveLabel={saveMutation.isPending ? "Saving…" : "Apply changes"}
 				disabled={saveMutation.isPending || !settings}
 				onDiscard={() => {
 					if (savedSettings) {

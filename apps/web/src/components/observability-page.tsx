@@ -16,6 +16,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@gitpal/ui/components/empty";
+import { Input } from "@gitpal/ui/components/input";
 import {
 	Select,
 	SelectContent,
@@ -69,6 +70,14 @@ const rangeOptions = [
 	{ label: "Last 7 days", value: "7" },
 	{ label: "Last 14 days", value: "14" },
 	{ label: "Last 30 days", value: "30" },
+] as const;
+
+const severityOptions = [
+	{ label: "All severities", value: "all" },
+	{ label: "Info", value: "info" },
+	{ label: "Success", value: "success" },
+	{ label: "Warning", value: "warning" },
+	{ label: "Error", value: "error" },
 ] as const;
 
 type KindFilter = (typeof kindFilters)[number]["value"];
@@ -133,6 +142,12 @@ export function ObservabilityPage() {
 	const [kind, setKind] = React.useState<KindFilter>("all");
 	const [days, setDays] = React.useState("14");
 	const [repositoryId, setRepositoryId] = React.useState("all");
+	const [severity, setSeverity] =
+		React.useState<(typeof severityOptions)[number]["value"]>("all");
+	const [pullRequestNumber, setPullRequestNumber] = React.useState("");
+	const [issueNumber, setIssueNumber] = React.useState("");
+	const [user, setUser] = React.useState("");
+	const [sourceId, setSourceId] = React.useState("");
 	const now = React.useMemo(() => new Date(), []);
 	const dateRange = React.useMemo(() => {
 		const to = new Date();
@@ -148,6 +163,11 @@ export function ObservabilityPage() {
 			organizationId: activeWorkspaceId ?? undefined,
 			repositoryId: repositoryId === "all" ? undefined : repositoryId,
 			kind,
+			severity,
+			pullRequestNumber: Number(pullRequestNumber) || undefined,
+			issueNumber: Number(issueNumber) || undefined,
+			user: user.trim() || undefined,
+			sourceId: sourceId.trim() || undefined,
 			dateRange,
 			limit: 160,
 		}),
@@ -289,6 +309,61 @@ export function ObservabilityPage() {
 						<RefreshCcwIcon />
 					</Button>
 				</div>
+			</div>
+			<div className="grid gap-2 rounded-xl border border-border/60 bg-background p-3 sm:grid-cols-2 xl:grid-cols-5">
+				<Select
+					items={severityOptions}
+					value={severity}
+					onValueChange={(value) => setSeverity(value ?? "all")}
+				>
+					<SelectTrigger aria-label="Severity filter" className="w-full">
+						<SelectValue placeholder="Severity" />
+					</SelectTrigger>
+					<SelectContent>
+						{severityOptions.map((item) => (
+							<SelectItem key={item.value} value={item.value}>
+								{item.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<Input
+					name="pullRequestNumber"
+					type="number"
+					inputMode="numeric"
+					autoComplete="off"
+					aria-label="Pull request number"
+					placeholder="Pull request #…"
+					value={pullRequestNumber}
+					onChange={(event) => setPullRequestNumber(event.target.value)}
+				/>
+				<Input
+					name="issueNumber"
+					type="number"
+					inputMode="numeric"
+					autoComplete="off"
+					aria-label="Issue number"
+					placeholder="Issue #…"
+					value={issueNumber}
+					onChange={(event) => setIssueNumber(event.target.value)}
+				/>
+				<Input
+					name="userFilter"
+					autoComplete="off"
+					aria-label="User filter"
+					placeholder="User or actor…"
+					value={user}
+					onChange={(event) => setUser(event.target.value)}
+				/>
+				<Input
+					name="sourceIdFilter"
+					autoComplete="off"
+					spellCheck={false}
+					aria-label="Source ID filter"
+					placeholder="Source ID…"
+					value={sourceId}
+					onChange={(event) => setSourceId(event.target.value)}
+				/>
 			</div>
 
 			<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

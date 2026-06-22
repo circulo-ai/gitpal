@@ -190,6 +190,12 @@ function WorkspaceSwitcher() {
 
 export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 	const pathname = usePathname();
+	const { activeWorkspace } = useActiveWorkspace();
+	const visibleAccountNavItems = accountNavItems.filter(
+		(item) =>
+			item.href !== "/account/billing" ||
+			["owner", "admin"].includes(activeWorkspace?.role ?? ""),
+	);
 	const [reviewsOpen, setReviewsOpen] = React.useState(
 		pathname.startsWith("/dashboard"),
 	);
@@ -322,7 +328,7 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 							className={cn(!accountOpen && "hidden")}
 						>
 							<SidebarMenuSub>
-								{accountNavItems.map((item) => {
+								{visibleAccountNavItems.map((item) => {
 									const Icon = item.icon;
 
 									return (

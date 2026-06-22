@@ -37,6 +37,7 @@ export type LabelerTarget = {
 
 export type LabelerContext = {
 	userId: string;
+	organizationId?: string | null;
 	adapter: GitProviderAdapter;
 	repository: GitRepository;
 	settings: WorkspaceSettings;
@@ -281,6 +282,7 @@ export async function runRepositoryLabeler(context: LabelerContext) {
 	});
 	const generation = await runTrackedAiGeneration({
 		userId: context.userId,
+		organizationId: context.organizationId ?? null,
 		callKind: "labeler",
 		modelId: labelerSettings.modelId,
 		routePreview: resolution.preview,

@@ -697,17 +697,39 @@ export function createGitHubAdapter({
 	}
 
 	async function listPullRequests(
-		input: GitRepositoryRef & { state?: GitPullRequestState },
+		input: GitRepositoryRef & {
+			state?: GitPullRequestState;
+			updatedAfter?: string;
+		},
 	) {
 		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
 		const requestedState = input.state ?? "open";
 		const state = requestedState === "merged" ? "closed" : requestedState;
-		const response = await octokit.paginate(octokit.rest.pulls.list, {
+		const request = {
 			owner,
 			repo,
 			state,
+			sort: "updated" as const,
+			direction: "desc" as const,
 			per_page: 100,
-		});
+		};
+		const response: Awaited<
+			ReturnType<typeof octokit.rest.pulls.list>
+		>["data"] = [];
+		const updatedAfter = input.updatedAfter
+			? Date.parse(input.updatedAfter)
+			: null;
+		for await (const page of octokit.paginate.iterator(
+			octokit.rest.pulls.list,
+			request,
+		)) {
+			const pageItems = page.data.filter((pullRequest) => {
+				if (updatedAfter === null) return true;
+				return Date.parse(String(pullRequest.updated_at)) > updatedAfter;
+			});
+			response.push(...pageItems);
+			if (updatedAfter !== null && pageItems.length < page.data.length) break;
+		}
 
 		const mapped = response.map((pullRequest) =>
 			mapPullRequest(
@@ -742,15 +764,34 @@ export function createGitHubAdapter({
 	}
 
 	async function listIssues(
-		input: GitRepositoryRef & { state?: GitIssueState },
+		input: GitRepositoryRef & { state?: GitIssueState; updatedAfter?: string },
 	): Promise<GitIssue[]> {
 		const { owner, repo } = splitGitHubRepositoryPath(input.repositoryPath);
-		const response = await octokit.paginate(octokit.rest.issues.listForRepo, {
+		const request = {
 			owner,
 			repo,
 			state: input.state ?? "open",
+			sort: "updated" as const,
+			direction: "desc" as const,
 			per_page: 100,
-		});
+		};
+		const response: Awaited<
+			ReturnType<typeof octokit.rest.issues.listForRepo>
+		>["data"] = [];
+		const updatedAfter = input.updatedAfter
+			? Date.parse(input.updatedAfter)
+			: null;
+		for await (const page of octokit.paginate.iterator(
+			octokit.rest.issues.listForRepo,
+			request,
+		)) {
+			const pageItems = page.data.filter((item) => {
+				if (updatedAfter === null) return true;
+				return Date.parse(String(item.updated_at)) > updatedAfter;
+			});
+			response.push(...pageItems);
+			if (updatedAfter !== null && pageItems.length < page.data.length) break;
+		}
 
 		return response
 			.filter((item) => !("pull_request" in item))

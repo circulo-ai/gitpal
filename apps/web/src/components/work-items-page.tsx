@@ -199,7 +199,7 @@ export function WorkItemsPage({
 									setSearch(event.target.value);
 									setPage(1);
 								}}
-								placeholder={`Search ${title.toLowerCase()}...`}
+								placeholder={`Search ${title.toLowerCase()}…`}
 								className="pl-9"
 							/>
 						</div>

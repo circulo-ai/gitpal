@@ -7,8 +7,8 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [ ] [Near-term] Add a true workspace home that highlights the most important repos, recent reviews, and recent failures.
 - [ ] [Near-term] Add saved dashboard views for different roles such as maintainer, reviewer, and admin.
 - [ ] [Near-term] Let users pin favorite repositories and notification channels.
-- [ ] [Near-term] Add better empty states for new workspaces, new repositories, and new notification channels.
-- [ ] [Near-term] Add per-repository onboarding cards that explain the next action in plain language.
+- [x] [Near-term] Add better empty states for new workspaces, new repositories, and new notification channels.
+- [x] [Near-term] Add per-repository onboarding cards that explain the next action in plain language.
 - [ ] [Later] Add a workspace activity feed that mixes reviews, billing, notifications, and integration events.
 - [ ] [Later] Add a role-aware homepage that changes based on whether the user is an admin, reviewer, or contributor.
 - [ ] [Later] Add a product tour that can be replayed from the docs or the app.
@@ -16,11 +16,11 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## AI Review Quality
 
-- [ ] [Near-term] Improve review context ranking so the model sees the most relevant files, issues, and PRs first.
-- [ ] [Near-term] Make review prompts versioned and visible so teams can compare changes between prompt revisions.
-- [ ] [Near-term] Add stronger review templates for bug fixes, refactors, dependency updates, and security changes.
-- [ ] [Near-term] Add a review-confidence summary that explains why a change was considered low-risk or high-risk.
-- [ ] [Near-term] Add better anchor handling for long diffs and generated review comments.
+- [x] [Near-term] Improve review context ranking so the model sees the most relevant files, issues, and PRs first.
+- [x] [Near-term] Make review prompts versioned and visible so teams can compare changes between prompt revisions.
+- [x] [Near-term] Add stronger review templates for bug fixes, refactors, dependency updates, and security changes.
+- [x] [Near-term] Add a review-confidence summary that explains why a change was considered low-risk or high-risk.
+- [x] [Near-term] Add better anchor handling for long diffs and generated review comments.
 - [x] [Near-term] Add a review diff preview that shows the exact text GitPal plans to publish.
 - [ ] [Later] Add multi-model evaluation so we can compare reviewer models against each other.
 - [ ] [Later] Add prompt regression tests and golden outputs for the most important repository types.
@@ -36,10 +36,10 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [x] [P0] Backfill review timestamps and approval state without relying on webhook timing alone.
 - [x] [P0] Heal stale merged, closed, reopened, and force-pushed PRs in a single reconciliation pass.
 - [x] [P0] Add a clear sync health view that shows the last successful sync per repository.
-- [ ] [Near-term] Add incremental sync based on provider update timestamps to avoid unnecessary full scans.
+- [x] [Near-term] Add incremental sync based on provider update timestamps to avoid unnecessary full scans.
 - [x] [Near-term] Add a repository-level "sync now" action with progress and retry feedback.
-- [ ] [Near-term] Add webhook-gap detection so the app can schedule a reconcile when deliveries go missing.
-- [ ] [Near-term] Add per-provider rate-limit backoff and user-visible retry hints.
+- [x] [Near-term] Add webhook-gap detection so the app can schedule a reconcile when deliveries go missing.
+- [x] [Near-term] Add per-provider rate-limit backoff and user-visible retry hints.
 - [ ] [Later] Add branch rename detection and a clearer story for rebases and force pushes.
 - [ ] [Later] Add merge queue awareness for repositories that use queued merges.
 - [ ] [Later] Add repository sync analytics so we can see how often a repo falls behind.
@@ -47,11 +47,11 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 
 ## Integrations
 
-- [ ] [Near-term] Add richer onboarding for GitHub, GitLab, and enterprise hosts.
-- [ ] [Near-term] Add a connector health page with last validation, last use, and last error.
-- [ ] [Near-term] Add a "reconnect" flow for expired OAuth credentials.
+- [x] [Near-term] Add richer onboarding for GitHub, GitLab, and enterprise hosts.
+- [x] [Near-term] Add a connector health page with last validation, last use, and last error.
+- [x] [Near-term] Add a "reconnect" flow for expired OAuth credentials.
 - [x] [Near-term] Add knowledge-base linking that helps external connectors map to the right repository.
-- [ ] [Near-term] Add better webhook setup guidance with provider-specific examples.
+- [x] [Near-term] Add better webhook setup guidance with provider-specific examples.
 - [ ] [Near-term] Add repository access diagnostics when reviewer mapping fails.
 - [ ] [Later] Add more connectors for issue trackers, docs, chat, and incident systems.
 - [ ] [Later] Add connector-level usage analytics and cache hit reporting.
@@ -74,10 +74,10 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 ## Observability
 
 - [x] [Near-term] Add a unified trace view that links webhook receipts, jobs, reviews, notifications, and billing events.
-- [ ] [Near-term] Add better filters for repository, pull request, user, source ID, and severity.
+- [x] [Near-term] Add better filters for repository, pull request, user, source ID, and severity.
 - [ ] [Near-term] Add a details panel for the exact source event that produced each observability row.
 - [ ] [Near-term] Add a user-friendly error timeline for failed webhook and workflow runs.
-- [ ] [Near-term] Add more charts for review latency, approval latency, and cost over time.
+- [x] [Near-term] Add more charts for review latency, approval latency, and cost over time.
 - [ ] [Later] Add export for observability data.
 - [ ] [Later] Add retention controls for high-volume event streams.
 - [ ] [Later] Add drill-downs for repeated failures by repository or provider.
@@ -90,7 +90,7 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [x] [Near-term] Add a clearer cloud-billing badge and messaging across the app.
 - [x] [Near-term] Add balance alerts when a wallet is low or close to negative tolerance.
 - [x] [Near-term] Add invoice and settlement history that is easier to scan.
-- [ ] [Near-term] Add organization-level spend caps and budget alerts.
+- [x] [Near-term] Add organization-level spend caps and budget alerts.
 - [ ] [Near-term] Add admin credits for support and onboarding.
 - [ ] [Later] Add refund and adjustment flows.
 - [ ] [Later] Add monthly usage summaries by repository and team.
@@ -135,7 +135,7 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [ ] [Near-term] Add better package-level AGENTS guidance as packages change.
 - [ ] [Later] Add snapshot tests for critical docs and UI surfaces.
 - [ ] [Later] Add a local demo dataset that covers GitHub, GitLab, notifications, and billing.
-- [ ] [Later] Add CI jobs that validate the docs site and the web app separately.
+- [x] [Later] Add CI jobs that validate the docs site and the web app separately.
 - [ ] [Far future] Add a developer dashboard for feature flags, job queues, and integration health.
 
 ## Security and Governance
@@ -143,7 +143,7 @@ This backlog is intentionally broad. It mixes immediate fixes, near-term product
 - [ ] [Near-term] Add clearer auth session diagnostics for deployment failures.
 - [ ] [Near-term] Add sign-in troubleshooting docs that explain cookie domains and proxy settings.
 - [ ] [Near-term] Add stronger audit log views for admin actions.
-- [ ] [Near-term] Add role-based visibility controls for sensitive settings.
+- [x] [Near-term] Add role-based visibility controls for sensitive settings.
 - [ ] [Near-term] Add webhook secret rotation helpers.
 - [ ] [Near-term] Add session revocation and active session visibility.
 - [ ] [Later] Add passkey or SSO support for the app itself.

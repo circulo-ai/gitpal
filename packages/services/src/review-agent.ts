@@ -24,8 +24,15 @@ import {
 } from "./integrations";
 import { resolveLanguageModelForUser } from "./llm-credentials";
 import { recordObservabilityEvent } from "./observability";
+import {
+	inferReviewTemplate,
+	rankRepositoryContext,
+	rankReviewFiles,
+	reviewTemplateInstructions,
+} from "./review-context";
 
 const log = createLogger("ReviewAgent");
+export const REVIEW_PROMPT_VERSION = "review-v2.0.0";
 
 const reviewFindingSchema = z.object({
 	title: z
@@ -102,6 +109,18 @@ const reviewEffortSchema = z.object({
 		.describe("Rough estimate of focused review time, in minutes."),
 });
 
+const reviewConfidenceSchema = z.object({
+	risk: z.enum(["low", "moderate", "high"]),
+	score: z.number().int().min(0).max(100),
+	summary: z
+		.string()
+		.min(1)
+		.describe(
+			"Plain-language explanation of why this change has the selected risk level.",
+		),
+	factors: z.array(z.string().min(1)).min(1).max(6),
+});
+
 export const repositoryReviewOutputSchema = z.object({
 	summary: z
 		.string()
@@ -126,6 +145,9 @@ export const repositoryReviewOutputSchema = z.object({
 		.nullable()
 		.default(null)
 		.describe("Estimated review effort, or null when not requested."),
+	confidence: reviewConfidenceSchema.describe(
+		"Risk and confidence summary grounded in diff size, tests, sensitive paths, and unresolved findings.",
+	),
 	suggestedReviewers: z
 		.array(z.string())
 		.default([])
@@ -201,6 +223,12 @@ function sanitizeReviewOutput(
 					minutes: Math.max(1, Math.round(output.reviewEffort.minutes)),
 				}
 			: null,
+		confidence: {
+			...output.confidence,
+			score: Math.min(100, Math.max(0, Math.round(output.confidence.score))),
+			summary: cleanMarkdown(output.confidence.summary),
+			factors: dedupeStrings(output.confidence.factors).slice(0, 6),
+		},
 		suggestedReviewers: dedupeStrings(
 			output.suggestedReviewers.map((reviewer) => reviewer.replace(/^@+/, "")),
 		),
@@ -454,7 +482,8 @@ async function loadSeededRepositoryContext(context: ReviewContext) {
 		return "Repository context scan is disabled.";
 	}
 
-	const query = context.pullRequest.title.trim();
+	const query =
+		`${context.pullRequest.title} ${context.pullRequest.body ?? ""}`.trim();
 	const tasks: Array<
 		Promise<{ label: string; items: GitRepositorySearchResult[] }>
 	> = [];
@@ -470,7 +499,7 @@ async function loadSeededRepositoryContext(context: ReviewContext) {
 				})
 				.then((items) => ({
 					label: "Related issues",
-					items,
+					items: rankRepositoryContext(items, query),
 				})),
 		);
 	}
@@ -486,7 +515,7 @@ async function loadSeededRepositoryContext(context: ReviewContext) {
 				})
 				.then((items) => ({
 					label: "Related pull requests",
-					items,
+					items: rankRepositoryContext(items, query),
 				})),
 		);
 	}
@@ -591,14 +620,22 @@ function buildPrompt({
 }: Omit<ReviewContext, "adapter" | "userId"> & {
 	seededContext: string;
 }) {
-	const visibleFiles = files.filter((file) => {
-		if (settings.reviews.behavior.pathFilters.length === 0) {
-			return true;
-		}
+	const visibleFiles = rankReviewFiles(
+		files.filter((file) => {
+			if (settings.reviews.behavior.pathFilters.length === 0) {
+				return true;
+			}
 
-		return !settings.reviews.behavior.pathFilters.some((pattern) =>
-			file.path.includes(pattern.replace(/\*\*/g, "")),
-		);
+			return !settings.reviews.behavior.pathFilters.some((pattern) =>
+				file.path.includes(pattern.replace(/\*\*/g, "")),
+			);
+		}),
+		`${pullRequest.title} ${pullRequest.body ?? ""}`,
+	);
+	const reviewTemplate = inferReviewTemplate({
+		title: pullRequest.title,
+		body: pullRequest.body,
+		files: visibleFiles,
 	});
 
 	const pathGuidance =
@@ -646,6 +683,9 @@ Repository: ${repository.fullName}
 Description: ${repository.description ?? "No repository description."}
 Pull request: #${pullRequest.number} ${pullRequest.title}
 Review kind: ${kind}
+Prompt version: ${REVIEW_PROMPT_VERSION}
+Review template: ${reviewTemplate}
+${reviewTemplateInstructions(reviewTemplate)}
 Branches: ${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}
 Author: ${pullRequest.author?.login ?? "unknown"}
 Body:
@@ -672,6 +712,7 @@ Required output expectations:
 - Produce findings only for real issues; do not invent them. Use severity low|medium|high|critical.
 - Include pre-merge checks when relevant (status passed|warning|failed).
 - Include related issues and pull requests only when you have evidence.
+- Provide a confidence summary that explains the change risk using concrete diff, test, and context signals.
 - Suggest reviewers as bare logins, without a leading "@".
 ${
 	settings.reviews.walkthrough.estimateCodeReviewEffort
@@ -712,6 +753,7 @@ function buildReviewCommentMarkdown(
 		walkthrough: output.walkthrough,
 		sequenceDiagram: output.sequenceDiagram,
 		reviewEffort: output.reviewEffort,
+		confidence: output.confidence,
 		findings: output.findings,
 		relatedWork: output.relatedWork,
 		preMergeChecks: output.preMergeChecks,
@@ -763,6 +805,7 @@ async function generateWalkthroughText({
 		});
 		const walkthroughRun = await runTrackedAiGeneration({
 			userId: context.userId,
+			organizationId: context.organizationId ?? null,
 			callKind: "walkthrough",
 			modelId: walkthroughModelId,
 			routePreview: walkthroughResolution.preview,
@@ -858,6 +901,7 @@ async function generateFunPoem({
 		});
 		const poemRun = await runTrackedAiGeneration({
 			userId: context.userId,
+			organizationId: context.organizationId ?? null,
 			callKind: "fun",
 			modelId: context.settings.fun.modelId.trim(),
 			routePreview: poemResolution.preview,
@@ -1302,6 +1346,7 @@ export async function runRepositoryReview(context: ReviewContext) {
 		try {
 			return await runTrackedAiGeneration({
 				userId: context.userId,
+				organizationId: context.organizationId ?? null,
 				callKind: "review",
 				modelId: context.settings.ai.reviewer.modelId,
 				routePreview: resolution.preview,
@@ -1388,6 +1433,11 @@ export async function runRepositoryReview(context: ReviewContext) {
 		output: finalOutput,
 		walkthrough,
 	});
+	const reviewTemplate = inferReviewTemplate({
+		title: context.pullRequest.title,
+		body: context.pullRequest.body,
+		files: context.files,
+	});
 	log.info("Repository review generation completed.", {
 		repository: context.repository.fullName,
 		pullRequestNumber: context.pullRequest.number,
@@ -1411,5 +1461,7 @@ export async function runRepositoryReview(context: ReviewContext) {
 		steps: result.steps,
 		generationId: reviewGeneration.settlement.generationId,
 		billing: reviewGeneration.settlement,
+		promptVersion: REVIEW_PROMPT_VERSION,
+		reviewTemplate,
 	};
 }

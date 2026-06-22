@@ -49,6 +49,7 @@ import {
 	Settings2Icon,
 	ShieldCheckIcon,
 } from "lucide-react";
+import type { Route } from "next";
 import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
@@ -103,6 +104,85 @@ function matchesRepositorySearchQuery(
 		.toLowerCase();
 
 	return haystack.includes(query);
+}
+
+function getRepositoryNextAction(repository: {
+	id: string;
+	enabled: boolean;
+	webhookConnected: boolean;
+	lastReconciledAt: string | null;
+	reconcileState: string;
+	nextRetryAt: string | null;
+	retryHint: string | null;
+}): { title: string; description: string; href: Route | null } {
+	if (!repository.enabled) {
+		return {
+			title: "Enable AI workflows",
+			description:
+				"Turn automation on when this repository is ready for reviews.",
+			href: `/repositories/${repository.id}/settings` as Route,
+		};
+	}
+	if (!repository.webhookConnected) {
+		return {
+			title: "Connect the webhook",
+			description: "Open settings to create and verify the provider webhook.",
+			href: `/repositories/${repository.id}/settings` as Route,
+		};
+	}
+	if (!repository.lastReconciledAt || repository.reconcileState === "failed") {
+		const retryAt = repository.nextRetryAt
+			? ` Automatic retry ${formatDistanceToNow(new Date(repository.nextRetryAt), { addSuffix: true })}.`
+			: "";
+		return {
+			title:
+				repository.reconcileState === "failed"
+					? "Retry repository sync"
+					: "Run the first repository sync",
+			description:
+				(repository.retryHint ??
+					"Import pull requests and issues, then confirm sync health.") +
+				retryAt,
+			href: null,
+		};
+	}
+	return {
+		title: "Ready for reviews",
+		description:
+			"Open a pull request or tune repository-specific review settings.",
+		href: `/pull-requests?repositoryId=${encodeURIComponent(repository.id)}`,
+	};
+}
+
+function RepositoryOnboardingCard({
+	repository,
+	onSync,
+}: {
+	repository: Parameters<typeof getRepositoryNextAction>[0];
+	onSync: () => void;
+}) {
+	const action = getRepositoryNextAction(repository);
+	return (
+		<div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+			<div className="font-medium text-sm">Next: {action.title}</div>
+			<p className="mt-1 text-muted-foreground text-xs">{action.description}</p>
+			<div className="mt-3">
+				{action.href ? (
+					<Link
+						href={action.href}
+						className={buttonVariants({ variant: "outline", size: "sm" })}
+					>
+						{action.title}
+					</Link>
+				) : (
+					<Button type="button" variant="outline" size="sm" onClick={onSync}>
+						<RefreshCcwIcon />
+						Sync Repository
+					</Button>
+				)}
+			</div>
+		</div>
+	);
 }
 
 export function RepositoriesPage() {
@@ -300,7 +380,7 @@ export function RepositoriesPage() {
 												>
 													<RefreshCcwIcon />
 													{syncMutation.isPending
-														? "Syncing..."
+												? "Syncing…"
 														: `Sync ${provider.label}`}
 												</Button>
 											</div>
@@ -463,7 +543,7 @@ export function RepositoriesPage() {
 									setSearch(event.target.value);
 									setPage(0);
 								}}
-								placeholder="Search repositories..."
+								placeholder="Search repositories…"
 								className="pl-9"
 							/>
 						</div>
@@ -563,6 +643,17 @@ export function RepositoriesPage() {
 												<CircleDotIcon />
 												Issues
 											</Link>
+										</div>
+										<div className="mt-4">
+											<RepositoryOnboardingCard
+												repository={repository}
+												onSync={() =>
+													reconcileMutation.mutate({
+														organizationId: activeWorkspaceId ?? undefined,
+														repositoryId: repository.id,
+													})
+												}
+											/>
 										</div>
 										<div className="mt-4 flex items-center justify-between gap-3">
 											<div className="space-y-1 text-muted-foreground text-sm">
@@ -694,6 +785,18 @@ export function RepositoriesPage() {
 															)}
 														</div>
 													) : null}
+													<div className="mt-3 max-w-sm">
+														<RepositoryOnboardingCard
+															repository={repository}
+															onSync={() =>
+																reconcileMutation.mutate({
+																	organizationId:
+																		activeWorkspaceId ?? undefined,
+																	repositoryId: repository.id,
+																})
+															}
+														/>
+													</div>
 												</TableCell>
 												<TableCell>
 													<div className="flex items-center justify-end gap-3">
@@ -816,6 +919,21 @@ export function RepositoriesPage() {
 										: "Open the install wizard if the provider installation needs broader access, then sync the provider again."}
 								</EmptyDescription>
 							</EmptyHeader>
+							{!search.trim() ? (
+								<div className="flex flex-wrap justify-center gap-2">
+									<InstallWizardLink />
+									<ProviderSyncButton
+										target={activeWorkspace}
+										isPending={syncMutation.isPending}
+										onClick={() =>
+											syncMutation.mutate({
+												organizationId: activeWorkspaceId ?? undefined,
+												providerId: activeWorkspace.providerId,
+											})
+										}
+									/>
+								</div>
+							) : null}
 						</Empty>
 					)}
 				</CardContent>

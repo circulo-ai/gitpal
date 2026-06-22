@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@gitpal/db";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
-import type { GitProviderAdapter, GitPullRequest } from "@gitpal/git";
+import {
+	type GitProviderAdapter,
+	type GitProviderRateLimitError,
+	type GitPullRequest,
+	toGitProviderRateLimitError,
+} from "@gitpal/git";
 import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 import { createLogger } from "@gitpal/logger";
 import { and, eq } from "drizzle-orm";
@@ -14,6 +19,7 @@ import {
 	recordPullRequestMetricEvents,
 } from "./pr-projection";
 import { summarizeHumanReviews } from "./pull-request-reviews";
+import { getIncrementalReconcileWindow } from "./reconcile-strategy";
 import { sanitizeDiagnosticText } from "./safe-diagnostics";
 
 const log = createLogger("pull-request-reconcile");
@@ -25,13 +31,24 @@ function getErrorMessage(error: unknown) {
 		: "Provider reconciliation failed.";
 }
 
-async function markReconcileFailed(repositoryId: string, error: string) {
+async function markReconcileFailed(
+	repositoryId: string,
+	error: string,
+	rateLimit?: GitProviderRateLimitError | null,
+) {
+	const now = new Date();
 	await db
 		.update(dashboardSchema.repository)
 		.set({
 			reconcileState: "failed",
-			lastReconcileFailedAt: new Date(),
+			lastReconcileFailedAt: now,
 			lastReconcileError: sanitizeDiagnosticText(error).slice(0, 2_000),
+			nextRetryAt: rateLimit
+				? new Date(now.getTime() + rateLimit.retryAfterSeconds * 1000)
+				: null,
+			retryHint: rateLimit
+				? `The ${rateLimit.providerId ?? "provider"} asked GitPal to pause. Automatic retry is scheduled.`
+				: "Retry the sync after checking provider credentials and repository access.",
 		})
 		.where(eq(dashboardSchema.repository.id, repositoryId));
 }
@@ -102,24 +119,48 @@ export async function reconcilePullRequestsForRepository({
 		return { projected: 0, issuesProjected: 0 };
 	}
 
-	const issueResult = await reconcileIssueSnapshots({
-		adapter: automationActor.adapter,
-		repositoryId: repository.id,
-		repositoryPath: repository.repositoryPath,
-	});
+	const reconcileWindow = getIncrementalReconcileWindow(
+		repository,
+		reconcileStartedAt,
+	);
+	let issueResult: Awaited<ReturnType<typeof reconcileIssueSnapshots>>;
+	try {
+		issueResult = await reconcileIssueSnapshots({
+			adapter: automationActor.adapter,
+			repositoryId: repository.id,
+			repositoryPath: repository.repositoryPath,
+			updatedAfter: reconcileWindow.updatedAfter,
+		});
+	} catch (error) {
+		const rateLimit = toGitProviderRateLimitError(error, repository.providerId);
+		await markReconcileFailed(
+			repository.id,
+			getErrorMessage(rateLimit ?? error),
+			rateLimit,
+		);
+		if (rateLimit) throw rateLimit;
+		return { projected: 0, issuesProjected: 0 };
+	}
 
 	let pullRequests: GitPullRequest[];
 	try {
 		pullRequests = await automationActor.adapter.listPullRequests({
 			repositoryPath: repository.repositoryPath,
 			state: "all",
+			updatedAfter: reconcileWindow.updatedAfter,
 		});
 	} catch (error) {
+		const rateLimit = toGitProviderRateLimitError(error, repository.providerId);
 		log.warn(
 			{ err: error, repositoryId },
 			"Reconcile failed — listPullRequests error.",
 		);
-		await markReconcileFailed(repository.id, getErrorMessage(error));
+		await markReconcileFailed(
+			repository.id,
+			getErrorMessage(rateLimit ?? error),
+			rateLimit,
+		);
+		if (rateLimit) throw rateLimit;
 		return { projected: 0, issuesProjected: issueResult.projected };
 	}
 
@@ -179,7 +220,13 @@ export async function reconcilePullRequestsForRepository({
 			.set({
 				reconcileState: "healthy",
 				lastReconciledAt: new Date(),
+				incrementalSyncCursor: reconcileStartedAt,
+				lastFullReconciledAt: reconcileWindow.full
+					? reconcileStartedAt
+					: repository.lastFullReconciledAt,
 				lastReconcileError: null,
+				nextRetryAt: null,
+				retryHint: null,
 			})
 			.where(eq(dashboardSchema.repository.id, repository.id));
 	}
@@ -200,15 +247,23 @@ async function reconcileIssueSnapshots({
 	adapter,
 	repositoryId,
 	repositoryPath,
+	updatedAfter,
 }: {
 	adapter: GitProviderAdapter;
 	repositoryId: string;
 	repositoryPath: string;
+	updatedAfter?: string;
 }) {
 	let issues: Awaited<ReturnType<GitProviderAdapter["listIssues"]>>;
 	try {
-		issues = await adapter.listIssues({ repositoryPath, state: "all" });
+		issues = await adapter.listIssues({
+			repositoryPath,
+			state: "all",
+			updatedAfter,
+		});
 	} catch (error) {
+		const rateLimit = toGitProviderRateLimitError(error, adapter.providerId);
+		if (rateLimit) throw rateLimit;
 		log.warn(
 			{ err: error, repositoryId },
 			"Reconcile failed - listIssues error.",

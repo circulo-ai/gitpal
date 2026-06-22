@@ -11,6 +11,10 @@ import { eq } from "drizzle-orm";
 import type { ModelRoutePreview } from "./llm-credentials";
 import { sendUserNotification } from "./notifications";
 import { recordObservabilityEvent } from "./observability";
+import {
+	assertOrganizationBudgetCanStartUsage,
+	sendOrganizationBudgetAlerts,
+} from "./organization-budget";
 import { sanitizeDiagnosticText, sanitizeRunDetails } from "./safe-diagnostics";
 import {
 	applyWalletUsageDebitInTransaction,
@@ -46,6 +50,7 @@ export type AiBillingSettlement = {
 
 export type TrackAiGenerationInput<TResult> = {
 	userId: string;
+	organizationId?: string | null;
 	callKind: AiCallKind;
 	modelId: string;
 	routePreview: ModelRoutePreview;
@@ -332,6 +337,7 @@ async function resolveActualCostCents({
 async function insertGenerationRow({
 	generationId,
 	userId,
+	organizationId,
 	callKind,
 	modelId,
 	routePreview,
@@ -342,6 +348,7 @@ async function insertGenerationRow({
 	metadata,
 }: {
 	userId: string;
+	organizationId?: string | null;
 	callKind: AiCallKind;
 	modelId: string;
 	routePreview: ModelRoutePreview;
@@ -358,6 +365,7 @@ async function insertGenerationRow({
 	await db.insert(aiSchema.aiGeneration).values({
 		id: generationId,
 		userId,
+		organizationId: organizationId ?? null,
 		repositoryId: repositoryId ?? null,
 		pullRequestId: pullRequestId ?? null,
 		reviewRunId: reviewRunId ?? null,
@@ -714,6 +722,7 @@ export function buildAiProviderOptions({
 
 export async function runTrackedAiGeneration<TResult>({
 	userId,
+	organizationId = null,
 	callKind,
 	modelId,
 	routePreview,
@@ -745,6 +754,7 @@ export async function runTrackedAiGeneration<TResult>({
 	await insertGenerationRow({
 		generationId,
 		userId,
+		organizationId,
 		callKind,
 		modelId,
 		routePreview,
@@ -757,7 +767,10 @@ export async function runTrackedAiGeneration<TResult>({
 
 	try {
 		if (routePreview.billedBy === "wallet") {
-			await assertWalletCanStartUsage(userId);
+			await Promise.all([
+				assertWalletCanStartUsage(userId),
+				assertOrganizationBudgetCanStartUsage(organizationId),
+			]);
 		}
 		const result = await execute({
 			generationId,
@@ -857,6 +870,7 @@ export async function runTrackedAiGeneration<TResult>({
 			};
 		});
 		walletBalanceAfterCents = settledWalletBalance.walletBalanceAfterCents;
+		await sendOrganizationBudgetAlerts(organizationId);
 		if (
 			routePreview.billedBy === "wallet" &&
 			walletBalanceAfterCents !== null &&

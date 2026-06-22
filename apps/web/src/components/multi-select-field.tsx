@@ -55,7 +55,7 @@ export function MultiSelectField({
 	options,
 	onChange,
 	placeholder,
-	searchPlaceholder = "Search options...",
+	searchPlaceholder = "Search options…",
 	emptyText = "No matching options.",
 	description,
 	disabled,

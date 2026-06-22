@@ -1129,7 +1129,10 @@ export function createGitLabAdapter({
 	}
 
 	async function listPullRequests(
-		input: GitRepositoryRef & { state?: GitPullRequestState },
+		input: GitRepositoryRef & {
+			state?: GitPullRequestState;
+			updatedAfter?: string;
+		},
 	) {
 		const state =
 			input.state === "all"
@@ -1140,11 +1143,14 @@ export function createGitLabAdapter({
 						? "closed"
 						: "opened";
 
+		const updatedAfterQuery = input.updatedAfter
+			? `&updated_after=${encodeURIComponent(input.updatedAfter)}`
+			: "";
 		const response = await requestJsonPages<unknown>(
 			`${createRepositoryUrl(
 				normalizedApiBaseUrl,
 				input.repositoryPath,
-			)}/merge_requests?state=${encodeURIComponent(state)}`,
+			)}/merge_requests?state=${encodeURIComponent(state)}&order_by=updated_at&sort=desc${updatedAfterQuery}`,
 			{
 				headers: {
 					...createGitLabRequestHeaders(auth),
@@ -1180,17 +1186,20 @@ export function createGitLabAdapter({
 	}
 
 	async function listIssues(
-		input: GitRepositoryRef & { state?: GitIssueState },
+		input: GitRepositoryRef & { state?: GitIssueState; updatedAfter?: string },
 	): Promise<GitIssue[]> {
 		const stateQuery =
 			input.state && input.state !== "all"
-				? `?state=${input.state === "open" ? "opened" : "closed"}`
+				? `state=${input.state === "open" ? "opened" : "closed"}&`
 				: "";
+		const updatedAfterQuery = input.updatedAfter
+			? `updated_after=${encodeURIComponent(input.updatedAfter)}&`
+			: "";
 		const response = await requestJsonPages<unknown>(
 			`${createRepositoryUrl(
 				normalizedApiBaseUrl,
 				input.repositoryPath,
-			)}/issues${stateQuery}`,
+			)}/issues?${stateQuery}${updatedAfterQuery}order_by=updated_at&sort=desc`,
 			{
 				headers: {
 					...createGitLabRequestHeaders(auth),

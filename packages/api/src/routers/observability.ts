@@ -27,6 +27,13 @@ const observabilityTimelineSchema = z.object({
 	organizationId: z.string().min(1).optional(),
 	repositoryId: z.string().min(1).optional(),
 	kind: observabilityKindSchema.optional(),
+	pullRequestNumber: z.number().int().positive().optional(),
+	issueNumber: z.number().int().positive().optional(),
+	user: z.string().trim().max(120).optional(),
+	sourceId: z.string().trim().max(240).optional(),
+	severity: z
+		.enum(["all", "info", "success", "warning", "error"])
+		.default("all"),
 	dateRange: z
 		.object({
 			from: z.string().optional(),
@@ -782,7 +789,33 @@ export const observabilityRouter = router({
 				}
 			}
 
-			const timeline = dedupeAndSort(events, input.limit);
+			const userQuery = input.user?.toLowerCase();
+			const sourceQuery = input.sourceId?.toLowerCase();
+			const filteredEvents = events.filter((event) => {
+				if (input.severity !== "all" && event.severity !== input.severity)
+					return false;
+				if (
+					input.pullRequestNumber &&
+					event.pullRequest?.number !== input.pullRequestNumber
+				)
+					return false;
+				if (input.issueNumber && event.issue?.number !== input.issueNumber)
+					return false;
+				if (
+					sourceQuery &&
+					!`${event.sourceId ?? ""} ${event.traceId ?? ""}`
+						.toLowerCase()
+						.includes(sourceQuery)
+				)
+					return false;
+				if (userQuery) {
+					const searchable =
+						`${event.title} ${event.body ?? ""} ${JSON.stringify(event.metadata)}`.toLowerCase();
+					if (!searchable.includes(userQuery)) return false;
+				}
+				return true;
+			});
+			const timeline = dedupeAndSort(filteredEvents, input.limit);
 
 			return {
 				updatedAt: new Date().toISOString(),
@@ -792,6 +825,11 @@ export const observabilityRouter = router({
 					kind: selectedKind,
 					organizationId,
 					repositoryId: input.repositoryId ?? null,
+					pullRequestNumber: input.pullRequestNumber ?? null,
+					issueNumber: input.issueNumber ?? null,
+					user: input.user ?? null,
+					sourceId: input.sourceId ?? null,
+					severity: input.severity,
 				},
 				repositories,
 				stats: buildStats(timeline),

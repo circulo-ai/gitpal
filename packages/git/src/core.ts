@@ -350,13 +350,16 @@ export interface GitProviderAdapter {
 	listWorkspaceMembers(input: GitWorkspaceRef): Promise<GitWorkspaceMember[]>;
 	getRepository(input: GitRepositoryRef): Promise<GitRepository>;
 	listPullRequests(
-		input: GitRepositoryRef & { state?: GitPullRequestState },
+		input: GitRepositoryRef & {
+			state?: GitPullRequestState;
+			updatedAfter?: string;
+		},
 	): Promise<GitPullRequest[]>;
 	getPullRequest(
 		input: GitRepositoryRef & { pullRequestNumber: number },
 	): Promise<GitPullRequest>;
 	listIssues(
-		input: GitRepositoryRef & { state?: GitIssueState },
+		input: GitRepositoryRef & { state?: GitIssueState; updatedAfter?: string },
 	): Promise<GitIssue[]>;
 	getIssue(
 		input: GitRepositoryRef & { issueNumber: number },

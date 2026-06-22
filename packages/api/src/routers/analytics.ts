@@ -1,4 +1,5 @@
 import { db } from "@gitpal/db";
+import * as aiSchema from "@gitpal/db/schema/ai";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import {
 	listRepositoriesForUser,
@@ -50,6 +51,8 @@ type ToolFindingRow = typeof dashboardSchema.toolFinding.$inferSelect;
 type CheckRunRow = typeof dashboardSchema.preMergeCheckRun.$inferSelect;
 type LearningRow = typeof dashboardSchema.knowledgeBaseLearning.$inferSelect;
 type ReportDeliveryRow = typeof dashboardSchema.reportDelivery.$inferSelect;
+type ReviewRunRow = typeof dashboardSchema.reviewRun.$inferSelect;
+type AiGenerationRow = typeof aiSchema.aiGeneration.$inferSelect;
 
 type MetricCard = {
 	label: string;
@@ -100,6 +103,8 @@ type AnalyticsContext = {
 	preMergeCheckRuns: CheckRunRow[];
 	knowledgeBaseLearnings: LearningRow[];
 	reportDeliveries: ReportDeliveryRow[];
+	reviewRuns: ReviewRunRow[];
+	aiGenerations: AiGenerationRow[];
 	range: {
 		from: Date;
 		to: Date;
@@ -481,6 +486,8 @@ async function loadAnalyticsContext(
 			preMergeCheckRuns: [],
 			knowledgeBaseLearnings: [],
 			reportDeliveries: [],
+			reviewRuns: [],
+			aiGenerations: [],
 			range,
 		};
 	}
@@ -492,6 +499,8 @@ async function loadAnalyticsContext(
 		preMergeCheckRuns,
 		knowledgeBaseLearnings,
 		reportDeliveries,
+		reviewRuns,
+		aiGenerations,
 	] = await Promise.all([
 		db
 			.select()
@@ -528,6 +537,14 @@ async function loadAnalyticsContext(
 			.where(
 				inArray(dashboardSchema.reportDelivery.repositoryId, repositoryIds),
 			),
+		db
+			.select()
+			.from(dashboardSchema.reviewRun)
+			.where(inArray(dashboardSchema.reviewRun.repositoryId, repositoryIds)),
+		db
+			.select()
+			.from(aiSchema.aiGeneration)
+			.where(inArray(aiSchema.aiGeneration.repositoryId, repositoryIds)),
 	]);
 
 	const usernameFilter = new Set(range.usernames);
@@ -575,6 +592,16 @@ async function loadAnalyticsContext(
 		),
 		reportDeliveries: reportDeliveries.filter((delivery) =>
 			isInRange(delivery.deliveredAt, range.from, range.to),
+		),
+		reviewRuns: reviewRuns.filter((run) =>
+			isInRange(run.completedAt ?? run.createdAt, range.from, range.to),
+		),
+		aiGenerations: aiGenerations.filter((generation) =>
+			isInRange(
+				generation.completedAt ?? generation.createdAt,
+				range.from,
+				range.to,
+			),
 		),
 		range,
 	};
@@ -849,6 +876,35 @@ function buildTime(ctx: AnalyticsContext) {
 			...metricCards("Last commit", metrics.toLastCommit),
 		],
 		charts: [
+			chart({
+				id: "weekly-review-latency",
+				title: "Weekly GitPal review latency",
+				type: "line",
+				data: weeklySeries({
+					items: ctx.reviewRuns,
+					from: ctx.range.from,
+					to: ctx.range.to,
+					getDate: (run) => run.completedAt ?? run.createdAt,
+					series: [
+						{
+							key: "hours",
+							label: "Hours",
+							value: (items) => {
+								const values = items
+									.map((run) =>
+										durationHours(
+											run.startedAt ?? run.createdAt,
+											run.completedAt,
+										),
+									)
+									.filter((value): value is number => value !== null);
+								return Math.round((average(values) ?? 0) * 10) / 10;
+							},
+						},
+					],
+				}),
+				series: [{ key: "hours", label: "Hours" }],
+			}),
 			weeklyDurationChart(
 				"weekly-review-ready-merge",
 				"Weekly review-ready to merge time",
@@ -885,6 +941,41 @@ function buildTime(ctx: AnalyticsContext) {
 						pullRequest.lastCommitAt,
 					),
 			),
+			weeklyDurationChart(
+				"weekly-approval-latency",
+				"Weekly approval latency",
+				(pullRequest) =>
+					durationHours(
+						pullRequest.reviewReadyAt ?? pullRequest.createdAt,
+						pullRequest.approvedAt,
+					),
+			),
+			chart({
+				id: "weekly-ai-cost",
+				title: "Weekly AI cost",
+				type: "area",
+				data: weeklySeries({
+					items: ctx.aiGenerations,
+					from: ctx.range.from,
+					to: ctx.range.to,
+					getDate: (generation) =>
+						generation.completedAt ?? generation.createdAt,
+					series: [
+						{
+							key: "costUsd",
+							label: "Cost (USD)",
+							value: (items) =>
+								Math.round(
+									items.reduce(
+										(sum, item) => sum + (item.actualCostCents ?? 0),
+										0,
+									),
+								) / 100,
+						},
+					],
+				}),
+				series: [{ key: "costUsd", label: "Cost (USD)" }],
+			}),
 		],
 		tables: [],
 	};

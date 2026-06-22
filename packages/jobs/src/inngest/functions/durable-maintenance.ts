@@ -4,6 +4,7 @@ export type DurableStateMaintenanceProcessor = () => Promise<unknown>;
 
 export function createDurableStateMaintenanceFunction(
 	expireStaleDurableState: DurableStateMaintenanceProcessor,
+	refreshDurableCredentials: DurableStateMaintenanceProcessor,
 ) {
 	return inngest.createFunction(
 		{
@@ -13,7 +14,16 @@ export function createDurableStateMaintenanceFunction(
 			concurrency: 1,
 			timeouts: { start: "5m", finish: "5m" },
 		},
-		async ({ step }) =>
-			step.run("expire-stale-durable-state", expireStaleDurableState),
+		async ({ step }) => {
+			const expired = await step.run(
+				"expire-stale-durable-state",
+				expireStaleDurableState,
+			);
+			const credentials = await step.run(
+				"refresh-durable-credentials",
+				refreshDurableCredentials,
+			);
+			return { expired, credentials };
+		},
 	);
 }

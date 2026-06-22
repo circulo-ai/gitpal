@@ -46,6 +46,13 @@ export type ReviewCommentEffort = {
 	minutes: number;
 };
 
+export type ReviewConfidenceSummary = {
+	risk: "low" | "moderate" | "high";
+	score: number;
+	summary: string;
+	factors: string[];
+};
+
 export type ReviewCommentFile = {
 	path: string;
 	status: string;
@@ -86,6 +93,7 @@ export type ReviewCommentInput = {
 	suggestedLabels: string[];
 	poem?: string | null;
 	reviewEffort?: ReviewCommentEffort | null;
+	confidence?: ReviewConfidenceSummary | null;
 	suggestedReviewers?: string[];
 	/**
 	 * Optional pull-request-specific Mermaid sequence diagram body (without the
@@ -775,6 +783,12 @@ export function buildRepositoryReviewCommentData(
 	}
 
 	sections.push(`## Findings\n${buildFindingsSection(findings)}`);
+
+	if (input.confidence) {
+		sections.push(
+			`## Review confidence\n**${capitalize(input.confidence.risk)} risk · ${input.confidence.score}% confidence**\n\n${input.confidence.summary}\n\n${input.confidence.factors.map((factor) => `- ${factor}`).join("\n")}`,
+		);
+	}
 
 	if (reviewEffort) {
 		sections.push(

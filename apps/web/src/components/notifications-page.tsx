@@ -907,6 +907,19 @@ export function NotificationsPage() {
 											notifications outside the app.
 										</EmptyDescription>
 									</EmptyHeader>
+									<div className="flex flex-col items-center gap-3 text-center">
+										<p className="max-w-md text-muted-foreground text-sm">
+											Start with Slack or email for operational alerts. Use
+											Linear when review failures should become tracked work.
+										</p>
+										<Button
+											type="button"
+											onClick={() => setChannelDialog({ channel: null })}
+										>
+											<PlusCircleIcon />
+											Add First Channel
+										</Button>
+									</div>
 								</Empty>
 							</CardContent>
 						</Card>

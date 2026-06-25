@@ -31,6 +31,7 @@
 		"@gitpal/logger": "workspace:*",
 		"@gitpal/mcp": "workspace:*",
 		"@gitpal/utils": "workspace:*",
+		"@gitpal/repositories": "workspace:*",
 		"@nowpaymentsio/nowpayments-sdk-nodejs": "^0.2.1",
 		"@openrouter/ai-sdk-provider": "^2.9.1",
 		"@resend/chat-sdk-adapter": "^0.2.2",

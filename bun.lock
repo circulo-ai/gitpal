@@ -278,6 +278,17 @@
         "typescript": "catalog:",
       },
     },
+    "packages/repositories": {
+      "name": "@gitpal/repositories",
+      "devDependencies": {
+        "@gitpal/db": "workspace:*",
+        "@types/bun": "latest",
+        "drizzle-orm": "catalog:",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
     "packages/services": {
       "name": "@gitpal/services",
       "dependencies": {
@@ -298,6 +309,7 @@
         "@gitpal/jobs": "workspace:*",
         "@gitpal/logger": "workspace:*",
         "@gitpal/mcp": "workspace:*",
+        "@gitpal/repositories": "workspace:*",
         "@gitpal/utils": "workspace:*",
         "@nowpaymentsio/nowpayments-sdk-nodejs": "^0.2.1",
         "@openrouter/ai-sdk-provider": "^2.9.1",
@@ -671,6 +683,8 @@
     "@gitpal/mcp": ["@gitpal/mcp@workspace:packages/mcp"],
 
     "@gitpal/redis": ["@gitpal/redis@workspace:packages/redis"],
+
+    "@gitpal/repositories": ["@gitpal/repositories@workspace:packages/repositories"],
 
     "@gitpal/services": ["@gitpal/services@workspace:packages/services"],
 

@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
-import * as observabilitySchema from "@gitpal/db/schema/observability";
-import { eq } from "drizzle-orm";
+import { createRepositories, repositories } from "@gitpal/repositories";
 import { sanitizeDiagnosticText, sanitizeRunDetails } from "./safe-diagnostics";
-
-type ObservabilityDbExecutor = Pick<typeof db, "insert" | "update">;
 
 export type ObservabilityEventKind =
 	| "ai"
@@ -51,7 +47,7 @@ function eventId() {
 
 export async function recordObservabilityEvent(
 	input: RecordObservabilityEventInput,
-	executor: ObservabilityDbExecutor = db,
+	executor?: any,
 ) {
 	const now = input.occurredAt ?? new Date();
 	const id = eventId();
@@ -81,34 +77,8 @@ export async function recordObservabilityEvent(
 		createdAt: new Date(),
 	};
 
-	const [row] = await executor
-		.insert(observabilitySchema.observabilityEvent)
-		.values(values)
-		.onConflictDoUpdate({
-			target: observabilitySchema.observabilityEvent.dedupeKey,
-			set: {
-				organizationId: values.organizationId,
-				repositoryId: values.repositoryId,
-				pullRequestId: values.pullRequestId,
-				issueId: values.issueId,
-				reviewRunId: values.reviewRunId,
-				traceId: values.traceId,
-				parentEventId: values.parentEventId,
-				kind: values.kind,
-				action: values.action,
-				status: values.status,
-				severity: values.severity,
-				title: values.title,
-				body: values.body,
-				sourceType: values.sourceType,
-				sourceId: values.sourceId,
-				durationMs: values.durationMs,
-				costCents: values.costCents,
-				metadata: values.metadata,
-				occurredAt: values.occurredAt,
-			},
-		})
-		.returning();
+	const repos = executor ? createRepositories(executor) : repositories;
+	const row = await repos.observabilityEvent.upsertByDedupeKey(values);
 
 	return row;
 }
@@ -120,8 +90,7 @@ export async function appendObservabilityEventMetadata({
 	eventId: string;
 	metadata: Record<string, unknown>;
 }) {
-	await db
-		.update(observabilitySchema.observabilityEvent)
-		.set({ metadata: sanitizeRunDetails(metadata) })
-		.where(eq(observabilitySchema.observabilityEvent.id, id));
+	await repositories.observabilityEvent.updateById(id, {
+		metadata: sanitizeRunDetails(metadata),
+	});
 }

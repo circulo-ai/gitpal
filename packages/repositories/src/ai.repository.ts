@@ -3,13 +3,17 @@ import {
 	userLlmApiKey,
 	userLlmRoutingSettings,
 } from "@gitpal/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { BaseRepository, type PageRequest } from "./shared/base.repository";
 import { conflictUpdateAllExcept } from "./shared/sql";
 import type { Executor } from "./shared/types";
 
 type RoutingSettingsInsert = typeof userLlmRoutingSettings.$inferInsert;
 type LlmApiKeyInsert = typeof userLlmApiKey.$inferInsert;
+
+export type UserLlmApiKey = typeof userLlmApiKey.$inferSelect;
+export type UserLlmRoutingSettings = typeof userLlmRoutingSettings.$inferSelect;
+export type AiGeneration = typeof aiGeneration.$inferSelect;
 
 /** Per-user LLM routing preferences (one row per user). */
 export class UserLlmRoutingSettingsRepository extends BaseRepository<
@@ -54,7 +58,7 @@ export class UserLlmApiKeyRepository extends BaseRepository<
 				eq(userLlmApiKey.userId, userId),
 				eq(userLlmApiKey.providerId, providerId),
 				eq(userLlmApiKey.name, name),
-			)
+			),
 		);
 	}
 
@@ -63,6 +67,40 @@ export class UserLlmApiKeyRepository extends BaseRepository<
 			where: eq(userLlmApiKey.userId, userId),
 			orderBy: [desc(userLlmApiKey.enabled), userLlmApiKey.priority],
 		});
+	}
+
+	listByUserPriority(userId: string) {
+		return this.findMany({
+			where: eq(userLlmApiKey.userId, userId),
+			orderBy: [asc(userLlmApiKey.priority), desc(userLlmApiKey.updatedAt)],
+		});
+	}
+
+	listByUserOrderedByProviderAndPriority(userId: string) {
+		return this.findMany({
+			where: eq(userLlmApiKey.userId, userId),
+			orderBy: [
+				asc(userLlmApiKey.providerId),
+				asc(userLlmApiKey.priority),
+				desc(userLlmApiKey.createdAt),
+			],
+		});
+	}
+
+	findDuplicateKey(
+		userId: string,
+		providerId: string,
+		name: string,
+		excludeId: string,
+	) {
+		return this.findOne(
+			and(
+				eq(userLlmApiKey.userId, userId),
+				eq(userLlmApiKey.providerId, providerId),
+				eq(userLlmApiKey.name, name),
+				ne(userLlmApiKey.id, excludeId),
+			),
+		);
 	}
 
 	listEnabledByUserAndProvider(userId: string, providerId: string) {
@@ -140,6 +178,14 @@ export class AiGenerationRepository extends BaseRepository<
 		});
 	}
 
+	listByReviewRunIds(reviewRunIds: string[]) {
+		if (reviewRunIds.length === 0) return Promise.resolve([]);
+		return this.findMany({
+			where: inArray(aiGeneration.reviewRunId, reviewRunIds),
+			orderBy: desc(aiGeneration.createdAt),
+		});
+	}
+
 	listByRepository(repositoryId: string, page: PageRequest = {}) {
 		return this.findPage({
 			where: eq(aiGeneration.repositoryId, repositoryId),
@@ -154,5 +200,25 @@ export class AiGenerationRepository extends BaseRepository<
 			orderBy: desc(aiGeneration.createdAt),
 			...page,
 		});
+	}
+
+	async getSpentCents(
+		organizationId: string,
+		billingMode: string,
+		since: Date,
+	): Promise<number> {
+		const [result] = await this.executor
+			.select({
+				spentCents: sql<number>`coalesce(sum(${aiGeneration.actualCostCents}), 0)::int`,
+			})
+			.from(aiGeneration)
+			.where(
+				and(
+					eq(aiGeneration.organizationId, organizationId),
+					eq(aiGeneration.billingMode, billingMode),
+					gte(aiGeneration.createdAt, since),
+				),
+			);
+		return result?.spentCents ?? 0;
 	}
 }

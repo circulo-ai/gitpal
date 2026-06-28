@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import {
 	type GitProviderAdapter,
 	type GitProviderRateLimitError,
@@ -9,7 +7,7 @@ import {
 } from "@gitpal/git";
 import { enqueuePullRequestSyncJob } from "@gitpal/jobs/inngest/functions/pr-sync";
 import { createLogger } from "@gitpal/logger";
-import { and, eq } from "drizzle-orm";
+import { type PullRequest, repositories } from "@gitpal/repositories";
 import { mapWithConcurrency } from "./bounded-concurrency";
 import { getAutomationActorForRepository } from "./git-provider-access";
 import { projectIssueSnapshot } from "./issue-projection";
@@ -37,20 +35,17 @@ async function markReconcileFailed(
 	rateLimit?: GitProviderRateLimitError | null,
 ) {
 	const now = new Date();
-	await db
-		.update(dashboardSchema.repository)
-		.set({
-			reconcileState: "failed",
-			lastReconcileFailedAt: now,
-			lastReconcileError: sanitizeDiagnosticText(error).slice(0, 2_000),
-			nextRetryAt: rateLimit
-				? new Date(now.getTime() + rateLimit.retryAfterSeconds * 1000)
-				: null,
-			retryHint: rateLimit
-				? `The ${rateLimit.providerId ?? "provider"} asked GitPal to pause. Automatic retry is scheduled.`
-				: "Retry the sync after checking provider credentials and repository access.",
-		})
-		.where(eq(dashboardSchema.repository.id, repositoryId));
+	await repositories.repository.updateById(repositoryId, {
+		reconcileState: "failed",
+		lastReconcileFailedAt: now,
+		lastReconcileError: sanitizeDiagnosticText(error).slice(0, 2_000),
+		nextRetryAt: rateLimit
+			? new Date(now.getTime() + rateLimit.retryAfterSeconds * 1000)
+			: null,
+		retryHint: rateLimit
+			? `The ${rateLimit.providerId ?? "provider"} asked GitPal to pause. Automatic retry is scheduled.`
+			: "Retry the sync after checking provider credentials and repository access.",
+	});
 }
 
 export async function markPullRequestReconcileFailed({
@@ -85,23 +80,16 @@ export async function reconcilePullRequestsForRepository({
 }: {
 	repositoryId: string;
 }): Promise<{ projected: number; issuesProjected: number }> {
-	const [repository] = await db
-		.select()
-		.from(dashboardSchema.repository)
-		.where(eq(dashboardSchema.repository.id, repositoryId))
-		.limit(1);
+	const repository = await repositories.repository.findById(repositoryId);
 	if (!repository) {
 		return { projected: 0, issuesProjected: 0 };
 	}
 	const reconcileStartedAt = new Date();
-	await db
-		.update(dashboardSchema.repository)
-		.set({
-			reconcileState: "running",
-			lastReconcileStartedAt: reconcileStartedAt,
-			lastReconcileError: null,
-		})
-		.where(eq(dashboardSchema.repository.id, repository.id));
+	await repositories.repository.updateById(repository.id, {
+		reconcileState: "running",
+		lastReconcileStartedAt: reconcileStartedAt,
+		lastReconcileError: null,
+	});
 
 	const automationActor = await getAutomationActorForRepository({
 		repositoryId: repository.id,
@@ -215,20 +203,17 @@ export async function reconcilePullRequestsForRepository({
 	if (reconcileErrors.length > 0) {
 		await markReconcileFailed(repository.id, reconcileErrors.join(" "));
 	} else {
-		await db
-			.update(dashboardSchema.repository)
-			.set({
-				reconcileState: "healthy",
-				lastReconciledAt: new Date(),
-				incrementalSyncCursor: reconcileStartedAt,
-				lastFullReconciledAt: reconcileWindow.full
-					? reconcileStartedAt
-					: repository.lastFullReconciledAt,
-				lastReconcileError: null,
-				nextRetryAt: null,
-				retryHint: null,
-			})
-			.where(eq(dashboardSchema.repository.id, repository.id));
+		await repositories.repository.updateById(repository.id, {
+			reconcileState: "healthy",
+			lastReconciledAt: new Date(),
+			incrementalSyncCursor: reconcileStartedAt,
+			lastFullReconciledAt: reconcileWindow.full
+				? reconcileStartedAt
+				: repository.lastFullReconciledAt,
+			lastReconcileError: null,
+			nextRetryAt: null,
+			retryHint: null,
+		});
 	}
 	log.info(
 		{
@@ -307,7 +292,7 @@ async function backfillHumanReviews({
 	repositoryPath: string;
 	pullRequestNumber: number;
 	observedAt: Date;
-}): Promise<typeof dashboardSchema.pullRequest.$inferSelect | null> {
+}): Promise<PullRequest | null> {
 	const reviews = await adapter.listPullRequestReviews({
 		repositoryPath,
 		pullRequestNumber,
@@ -327,12 +312,8 @@ async function backfillHumanReviews({
 export async function dispatchPullRequestReconcile(): Promise<{
 	dispatched: number;
 }> {
-	const rows = await db
-		.selectDistinct({
-			repositoryId: dashboardSchema.repositoryAccess.repositoryId,
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.where(eq(dashboardSchema.repositoryAccess.enabled, true));
+	const rows =
+		await repositories.repositoryAccess.listDistinctEnabledRepositoryIds();
 	const scheduleWindow = Math.floor(
 		Date.now() / SCHEDULED_RECONCILE_INTERVAL_MS,
 	);
@@ -379,24 +360,11 @@ export async function queuePullRequestReconcileForUser({
 	organizationId: string;
 	repositoryId: string;
 }) {
-	const [access] = await db
-		.select({ repositoryId: dashboardSchema.repository.id })
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryAccess.userId, userId),
-				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
-				eq(dashboardSchema.repository.organizationId, organizationId),
-			),
-		)
-		.limit(1);
+	const access = await repositories.repositoryAccess.findAccessForUserInOrg(
+		userId,
+		repositoryId,
+		organizationId,
+	);
 	if (!access) {
 		return {
 			queued: false,

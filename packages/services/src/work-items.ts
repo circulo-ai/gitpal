@@ -1,13 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
-import * as aiSchema from "@gitpal/db/schema/ai";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
-import * as observabilitySchema from "@gitpal/db/schema/observability";
 import {
 	enqueueRepositoryLabelerRunJob,
 	enqueueRepositoryReviewRunJob,
 } from "@gitpal/jobs/inngest/functions/ai-workflows";
-import { and, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { type AiGeneration, repositories } from "@gitpal/repositories";
 import { getAutomationActorForRepository } from "./git-provider-access";
 import { projectIssueSnapshot } from "./issue-projection";
 import { projectPullRequestSnapshot } from "./pr-projection";
@@ -27,27 +23,11 @@ async function accessibleRepository({
 	repositoryId: string;
 }) {
 	if (!organizationId) return null;
-	const [row] = await db
-		.select({
-			access: dashboardSchema.repositoryAccess,
-			repository: dashboardSchema.repository,
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryAccess.userId, userId),
-				eq(dashboardSchema.repository.id, repositoryId),
-				eq(dashboardSchema.repository.organizationId, organizationId),
-			),
-		)
-		.limit(1);
+	const row = await repositories.repositoryAccess.findAccessWithRepository(
+		userId,
+		repositoryId,
+		organizationId,
+	);
 	return row
 		? {
 				...row.repository,
@@ -75,16 +55,16 @@ export async function listWorkItems({
 	page?: number;
 	pageSize?: number;
 }) {
-	const repositories = await listRepositoriesForUser({
+	const userRepositories = await listRepositoriesForUser({
 		userId,
 		organizationId,
 	});
-	const allowed = repositories
+	const allowed = userRepositories
 		.filter((repository) => !repositoryId || repository.id === repositoryId)
 		.map((repository) => repository.id);
 	if (allowed.length === 0) return { items: [], total: 0, page, pageSize };
 	const repositoryMap = new Map(
-		repositories.map((repository) => [repository.id, repository]),
+		userRepositories.map((repository) => [repository.id, repository]),
 	);
 	const normalizedQuery = query?.trim();
 	const normalizedPage = Math.max(1, Math.trunc(page));
@@ -92,77 +72,45 @@ export async function listWorkItems({
 	const offset = (normalizedPage - 1) * normalizedPageSize;
 
 	if (kind === "pull_request") {
-		const condition = and(
-			inArray(dashboardSchema.pullRequest.repositoryId, allowed),
-			state ? eq(dashboardSchema.pullRequest.state, state) : undefined,
-			normalizedQuery
-				? or(
-						ilike(dashboardSchema.pullRequest.title, `%${normalizedQuery}%`),
-						ilike(
-							dashboardSchema.pullRequest.authorLogin,
-							`%${normalizedQuery}%`,
-						),
-					)
-				: undefined,
-		);
-		const [rows, [totalRow]] = await Promise.all([
-			db
-				.select()
-				.from(dashboardSchema.pullRequest)
-				.where(condition)
-				.orderBy(desc(dashboardSchema.pullRequest.updatedAt))
-				.limit(normalizedPageSize)
-				.offset(offset),
-			db
-				.select({ total: count() })
-				.from(dashboardSchema.pullRequest)
-				.where(condition),
-		]);
+		const { items, total } = await repositories.pullRequest.searchPullRequests({
+			repositoryIds: allowed,
+			state,
+			query: normalizedQuery,
+			limit: normalizedPageSize,
+			offset,
+		});
 		return {
-			items: rows.map((item) => ({
+			items: items.map((item) => ({
 				...item,
 				kind,
 				repository: repositoryMap.get(item.repositoryId) ?? null,
 			})),
-			total: totalRow?.total ?? 0,
+			total,
 			page: normalizedPage,
 			pageSize: normalizedPageSize,
 		};
 	}
 
-	const condition = and(
-		inArray(dashboardSchema.issue.repositoryId, allowed),
-		state ? eq(dashboardSchema.issue.state, state) : undefined,
-		normalizedQuery
-			? or(
-					ilike(dashboardSchema.issue.title, `%${normalizedQuery}%`),
-					ilike(dashboardSchema.issue.authorLogin, `%${normalizedQuery}%`),
-				)
-			: undefined,
-	);
-	const [rows, [totalRow]] = await Promise.all([
-		db
-			.select()
-			.from(dashboardSchema.issue)
-			.where(condition)
-			.orderBy(desc(dashboardSchema.issue.updatedAt))
-			.limit(normalizedPageSize)
-			.offset(offset),
-		db.select({ total: count() }).from(dashboardSchema.issue).where(condition),
-	]);
+	const { items, total } = await repositories.issue.searchIssues({
+		repositoryIds: allowed,
+		state,
+		query: normalizedQuery,
+		limit: normalizedPageSize,
+		offset,
+	});
 	return {
-		items: rows.map((item) => ({
+		items: items.map((item) => ({
 			...item,
 			kind,
 			repository: repositoryMap.get(item.repositoryId) ?? null,
 		})),
-		total: totalRow?.total ?? 0,
+		total,
 		page: normalizedPage,
 		pageSize: normalizedPageSize,
 	};
 }
 
-function safeGeneration(generation: typeof aiSchema.aiGeneration.$inferSelect) {
+function safeGeneration(generation: AiGeneration) {
 	return {
 		id: generation.id,
 		callKind: generation.callKind,
@@ -201,88 +149,28 @@ export async function getWorkItemDetail({
 		repositoryId,
 	});
 	if (!repository) return null;
-	const [item] =
+	const item =
 		kind === "pull_request"
-			? await db
-					.select()
-					.from(dashboardSchema.pullRequest)
-					.where(
-						and(
-							eq(dashboardSchema.pullRequest.repositoryId, repositoryId),
-							eq(dashboardSchema.pullRequest.number, number),
-						),
-					)
-					.limit(1)
-			: await db
-					.select()
-					.from(dashboardSchema.issue)
-					.where(
-						and(
-							eq(dashboardSchema.issue.repositoryId, repositoryId),
-							eq(dashboardSchema.issue.number, number),
-						),
-					)
-					.limit(1);
+			? await repositories.pullRequest.findByNumber(repositoryId, number)
+			: await repositories.issue.findByNumber(repositoryId, number);
+
 	if (!item) return null;
 
-	const runs = await db
-		.select()
-		.from(dashboardSchema.reviewRun)
-		.where(
-			kind === "pull_request"
-				? eq(dashboardSchema.reviewRun.pullRequestId, item.id)
-				: eq(dashboardSchema.reviewRun.issueId, item.id),
-		)
-		.orderBy(desc(dashboardSchema.reviewRun.createdAt));
+	const runs =
+		kind === "pull_request"
+			? await repositories.reviewRun.listAllByPullRequest(item.id)
+			: await repositories.reviewRun.listAllByIssue(item.id);
 	const runIds = runs.map((run) => run.id);
 	const [steps, generations, events, comments, checks] = await Promise.all([
-		runIds.length
-			? db
-					.select()
-					.from(dashboardSchema.reviewRunStep)
-					.where(inArray(dashboardSchema.reviewRunStep.reviewRunId, runIds))
-					.orderBy(dashboardSchema.reviewRunStep.position)
-			: [],
-		runIds.length
-			? db
-					.select()
-					.from(aiSchema.aiGeneration)
-					.where(inArray(aiSchema.aiGeneration.reviewRunId, runIds))
-			: [],
-		runIds.length
-			? db
-					.select({
-						id: observabilitySchema.observabilityEvent.id,
-						reviewRunId: observabilitySchema.observabilityEvent.reviewRunId,
-						kind: observabilitySchema.observabilityEvent.kind,
-						action: observabilitySchema.observabilityEvent.action,
-						status: observabilitySchema.observabilityEvent.status,
-						severity: observabilitySchema.observabilityEvent.severity,
-						title: observabilitySchema.observabilityEvent.title,
-						body: observabilitySchema.observabilityEvent.body,
-						durationMs: observabilitySchema.observabilityEvent.durationMs,
-						occurredAt: observabilitySchema.observabilityEvent.occurredAt,
-					})
-					.from(observabilitySchema.observabilityEvent)
-					.where(
-						inArray(observabilitySchema.observabilityEvent.reviewRunId, runIds),
-					)
-					.orderBy(observabilitySchema.observabilityEvent.occurredAt)
-			: [],
+		repositories.reviewRunStep.listByReviewRunIds(runIds),
+		repositories.aiGeneration.listByReviewRunIds(runIds),
+		repositories.observabilityEvent.listByReviewRunIds(runIds),
 		kind === "pull_request"
-			? db
-					.select()
-					.from(dashboardSchema.reviewComment)
-					.where(eq(dashboardSchema.reviewComment.pullRequestId, item.id))
-					.orderBy(desc(dashboardSchema.reviewComment.createdAt))
-			: [],
+			? repositories.reviewComment.listAllByPullRequest(item.id)
+			: Promise.resolve([]),
 		kind === "pull_request"
-			? db
-					.select()
-					.from(dashboardSchema.preMergeCheckRun)
-					.where(eq(dashboardSchema.preMergeCheckRun.pullRequestId, item.id))
-					.orderBy(desc(dashboardSchema.preMergeCheckRun.startedAt))
-			: [],
+			? repositories.preMergeCheckRun.listByPullRequest(item.id)
+			: Promise.resolve([]),
 	]);
 
 	return {
@@ -384,30 +272,26 @@ export async function enqueueManualWorkItemRun(input: {
 	const runId = `review_run_${randomUUID()}`;
 	const deliveryId = input.idempotencyKey ?? randomUUID();
 	const now = new Date();
-	const [queuedRun] = await db
-		.insert(dashboardSchema.reviewRun)
-		.values({
-			id: runId,
-			repositoryId: input.repositoryId,
-			pullRequestId: input.kind === "pull_request" ? detail.item.id : null,
-			issueId: input.kind === "issue" ? detail.item.id : null,
-			requestedByUserId: input.userId,
-			retryOfRunId: input.retryOfRunId ?? null,
-			traceId: runId,
-			reviewKind: input.kind === "pull_request" ? "review" : "labeler",
-			trigger: input.retryOfRunId ? "manual-retry" : "manual",
-			providerId: detail.repository.providerId,
-			providerDeliveryId: deliveryId,
-			providerEvent:
-				input.kind === "pull_request" ? "manual_review" : "manual_labeler",
-			providerAction: "requested",
-			status: "queued",
-			result: {},
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoNothing()
-		.returning();
+	const queuedRun = await repositories.reviewRun.createQueuedRun({
+		id: runId,
+		repositoryId: input.repositoryId,
+		pullRequestId: input.kind === "pull_request" ? detail.item.id : null,
+		issueId: input.kind === "issue" ? detail.item.id : null,
+		requestedByUserId: input.userId,
+		retryOfRunId: input.retryOfRunId ?? null,
+		traceId: runId,
+		reviewKind: input.kind === "pull_request" ? "review" : "labeler",
+		trigger: input.retryOfRunId ? "manual-retry" : "manual",
+		providerId: detail.repository.providerId,
+		providerDeliveryId: deliveryId,
+		providerEvent:
+			input.kind === "pull_request" ? "manual_review" : "manual_labeler",
+		providerAction: "requested",
+		status: "queued",
+		result: {},
+		createdAt: now,
+		updatedAt: now,
+	});
 	if (!queuedRun) throw new Error("This work item already has an active run.");
 	const payload = {
 		source: "manual" as const,
@@ -427,15 +311,12 @@ export async function enqueueManualWorkItemRun(input: {
 				: await enqueueRepositoryLabelerRunJob(payload);
 		return { queued: true, runId, event };
 	} catch (error) {
-		await db
-			.update(dashboardSchema.reviewRun)
-			.set({
-				status: "failed",
-				result: { error: "queue_failed" },
-				completedAt: new Date(),
-				updatedAt: new Date(),
-			})
-			.where(eq(dashboardSchema.reviewRun.id, runId));
+		await repositories.reviewRun.updateById(runId, {
+			status: "failed",
+			result: { error: "queue_failed" },
+			completedAt: new Date(),
+			updatedAt: new Date(),
+		});
 		throw error;
 	}
 }

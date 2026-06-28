@@ -38,7 +38,7 @@ export interface Page<T> {
  * implementations satisfy this interface, so application/use-case code can
  * depend on the abstraction rather than on Drizzle.
  */
-export interface Repository<TSelect, TInsert> {
+export interface IRepository<TSelect, TInsert> {
 	findById(id: string): Promise<TSelect | null>;
 	findMany(options?: ListOptions): Promise<TSelect[]>;
 	create(values: TInsert): Promise<TSelect>;
@@ -65,7 +65,7 @@ export abstract class BaseRepository<
 	TTable extends TableWithId,
 	TSelect = TTable["$inferSelect"],
 	TInsert = TTable["$inferInsert"],
-> implements Repository<TSelect, TInsert>
+> implements IRepository<TSelect, TInsert>
 {
 	protected constructor(
 		protected readonly executor: Executor,

@@ -1,19 +1,11 @@
-import { db, runTransactionWithRetry } from "@gitpal/db";
-import * as authSchema from "@gitpal/db/schema/auth";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import { runTransactionWithRetry } from "@gitpal/db";
 import type { GitWorkspaceMember, GitWorkspaceRef } from "@gitpal/git";
 import { createLogger } from "@gitpal/logger";
 import {
-	and,
-	asc,
-	count,
-	eq,
-	inArray,
-	max,
-	ne,
-	notInArray,
-	sql,
-} from "drizzle-orm";
+	createRepositories,
+	type ProviderWorkspaceMember,
+	repositories,
+} from "@gitpal/repositories";
 import {
 	createAppInstallationAdapterForOwner,
 	getAccountForProvider,
@@ -30,7 +22,7 @@ export type WorkspaceRole = (typeof workspaceRoles)[number];
 export type WorkspaceRoleUpdate = WorkspaceRole | "none";
 
 type WorkspaceTeamMemberRow = {
-	providerMember: typeof dashboardSchema.providerWorkspaceMember.$inferSelect;
+	providerMember: ProviderWorkspaceMember;
 	accountUserId: string | null;
 	userId: string | null;
 	userName: string | null;
@@ -124,11 +116,7 @@ async function getProviderWorkspaceContext({
 	userId: string;
 	organizationId: string;
 }) {
-	const [organization] = await db
-		.select()
-		.from(authSchema.organization)
-		.where(eq(authSchema.organization.id, organizationId))
-		.limit(1);
+	const organization = await repositories.organization.findById(organizationId);
 
 	if (!organization) {
 		return {
@@ -163,20 +151,7 @@ async function getProviderWorkspaceContext({
 }
 
 async function getLatestProviderMemberSyncAt(organizationId: string) {
-	const [row] = await db
-		.select({
-			lastSyncedAt: max(dashboardSchema.providerWorkspaceMember.lastSyncedAt),
-		})
-		.from(dashboardSchema.providerWorkspaceMember)
-		.where(
-			eq(
-				dashboardSchema.providerWorkspaceMember.organizationId,
-				organizationId,
-			),
-		)
-		.limit(1);
-
-	return row?.lastSyncedAt ?? null;
+	return repositories.providerWorkspaceMember.getLatestSyncAt(organizationId);
 }
 
 function shouldRefreshTeamMemberSync(lastSyncedAt: Date | null, ttlMs: number) {
@@ -221,68 +196,37 @@ async function upsertProviderWorkspaceMembers({
 	const seenProviderMemberIds = members.map((member) => member.id);
 
 	await runTransactionWithRetry(async (tx) => {
-		await tx.execute(
-			sql`select pg_advisory_xact_lock(hashtext(${`provider-members:${organizationId}`}))`,
-		);
+		const txRepos = createRepositories(tx);
+		await txRepos.providerWorkspaceMember.acquireAdvisoryLock(organizationId);
 
 		for (const member of members) {
-			await tx
-				.insert(dashboardSchema.providerWorkspaceMember)
-				.values({
-					id: getProviderWorkspaceMemberId({
-						organizationId,
-						providerId,
-						providerMemberId: member.id,
-					}),
+			await txRepos.providerWorkspaceMember.upsert({
+				id: getProviderWorkspaceMemberId({
 					organizationId,
 					providerId,
-					providerType,
 					providerMemberId: member.id,
-					login: member.login,
-					name: member.name,
-					email: member.email,
-					avatarUrl: member.avatarUrl,
-					htmlUrl: member.htmlUrl,
-					role: member.role,
-					lastSyncedAt: now,
-					createdAt: now,
-					updatedAt: now,
-				})
-				.onConflictDoUpdate({
-					target: [
-						dashboardSchema.providerWorkspaceMember.organizationId,
-						dashboardSchema.providerWorkspaceMember.providerId,
-						dashboardSchema.providerWorkspaceMember.providerMemberId,
-					],
-					set: {
-						providerType,
-						login: member.login,
-						name: member.name,
-						email: member.email,
-						avatarUrl: member.avatarUrl,
-						htmlUrl: member.htmlUrl,
-						role: member.role,
-						lastSyncedAt: now,
-						updatedAt: now,
-					},
-				});
+				}),
+				organizationId,
+				providerId,
+				providerType,
+				providerMemberId: member.id,
+				login: member.login,
+				name: member.name,
+				email: member.email,
+				avatarUrl: member.avatarUrl,
+				htmlUrl: member.htmlUrl,
+				role: member.role,
+				lastSyncedAt: now,
+				createdAt: now,
+				updatedAt: now,
+			});
 		}
 
-		await tx
-			.delete(dashboardSchema.providerWorkspaceMember)
-			.where(
-				and(
-					eq(
-						dashboardSchema.providerWorkspaceMember.organizationId,
-						organizationId,
-					),
-					eq(dashboardSchema.providerWorkspaceMember.providerId, providerId),
-					notInArray(
-						dashboardSchema.providerWorkspaceMember.providerMemberId,
-						seenProviderMemberIds,
-					),
-				),
-			);
+		await txRepos.providerWorkspaceMember.deleteStale(
+			organizationId,
+			providerId,
+			seenProviderMemberIds,
+		);
 	});
 }
 
@@ -394,52 +338,9 @@ export async function syncWorkspaceTeamMembersForUser({
 }
 
 async function listProviderWorkspaceMemberRows(organizationId: string) {
-	return db
-		.select({
-			providerMember: dashboardSchema.providerWorkspaceMember,
-			accountUserId: authSchema.account.userId,
-			userId: authSchema.user.id,
-			userName: authSchema.user.name,
-			userEmail: authSchema.user.email,
-			userImage: authSchema.user.image,
-			appMemberId: authSchema.member.id,
-			appRole: authSchema.member.role,
-		})
-		.from(dashboardSchema.providerWorkspaceMember)
-		.leftJoin(
-			authSchema.account,
-			and(
-				eq(
-					authSchema.account.providerId,
-					dashboardSchema.providerWorkspaceMember.providerId,
-				),
-				eq(
-					authSchema.account.accountId,
-					dashboardSchema.providerWorkspaceMember.providerMemberId,
-				),
-			),
-		)
-		.leftJoin(
-			authSchema.user,
-			eq(authSchema.user.id, authSchema.account.userId),
-		)
-		.leftJoin(
-			authSchema.member,
-			and(
-				eq(authSchema.member.userId, authSchema.user.id),
-				eq(authSchema.member.organizationId, organizationId),
-			),
-		)
-		.where(
-			eq(
-				dashboardSchema.providerWorkspaceMember.organizationId,
-				organizationId,
-			),
-		)
-		.orderBy(
-			asc(dashboardSchema.providerWorkspaceMember.login),
-			asc(dashboardSchema.providerWorkspaceMember.name),
-		);
+	return repositories.providerWorkspaceMember.listWorkspaceMembersWithUserInfo(
+		organizationId,
+	);
 }
 
 async function getRepositoryAccessCounts({
@@ -449,51 +350,14 @@ async function getRepositoryAccessCounts({
 	organizationId: string;
 	userIds: string[];
 }) {
-	if (userIds.length === 0) {
-		return new Map<string, { enabled: number; total: number }>();
-	}
-
-	const rows = await db
-		.select({
-			userId: dashboardSchema.repositoryAccess.userId,
-			total: count(),
-			enabled: sql<number>`count(*) filter (where ${dashboardSchema.repositoryAccess.enabled})`,
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repository.id,
-				dashboardSchema.repositoryAccess.repositoryId,
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repository.organizationId, organizationId),
-				inArray(dashboardSchema.repositoryAccess.userId, userIds),
-			),
-		)
-		.groupBy(dashboardSchema.repositoryAccess.userId);
-
-	return new Map(
-		rows.map((row) => [
-			row.userId,
-			{
-				enabled: Number(row.enabled),
-				total: Number(row.total),
-			},
-		]),
-	);
+	return repositories.repositoryAccess.getRepositoryAccessCounts({
+		organizationId,
+		userIds,
+	});
 }
 
 async function getOrganizationRepositoryCount(organizationId: string) {
-	const [row] = await db
-		.select({ total: count() })
-		.from(dashboardSchema.repository)
-		.where(eq(dashboardSchema.repository.organizationId, organizationId))
-		.limit(1);
-
-	return Number(row?.total ?? 0);
+	return repositories.repository.getOrganizationRepositoryCount(organizationId);
 }
 
 function serializeTeamMemberRow({
@@ -589,95 +453,6 @@ export async function listWorkspaceTeamMembersForUser({
 	};
 }
 
-async function getTargetProviderMemberForUser({
-	tx,
-	organizationId,
-	targetUserId,
-}: {
-	tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
-	organizationId: string;
-	targetUserId: string;
-}) {
-	const [row] = await tx
-		.select({
-			providerMember: dashboardSchema.providerWorkspaceMember,
-			account: authSchema.account,
-			member: authSchema.member,
-		})
-		.from(dashboardSchema.providerWorkspaceMember)
-		.innerJoin(
-			authSchema.account,
-			and(
-				eq(
-					authSchema.account.providerId,
-					dashboardSchema.providerWorkspaceMember.providerId,
-				),
-				eq(
-					authSchema.account.accountId,
-					dashboardSchema.providerWorkspaceMember.providerMemberId,
-				),
-				eq(authSchema.account.userId, targetUserId),
-			),
-		)
-		.leftJoin(
-			authSchema.member,
-			and(
-				eq(authSchema.member.userId, targetUserId),
-				eq(authSchema.member.organizationId, organizationId),
-			),
-		)
-		.where(
-			eq(
-				dashboardSchema.providerWorkspaceMember.organizationId,
-				organizationId,
-			),
-		)
-		.limit(1);
-
-	return row ?? null;
-}
-
-async function ensureAnotherWorkspaceOwner({
-	tx,
-	organizationId,
-	targetUserId,
-}: {
-	tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
-	organizationId: string;
-	targetUserId: string;
-}) {
-	const [row] = await tx
-		.select({ total: count() })
-		.from(authSchema.member)
-		.where(
-			and(
-				eq(authSchema.member.organizationId, organizationId),
-				eq(authSchema.member.role, "owner"),
-				ne(authSchema.member.userId, targetUserId),
-			),
-		)
-		.limit(1);
-
-	if (Number(row?.total ?? 0) === 0) {
-		throw new Error("At least one workspace owner must remain.");
-	}
-}
-
-async function listOrganizationRepositoryIds({
-	tx,
-	organizationId,
-}: {
-	tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
-	organizationId: string;
-}) {
-	const rows = await tx
-		.select({ id: dashboardSchema.repository.id })
-		.from(dashboardSchema.repository)
-		.where(eq(dashboardSchema.repository.organizationId, organizationId));
-
-	return rows.map((row) => row.id);
-}
-
 export async function updateWorkspaceTeamMemberAccess({
 	actorUserId,
 	organizationId,
@@ -706,15 +481,14 @@ export async function updateWorkspaceTeamMemberAccess({
 	}
 
 	await runTransactionWithRetry(async (tx) => {
-		await tx.execute(
-			sql`select pg_advisory_xact_lock(hashtext(${`team-access:${organizationId}`}))`,
-		);
+		const txRepos = createRepositories(tx);
+		await txRepos.member.acquireTeamAccessLock(organizationId);
 
-		const target = await getTargetProviderMemberForUser({
-			tx,
-			organizationId,
-			targetUserId,
-		});
+		const target =
+			await txRepos.providerWorkspaceMember.getTargetProviderMember(
+				organizationId,
+				targetUserId,
+			);
 
 		if (!target) {
 			throw new Error("This provider member is not registered in GitPal.");
@@ -723,59 +497,37 @@ export async function updateWorkspaceTeamMemberAccess({
 		const currentRole = target.member?.role ?? null;
 
 		if (currentRole === "owner" && workspaceRole && workspaceRole !== "owner") {
-			await ensureAnotherWorkspaceOwner({
-				tx,
+			const otherOwnersCount = await txRepos.member.countOtherOwners(
 				organizationId,
 				targetUserId,
-			});
+			);
+			if (otherOwnersCount === 0) {
+				throw new Error("At least one workspace owner must remain.");
+			}
 		}
 
 		if (workspaceRole === "none") {
-			await tx
-				.delete(authSchema.member)
-				.where(
-					and(
-						eq(authSchema.member.userId, targetUserId),
-						eq(authSchema.member.organizationId, organizationId),
-					),
-				);
+			await txRepos.member.deleteMembership(targetUserId, organizationId);
 
-			const repositoryIds = await listOrganizationRepositoryIds({
-				tx,
-				organizationId,
-			});
+			const repositoryIds =
+				await txRepos.repository.listOrganizationRepositoryIds(organizationId);
 
 			if (repositoryIds.length > 0) {
-				await tx
-					.delete(dashboardSchema.repositoryAccess)
-					.where(
-						and(
-							eq(dashboardSchema.repositoryAccess.userId, targetUserId),
-							inArray(
-								dashboardSchema.repositoryAccess.repositoryId,
-								repositoryIds,
-							),
-						),
-					);
+				await txRepos.repositoryAccess.deleteByUserAndRepositories(
+					targetUserId,
+					repositoryIds,
+				);
 			}
 		} else if (workspaceRole) {
-			await tx
-				.insert(authSchema.member)
-				.values({
-					id:
-						target.member?.id ??
-						getWorkspaceMemberId(targetUserId, organizationId),
-					userId: targetUserId,
-					organizationId,
-					role: workspaceRole,
-					createdAt: target.member?.createdAt ?? new Date(),
-				})
-				.onConflictDoUpdate({
-					target: [authSchema.member.userId, authSchema.member.organizationId],
-					set: {
-						role: workspaceRole,
-					},
-				});
+			await txRepos.member.upsert({
+				id:
+					target.member?.id ??
+					getWorkspaceMemberId(targetUserId, organizationId),
+				userId: targetUserId,
+				organizationId,
+				role: workspaceRole,
+				createdAt: target.member?.createdAt ?? new Date(),
+			});
 		}
 
 		if (repositoryAccessEnabled !== undefined && workspaceRole !== "none") {
@@ -788,54 +540,28 @@ export async function updateWorkspaceTeamMemberAccess({
 				);
 			}
 
-			const repositoryIds = await listOrganizationRepositoryIds({
-				tx,
-				organizationId,
-			});
+			const repositoryIds =
+				await txRepos.repository.listOrganizationRepositoryIds(organizationId);
 
 			if (repositoryIds.length > 0 && repositoryAccessEnabled) {
 				const now = new Date();
-				await tx
-					.insert(dashboardSchema.repositoryAccess)
-					.values(
-						repositoryIds.map((repositoryId) => ({
-							id: getRepositoryAccessId(targetUserId, repositoryId),
-							userId: targetUserId,
-							repositoryId,
-							role: "member",
-							enabled: true,
-							lastSeenAt: now,
-							createdAt: now,
-							updatedAt: now,
-						})),
-					)
-					.onConflictDoUpdate({
-						target: [
-							dashboardSchema.repositoryAccess.userId,
-							dashboardSchema.repositoryAccess.repositoryId,
-						],
-						set: {
-							enabled: true,
-							lastSeenAt: now,
-							updatedAt: now,
-						},
-					});
+				await txRepos.repositoryAccess.bulkUpsertAccess(
+					repositoryIds.map((repositoryId) => ({
+						id: getRepositoryAccessId(targetUserId, repositoryId),
+						userId: targetUserId,
+						repositoryId,
+						role: "member",
+						enabled: true,
+						lastSeenAt: now,
+						createdAt: now,
+						updatedAt: now,
+					})),
+				);
 			} else if (repositoryIds.length > 0) {
-				await tx
-					.update(dashboardSchema.repositoryAccess)
-					.set({
-						enabled: false,
-						updatedAt: new Date(),
-					})
-					.where(
-						and(
-							eq(dashboardSchema.repositoryAccess.userId, targetUserId),
-							inArray(
-								dashboardSchema.repositoryAccess.repositoryId,
-								repositoryIds,
-							),
-						),
-					);
+				await txRepos.repositoryAccess.disableAccessForUserAndRepositories(
+					targetUserId,
+					repositoryIds,
+				);
 			}
 		}
 	});

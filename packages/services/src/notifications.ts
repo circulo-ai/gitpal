@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
-import * as authSchema from "@gitpal/db/schema/auth";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
-import * as observabilitySchema from "@gitpal/db/schema/observability";
-import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+	type Notification,
+	type NotificationChannel,
+	repositories,
+} from "@gitpal/repositories";
 import { z } from "zod";
 import { mapWithConcurrency } from "./bounded-concurrency";
 import {
@@ -22,8 +22,6 @@ import {
 	decryptSecretEnvelope,
 	encryptSecretEnvelope,
 } from "./secret-envelope";
-
-type NotificationDbExecutor = Pick<typeof db, "insert">;
 
 export type NotificationSeverity = "info" | "success" | "warning" | "error";
 export type NotificationChannelStatus =
@@ -183,9 +181,7 @@ function parseChannelStatus(value: string): NotificationChannelStatus {
 	return "configured";
 }
 
-function serializeNotificationChannel(
-	row: typeof observabilitySchema.notificationChannel.$inferSelect,
-) {
+function serializeNotificationChannel(row: NotificationChannel) {
 	const credentials = decryptSecretEnvelope(
 		row.credentialEnvelope,
 		notificationChannelCredentialSchema,
@@ -214,8 +210,8 @@ function shouldDeliverToChannel({
 	channel,
 	notification,
 }: {
-	channel: typeof observabilitySchema.notificationChannel.$inferSelect;
-	notification: typeof observabilitySchema.notification.$inferSelect;
+	channel: NotificationChannel;
+	notification: Notification;
 }) {
 	if (!channel.enabled || channel.status === "disabled") {
 		return false;
@@ -234,46 +230,26 @@ async function recordNotificationDelivery({
 	status,
 	error,
 }: {
-	channel: typeof observabilitySchema.notificationChannel.$inferSelect;
-	notification: typeof observabilitySchema.notification.$inferSelect;
+	channel: NotificationChannel;
+	notification: Notification;
 	status: "delivered" | "failed" | "skipped";
 	error?: string | null;
 }) {
-	await db
-		.insert(observabilitySchema.notificationDelivery)
-		.values({
-			id: notificationDeliveryId(),
-			notificationId: notification.id,
-			channelId: channel.id,
-			provider: channel.provider,
-			status,
-			attemptCount: 1,
-			error: error ?? null,
-			metadata: {
-				notificationType: notification.type,
-				notificationCategory: notification.category,
-				notificationSeverity: notification.severity,
-			},
-			deliveredAt: status === "delivered" ? new Date() : null,
-		})
-		.onConflictDoUpdate({
-			target: [
-				observabilitySchema.notificationDelivery.notificationId,
-				observabilitySchema.notificationDelivery.channelId,
-			],
-			set: {
-				provider: channel.provider,
-				status,
-				attemptCount: sql`${observabilitySchema.notificationDelivery.attemptCount} + 1`,
-				error: error ?? null,
-				metadata: {
-					notificationType: notification.type,
-					notificationCategory: notification.category,
-					notificationSeverity: notification.severity,
-				},
-				deliveredAt: status === "delivered" ? new Date() : null,
-			},
-		});
+	await repositories.notificationDelivery.upsertDelivery({
+		id: notificationDeliveryId(),
+		notificationId: notification.id,
+		channelId: channel.id,
+		provider: channel.provider,
+		status,
+		attemptCount: 1,
+		error: error ?? null,
+		metadata: {
+			notificationType: notification.type,
+			notificationCategory: notification.category,
+			notificationSeverity: notification.severity,
+		},
+		deliveredAt: status === "delivered" ? new Date() : null,
+	});
 }
 
 async function deliverNotificationToChannel({
@@ -281,8 +257,8 @@ async function deliverNotificationToChannel({
 	notification,
 	force = false,
 }: {
-	channel: typeof observabilitySchema.notificationChannel.$inferSelect;
-	notification: typeof observabilitySchema.notification.$inferSelect;
+	channel: NotificationChannel;
+	notification: Notification;
 	force?: boolean;
 }) {
 	if (!(force || shouldDeliverToChannel({ channel, notification }))) {
@@ -318,14 +294,11 @@ async function deliverNotificationToChannel({
 			notification,
 			status: "delivered",
 		});
-		await db
-			.update(observabilitySchema.notificationChannel)
-			.set({
-				status: "connected",
-				lastError: null,
-				updatedAt: new Date(),
-			})
-			.where(eq(observabilitySchema.notificationChannel.id, channel.id));
+		await repositories.notificationChannel.updateById(channel.id, {
+			status: "connected",
+			lastError: null,
+			updatedAt: new Date(),
+		});
 	} catch (error) {
 		const message = getErrorMessage(error);
 		await recordNotificationDelivery({
@@ -334,41 +307,31 @@ async function deliverNotificationToChannel({
 			status: "failed",
 			error: message,
 		});
-		await db
-			.update(observabilitySchema.notificationChannel)
-			.set({
-				status: "error",
-				lastError: message,
-				updatedAt: new Date(),
-			})
-			.where(eq(observabilitySchema.notificationChannel.id, channel.id));
+		await repositories.notificationChannel.updateById(channel.id, {
+			status: "error",
+			lastError: message,
+			updatedAt: new Date(),
+		});
 	}
 }
 
 async function dispatchNotificationToChannels(
-	notification:
-		| typeof observabilitySchema.notification.$inferSelect
-		| undefined,
+	notification: Notification | undefined,
 ) {
 	if (!notification) {
 		return;
 	}
 
-	const channels = await db
-		.select()
-		.from(observabilitySchema.notificationChannel)
-		.where(
-			eq(observabilitySchema.notificationChannel.userId, notification.userId),
-		);
+	const channels = await repositories.notificationChannel.listByUser(
+		notification.userId,
+	);
 
 	await mapWithConcurrency(channels, 4, (channel) =>
 		deliverNotificationToChannel({ channel, notification }),
 	);
 }
 
-export function serializeNotification(
-	row: typeof observabilitySchema.notification.$inferSelect,
-) {
+export function serializeNotification(row: Notification) {
 	return {
 		id: row.id,
 		type: row.type,
@@ -393,14 +356,7 @@ export async function listNotificationChannelsForUser({
 }: {
 	userId: string;
 }) {
-	const rows = await db
-		.select()
-		.from(observabilitySchema.notificationChannel)
-		.where(eq(observabilitySchema.notificationChannel.userId, userId))
-		.orderBy(
-			asc(observabilitySchema.notificationChannel.provider),
-			asc(observabilitySchema.notificationChannel.label),
-		);
+	const rows = await repositories.notificationChannel.listByUserOrdered(userId);
 
 	return rows.map(serializeNotificationChannel);
 }
@@ -412,18 +368,11 @@ async function getNotificationChannelForUser({
 	userId: string;
 	channelId: string;
 }) {
-	const [row] = await db
-		.select()
-		.from(observabilitySchema.notificationChannel)
-		.where(
-			and(
-				eq(observabilitySchema.notificationChannel.userId, userId),
-				eq(observabilitySchema.notificationChannel.id, channelId),
-			),
-		)
-		.limit(1);
-
-	return row ?? null;
+	const row = await repositories.notificationChannel.findById(channelId);
+	if (row && row.userId !== userId) {
+		return null;
+	}
+	return row;
 }
 
 function mergeSecretValue(
@@ -684,26 +633,17 @@ export async function upsertNotificationChannelForUser({
 	};
 
 	if (existing) {
-		const [row] = await db
-			.update(observabilitySchema.notificationChannel)
-			.set({
-				label: values.label,
-				targetId: values.targetId,
-				targetPreview: values.targetPreview,
-				credentialEnvelope: values.credentialEnvelope,
-				settings: values.settings,
-				status: values.status,
-				enabled: values.enabled,
-				lastError: values.lastError,
-				updatedAt: values.updatedAt,
-			})
-			.where(
-				and(
-					eq(observabilitySchema.notificationChannel.userId, userId),
-					eq(observabilitySchema.notificationChannel.id, existing.id),
-				),
-			)
-			.returning();
+		const row = await repositories.notificationChannel.updateById(existing.id, {
+			label: values.label,
+			targetId: values.targetId,
+			targetPreview: values.targetPreview,
+			credentialEnvelope: values.credentialEnvelope,
+			settings: values.settings,
+			status: values.status,
+			enabled: values.enabled,
+			lastError: values.lastError,
+			updatedAt: values.updatedAt,
+		});
 
 		if (!row) {
 			throw new Error("Unable to save notification channel.");
@@ -712,27 +652,7 @@ export async function upsertNotificationChannelForUser({
 		return serializeNotificationChannel(row);
 	}
 
-	const [row] = await db
-		.insert(observabilitySchema.notificationChannel)
-		.values(values)
-		.onConflictDoUpdate({
-			target: [
-				observabilitySchema.notificationChannel.userId,
-				observabilitySchema.notificationChannel.provider,
-				observabilitySchema.notificationChannel.label,
-			],
-			set: {
-				targetId: values.targetId,
-				targetPreview: values.targetPreview,
-				credentialEnvelope: values.credentialEnvelope,
-				settings: values.settings,
-				status: values.status,
-				enabled: values.enabled,
-				lastError: values.lastError,
-				updatedAt: values.updatedAt,
-			},
-		})
-		.returning();
+	const row = await repositories.notificationChannel.upsert(values);
 
 	if (!row) {
 		throw new Error("Unable to save notification channel.");
@@ -750,22 +670,18 @@ export async function setNotificationChannelEnabledForUser({
 	channelId: string;
 	enabled: boolean;
 }) {
+	const channel = await repositories.notificationChannel.findById(channelId);
+	if (!channel || channel.userId !== userId) {
+		throw new Error("Notification channel was not found.");
+	}
+
 	const now = new Date();
-	const [row] = await db
-		.update(observabilitySchema.notificationChannel)
-		.set({
-			enabled,
-			status: enabled ? "configured" : "disabled",
-			...(enabled ? { lastError: null } : {}),
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(observabilitySchema.notificationChannel.userId, userId),
-				eq(observabilitySchema.notificationChannel.id, channelId),
-			),
-		)
-		.returning();
+	const row = await repositories.notificationChannel.updateById(channelId, {
+		enabled,
+		status: enabled ? "configured" : "disabled",
+		...(enabled ? { lastError: null } : {}),
+		updatedAt: now,
+	});
 
 	if (!row) {
 		throw new Error("Notification channel was not found.");
@@ -781,17 +697,14 @@ export async function deleteNotificationChannelForUser({
 	userId: string;
 	channelId: string;
 }) {
-	const rows = await db
-		.delete(observabilitySchema.notificationChannel)
-		.where(
-			and(
-				eq(observabilitySchema.notificationChannel.userId, userId),
-				eq(observabilitySchema.notificationChannel.id, channelId),
-			),
-		)
-		.returning({ id: observabilitySchema.notificationChannel.id });
+	const channel = await repositories.notificationChannel.findById(channelId);
+	if (channel && channel.userId === userId) {
+		const deleted =
+			await repositories.notificationChannel.deleteById(channelId);
+		return { deleted: deleted ? 1 : 0 };
+	}
 
-	return { deleted: rows.length };
+	return { deleted: 0 };
 }
 
 export async function testNotificationChannelForUser({
@@ -832,29 +745,21 @@ export async function testNotificationChannelForUser({
 		archivedAt: null,
 		createdAt: now,
 		updatedAt: now,
-	} satisfies typeof observabilitySchema.notification.$inferSelect;
+	};
 
-	const [testNotification] = await db
-		.insert(observabilitySchema.notification)
-		.values(testNotificationValues)
-		.returning();
-
-	if (!testNotification) {
-		throw new Error("Unable to create test notification.");
-	}
+	const testNotification = await repositories.notification.create(
+		testNotificationValues,
+	);
 
 	await deliverNotificationToChannel({
 		channel,
 		notification: testNotification,
 		force: true,
 	});
-	await db
-		.update(observabilitySchema.notificationChannel)
-		.set({
-			lastTestedAt: new Date(),
-			updatedAt: new Date(),
-		})
-		.where(eq(observabilitySchema.notificationChannel.id, channelId));
+	await repositories.notificationChannel.updateById(channelId, {
+		lastTestedAt: new Date(),
+		updatedAt: new Date(),
+	});
 
 	const refreshed = await getNotificationChannelForUser({ userId, channelId });
 
@@ -878,20 +783,11 @@ export async function listNotificationsForUser({
 	status?: "active" | "all" | "archived" | "read" | "unread";
 	limit?: number;
 }) {
-	const conditions = [eq(observabilitySchema.notification.userId, userId)];
-
-	if (status === "active") {
-		conditions.push(isNull(observabilitySchema.notification.archivedAt));
-	} else if (status !== "all") {
-		conditions.push(eq(observabilitySchema.notification.status, status));
-	}
-
-	const rows = await db
-		.select()
-		.from(observabilitySchema.notification)
-		.where(and(...conditions))
-		.orderBy(desc(observabilitySchema.notification.createdAt))
-		.limit(limit);
+	const rows = await repositories.notification.listNotifications({
+		userId,
+		status,
+		limit,
+	});
 
 	return rows.map(serializeNotification);
 }
@@ -901,19 +797,8 @@ export async function countUnreadNotificationsForUser({
 }: {
 	userId: string;
 }) {
-	const [row] = await db
-		.select({ total: count() })
-		.from(observabilitySchema.notification)
-		.where(
-			and(
-				eq(observabilitySchema.notification.userId, userId),
-				eq(observabilitySchema.notification.status, "unread"),
-				isNull(observabilitySchema.notification.archivedAt),
-			),
-		)
-		.limit(1);
-
-	return { total: row?.total ?? 0 };
+	const total = await repositories.notification.countUnread(userId);
+	return { total };
 }
 
 export async function markNotificationsReadForUser({
@@ -923,23 +808,8 @@ export async function markNotificationsReadForUser({
 	userId: string;
 	ids: string[];
 }) {
-	const now = new Date();
-	const rows = await db
-		.update(observabilitySchema.notification)
-		.set({
-			status: "read",
-			readAt: now,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(observabilitySchema.notification.userId, userId),
-				inArray(observabilitySchema.notification.id, ids),
-			),
-		)
-		.returning({ id: observabilitySchema.notification.id });
-
-	return { updated: rows.length };
+	const updated = await repositories.notification.markReadMany(userId, ids);
+	return { updated };
 }
 
 export async function markAllNotificationsReadForUser({
@@ -947,24 +817,8 @@ export async function markAllNotificationsReadForUser({
 }: {
 	userId: string;
 }) {
-	const now = new Date();
-	const rows = await db
-		.update(observabilitySchema.notification)
-		.set({
-			status: "read",
-			readAt: now,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(observabilitySchema.notification.userId, userId),
-				eq(observabilitySchema.notification.status, "unread"),
-				isNull(observabilitySchema.notification.archivedAt),
-			),
-		)
-		.returning({ id: observabilitySchema.notification.id });
-
-	return { updated: rows.length };
+	const updated = await repositories.notification.markAllRead(userId);
+	return { updated };
 }
 
 export async function archiveNotificationsForUser({
@@ -974,23 +828,8 @@ export async function archiveNotificationsForUser({
 	userId: string;
 	ids: string[];
 }) {
-	const now = new Date();
-	const rows = await db
-		.update(observabilitySchema.notification)
-		.set({
-			status: "archived",
-			archivedAt: now,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(observabilitySchema.notification.userId, userId),
-				inArray(observabilitySchema.notification.id, ids),
-			),
-		)
-		.returning({ id: observabilitySchema.notification.id });
-
-	return { updated: rows.length };
+	const updated = await repositories.notification.archiveMany(userId, ids);
+	return { updated };
 }
 
 export async function archiveNotificationByDedupeKeyForUser({
@@ -1000,30 +839,14 @@ export async function archiveNotificationByDedupeKeyForUser({
 	userId: string;
 	dedupeKey: string;
 }) {
-	const now = new Date();
-	const rows = await db
-		.update(observabilitySchema.notification)
-		.set({
-			status: "archived",
-			archivedAt: now,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(observabilitySchema.notification.userId, userId),
-				eq(observabilitySchema.notification.dedupeKey, dedupeKey),
-				isNull(observabilitySchema.notification.archivedAt),
-			),
-		)
-		.returning({ id: observabilitySchema.notification.id });
-
-	return { updated: rows.length };
+	const updated = await repositories.notification.archiveByDedupeKey(
+		userId,
+		dedupeKey,
+	);
+	return { updated };
 }
 
-export async function sendUserNotification(
-	input: SendUserNotificationInput,
-	executor: NotificationDbExecutor = db,
-) {
+export async function sendUserNotification(input: SendUserNotificationInput) {
 	const now = new Date();
 	const dedupeKey = buildNotificationDedupeKey(input);
 	const values = {
@@ -1050,30 +873,8 @@ export async function sendUserNotification(
 		updatedAt: now,
 	};
 
-	const [notification] = await executor
-		.insert(observabilitySchema.notification)
-		.values(values)
-		.onConflictDoUpdate({
-			target: observabilitySchema.notification.dedupeKey,
-			set: {
-				organizationId: values.organizationId,
-				repositoryId: values.repositoryId,
-				type: values.type,
-				category: values.category,
-				severity: values.severity,
-				status: "unread",
-				title: values.title,
-				body: values.body,
-				actionHref: values.actionHref,
-				sourceType: values.sourceType,
-				sourceId: values.sourceId,
-				metadata: values.metadata,
-				readAt: null,
-				archivedAt: null,
-				updatedAt: now,
-			},
-		})
-		.returning();
+	const notification =
+		await repositories.notification.upsertByDedupeKey(values);
 
 	await recordObservabilityEvent({
 		userId: input.userId,
@@ -1122,24 +923,9 @@ export async function sendRepositoryNotification({
 }: Omit<SendUserNotificationInput, "userId" | "repositoryId"> & {
 	repositoryId: string;
 }) {
-	const accessRows = await db
-		.select({
-			userId: dashboardSchema.repositoryAccess.userId,
-			organizationId: dashboardSchema.repository.organizationId,
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
-				eq(dashboardSchema.repositoryAccess.enabled, true),
-			),
+	const accessRows =
+		await repositories.repositoryAccess.findEnabledAccessWithOrganization(
+			repositoryId,
 		);
 
 	return sendManyUserNotifications(
@@ -1161,10 +947,8 @@ export async function sendOrganizationNotification({
 }: Omit<SendUserNotificationInput, "userId" | "organizationId"> & {
 	organizationId: string;
 }) {
-	const members = await db
-		.select({ userId: authSchema.member.userId })
-		.from(authSchema.member)
-		.where(eq(authSchema.member.organizationId, organizationId));
+	const members =
+		await repositories.member.listByOrganizationId(organizationId);
 
 	return sendManyUserNotifications(
 		members.map((member) => ({
@@ -1190,10 +974,7 @@ export async function sendSelectedUserNotifications({
 		return [];
 	}
 
-	const users = await db
-		.select({ id: authSchema.user.id })
-		.from(authSchema.user)
-		.where(inArray(authSchema.user.id, uniqueUserIds));
+	const users = await repositories.user.listByIds(uniqueUserIds);
 
 	return sendManyUserNotifications(
 		users.map((user) => ({

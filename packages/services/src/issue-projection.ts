@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import type { GitIssue } from "@gitpal/git";
-import { and, eq } from "drizzle-orm";
+import { repositories } from "@gitpal/repositories";
 
 function toDate(value: string) {
 	const date = new Date(value);
@@ -35,32 +33,16 @@ export async function projectIssueSnapshot({
 		updatedAt: toDate(issue.updatedAt),
 		closedAt: toDateOrNull(issue.closedAt),
 	};
-	const [row] = await db
-		.insert(dashboardSchema.issue)
-		.values({ id: `issue_${randomUUID()}`, repositoryId, ...values })
-		.onConflictDoUpdate({
-			target: [
-				dashboardSchema.issue.repositoryId,
-				dashboardSchema.issue.number,
-			],
-			set: values,
-		})
-		.returning();
+	const row = await repositories.issue.upsertFromProvider({
+		id: `issue_${randomUUID()}`,
+		repositoryId,
+		...values,
+	});
 
 	if (!row) throw new Error("Issue snapshot could not be stored.");
 	return row;
 }
 
 export async function findIssueSnapshot(repositoryId: string, number: number) {
-	const [row] = await db
-		.select()
-		.from(dashboardSchema.issue)
-		.where(
-			and(
-				eq(dashboardSchema.issue.repositoryId, repositoryId),
-				eq(dashboardSchema.issue.number, number),
-			),
-		)
-		.limit(1);
-	return row ?? null;
+	return repositories.issue.findByNumber(repositoryId, number);
 }

@@ -1,9 +1,7 @@
 import { auth } from "@gitpal/auth";
-import { db } from "@gitpal/db";
-import * as authSchema from "@gitpal/db/schema/auth";
-import { and, desc, eq } from "drizzle-orm";
+import { type ApiKey, repositories } from "@gitpal/repositories";
 
-type ApiKeyRow = typeof authSchema.apiKey.$inferSelect;
+type ApiKeyRow = ApiKey;
 type ApiKeyLike = Pick<
 	ApiKeyRow,
 	| "id"
@@ -115,11 +113,7 @@ function mapApiKey(row: ApiKeyLike): AppApiKeySummary {
 }
 
 export async function listAppApiKeysForUser(userId: string) {
-	const rows = await db
-		.select()
-		.from(authSchema.apiKey)
-		.where(eq(authSchema.apiKey.referenceId, userId))
-		.orderBy(desc(authSchema.apiKey.createdAt));
+	const rows = await repositories.apiKey.listByReferenceId(userId);
 
 	return rows.map(mapApiKey);
 }
@@ -158,16 +152,10 @@ export async function updateAppApiKeyForUser({
 	name?: string;
 	enabled?: boolean;
 }) {
-	const [ownedKey] = await db
-		.select({ id: authSchema.apiKey.id })
-		.from(authSchema.apiKey)
-		.where(
-			and(
-				eq(authSchema.apiKey.id, keyId),
-				eq(authSchema.apiKey.referenceId, userId),
-			),
-		)
-		.limit(1);
+	const ownedKey = await repositories.apiKey.findByIdAndReferenceId(
+		keyId,
+		userId,
+	);
 	if (!ownedKey) {
 		throw new Error("API key was not found.");
 	}
@@ -191,17 +179,10 @@ export async function deleteAppApiKeyForUser({
 	userId: string;
 	keyId: string;
 }) {
-	const [deleted] = await db
-		.delete(authSchema.apiKey)
-		.where(
-			and(
-				eq(authSchema.apiKey.id, keyId),
-				eq(authSchema.apiKey.referenceId, userId),
-			),
-		)
-		.returning({
-			id: authSchema.apiKey.id,
-		});
+	const deleted = await repositories.apiKey.deleteByIdAndReferenceId(
+		keyId,
+		userId,
+	);
 
-	return deleted ?? null;
+	return deleted ? { id: keyId } : null;
 }

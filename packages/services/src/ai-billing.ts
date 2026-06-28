@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { db, runTransactionWithRetry } from "@gitpal/db";
-import * as aiSchema from "@gitpal/db/schema/ai";
+import { runTransactionWithRetry } from "@gitpal/db";
 import { env } from "@gitpal/env/server";
+import { createRepositories, repositories } from "@gitpal/repositories";
 import {
 	getLlmProviderDefinition,
 	inferProviderIdFromModel,
 } from "@gitpal/utils";
 import { createGateway } from "ai";
-import { eq } from "drizzle-orm";
+
 import type { ModelRoutePreview } from "./llm-credentials";
 import { sendUserNotification } from "./notifications";
 import { recordObservabilityEvent } from "./observability";
@@ -21,7 +21,7 @@ import {
 	assertWalletCanStartUsage,
 } from "./wallet";
 
-type AiBillingDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
+type AiBillingDbExecutor = any;
 const aiGateway = env.AI_GATEWAY_API_KEY
 	? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
 	: null;
@@ -362,7 +362,7 @@ async function insertGenerationRow({
 	const now = new Date();
 	const providerId = getModelProviderId(modelId, routePreview);
 
-	await db.insert(aiSchema.aiGeneration).values({
+	await repositories.aiGeneration.create({
 		id: generationId,
 		userId,
 		organizationId: organizationId ?? null,
@@ -441,7 +441,7 @@ async function insertGenerationRow({
 }
 
 async function completeGenerationRow({
-	executor = db,
+	executor = repositories,
 	generationId,
 	userId,
 	callKind,
@@ -482,43 +482,44 @@ async function completeGenerationRow({
 	const now = new Date();
 	const durationMs = Math.max(0, now.getTime() - startedAt.getTime());
 
-	await executor
-		.update(aiSchema.aiGeneration)
-		.set({
-			status: "succeeded",
-			inputTokens: usage.inputTokens,
-			inputNoCacheTokens: usage.inputNoCacheTokens,
-			inputCacheReadTokens: usage.inputCacheReadTokens,
-			inputCacheWriteTokens: usage.inputCacheWriteTokens,
-			outputTokens: usage.outputTokens,
-			outputTextTokens: usage.outputTextTokens,
-			outputReasoningTokens: usage.outputReasoningTokens,
-			totalTokens: usage.totalTokens,
-			actualCostCents,
-			walletDebitCents,
-			walletBalanceAfterCents,
-			providerGenerationId,
-			providerMetadata: sanitizeRunDetails(
-				providerMetadata && typeof providerMetadata === "object"
-					? (providerMetadata as Record<string, unknown>)
-					: {},
-			),
-			metadata: sanitizeRunDetails({
-				...metadata,
-				...buildGenerationMetadata({
-					callKind,
-					modelId,
-					routePreview,
-					tags,
-					usage,
-					actualCostCents,
-					providerGenerationId,
-				}),
+	const repos =
+		executor && typeof executor.update === "function"
+			? createRepositories(executor)
+			: repositories;
+	await repos.aiGeneration.updateById(generationId, {
+		status: "succeeded",
+		inputTokens: usage.inputTokens,
+		inputNoCacheTokens: usage.inputNoCacheTokens,
+		inputCacheReadTokens: usage.inputCacheReadTokens,
+		inputCacheWriteTokens: usage.inputCacheWriteTokens,
+		outputTokens: usage.outputTokens,
+		outputTextTokens: usage.outputTextTokens,
+		outputReasoningTokens: usage.outputReasoningTokens,
+		totalTokens: usage.totalTokens,
+		actualCostCents,
+		walletDebitCents,
+		walletBalanceAfterCents,
+		providerGenerationId,
+		providerMetadata: sanitizeRunDetails(
+			providerMetadata && typeof providerMetadata === "object"
+				? (providerMetadata as Record<string, unknown>)
+				: {},
+		),
+		metadata: sanitizeRunDetails({
+			...metadata,
+			...buildGenerationMetadata({
+				callKind,
+				modelId,
+				routePreview,
+				tags,
+				usage,
+				actualCostCents,
+				providerGenerationId,
 			}),
-			completedAt: now,
-			updatedAt: now,
-		})
-		.where(eq(aiSchema.aiGeneration.id, generationId));
+		}),
+		completedAt: now,
+		updatedAt: now,
+	});
 
 	await recordObservabilityEvent(
 		{
@@ -556,7 +557,7 @@ async function completeGenerationRow({
 }
 
 async function failGenerationRow({
-	executor = db,
+	executor = repositories,
 	generationId,
 	errorMessage,
 	userId,
@@ -614,58 +615,59 @@ async function failGenerationRow({
 				})
 			: null;
 
-	await executor
-		.update(aiSchema.aiGeneration)
-		.set({
-			status: "failed",
-			errorMessage: safeErrorMessage,
-			...(usage
+	const repos =
+		executor && typeof executor.update === "function"
+			? createRepositories(executor)
+			: repositories;
+	await repos.aiGeneration.updateById(generationId, {
+		status: "failed",
+		errorMessage: safeErrorMessage,
+		...(usage
+			? {
+					inputTokens: usage.inputTokens,
+					inputNoCacheTokens: usage.inputNoCacheTokens,
+					inputCacheReadTokens: usage.inputCacheReadTokens,
+					inputCacheWriteTokens: usage.inputCacheWriteTokens,
+					outputTokens: usage.outputTokens,
+					outputTextTokens: usage.outputTextTokens,
+					outputReasoningTokens: usage.outputReasoningTokens,
+					totalTokens: usage.totalTokens,
+				}
+			: {}),
+		...(actualCostCents !== undefined
+			? { actualCostCents: actualCostCents ?? null }
+			: {}),
+		...(walletDebitCents !== undefined ? { walletDebitCents } : {}),
+		...(walletBalanceAfterCents !== undefined
+			? { walletBalanceAfterCents: walletBalanceAfterCents ?? null }
+			: {}),
+		...(providerGenerationId !== undefined
+			? { providerGenerationId: providerGenerationId ?? null }
+			: {}),
+		providerMetadata: sanitizeRunDetails(
+			providerMetadata && typeof providerMetadata === "object"
+				? (providerMetadata as Record<string, unknown>)
+				: {},
+		),
+		...(generationMetadata
+			? {
+					metadata: sanitizeRunDetails(
+						metadata
+							? {
+									...metadata,
+									...generationMetadata,
+								}
+							: generationMetadata,
+					),
+				}
+			: metadata
 				? {
-						inputTokens: usage.inputTokens,
-						inputNoCacheTokens: usage.inputNoCacheTokens,
-						inputCacheReadTokens: usage.inputCacheReadTokens,
-						inputCacheWriteTokens: usage.inputCacheWriteTokens,
-						outputTokens: usage.outputTokens,
-						outputTextTokens: usage.outputTextTokens,
-						outputReasoningTokens: usage.outputReasoningTokens,
-						totalTokens: usage.totalTokens,
+						metadata: sanitizeRunDetails(metadata),
 					}
 				: {}),
-			...(actualCostCents !== undefined
-				? { actualCostCents: actualCostCents ?? null }
-				: {}),
-			...(walletDebitCents !== undefined ? { walletDebitCents } : {}),
-			...(walletBalanceAfterCents !== undefined
-				? { walletBalanceAfterCents: walletBalanceAfterCents ?? null }
-				: {}),
-			...(providerGenerationId !== undefined
-				? { providerGenerationId: providerGenerationId ?? null }
-				: {}),
-			providerMetadata: sanitizeRunDetails(
-				providerMetadata && typeof providerMetadata === "object"
-					? (providerMetadata as Record<string, unknown>)
-					: {},
-			),
-			...(generationMetadata
-				? {
-						metadata: sanitizeRunDetails(
-							metadata
-								? {
-										...metadata,
-										...generationMetadata,
-									}
-								: generationMetadata,
-						),
-					}
-				: metadata
-					? {
-							metadata: sanitizeRunDetails(metadata),
-						}
-					: {}),
-			completedAt: now,
-			updatedAt: now,
-		})
-		.where(eq(aiSchema.aiGeneration.id, generationId));
+		completedAt: now,
+		updatedAt: now,
+	});
 
 	if (userId && callKind && modelId && routePreview) {
 		await recordObservabilityEvent(

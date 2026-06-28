@@ -1,6 +1,5 @@
-import { type db, runTransactionWithRetry } from "@gitpal/db";
-import * as authSchema from "@gitpal/db/schema/auth";
-import { eq } from "drizzle-orm";
+import { runTransactionWithRetry } from "@gitpal/db";
+import { createRepositories } from "@gitpal/repositories";
 
 export type AppRateLimitRule = {
 	window: number;
@@ -20,8 +19,6 @@ export type AppRateLimitDecision = {
 	retryAfter: number | null;
 };
 
-type RateLimitDatabase = Pick<typeof db, "select" | "insert" | "update">;
-
 function getRetryAfter(lastRequest: number, window: number) {
 	const windowMs = window * 1000;
 	return Math.max(1, Math.ceil((lastRequest + windowMs - Date.now()) / 1000));
@@ -35,17 +32,6 @@ export function buildAppRateLimitKey({
 	return `app:${scope}:${subject}:${route}`;
 }
 
-async function readRateLimitRow(transaction: RateLimitDatabase, key: string) {
-	const [row] = await transaction
-		.select()
-		.from(authSchema.rateLimit)
-		.where(eq(authSchema.rateLimit.key, key))
-		.limit(1)
-		.for("update");
-
-	return row ?? null;
-}
-
 export async function consumeAppRateLimit({
 	key,
 	rule,
@@ -54,23 +40,18 @@ export async function consumeAppRateLimit({
 	rule: AppRateLimitRule;
 }): Promise<AppRateLimitDecision> {
 	return runTransactionWithRetry(async (transaction) => {
+		const repos = createRepositories(transaction);
 		const now = Date.now();
 		const windowMs = rule.window * 1000;
-		const existing = await readRateLimitRow(transaction, key);
+		const existing = await repos.rateLimit.findByKeyForUpdate(key);
 
 		if (!existing) {
-			const inserted = await transaction
-				.insert(authSchema.rateLimit)
-				.values({
-					id: crypto.randomUUID(),
-					key,
-					count: 1,
-					lastRequest: now,
-				})
-				.onConflictDoNothing()
-				.returning({
-					key: authSchema.rateLimit.key,
-				});
+			const inserted = await repos.rateLimit.insertDoNothing({
+				id: crypto.randomUUID(),
+				key,
+				count: 1,
+				lastRequest: now,
+			});
 
 			if (inserted.length > 0) {
 				return {
@@ -79,7 +60,7 @@ export async function consumeAppRateLimit({
 				};
 			}
 
-			const rowAfterInsert = await readRateLimitRow(transaction, key);
+			const rowAfterInsert = await repos.rateLimit.findByKeyForUpdate(key);
 
 			if (!rowAfterInsert) {
 				return {
@@ -89,13 +70,10 @@ export async function consumeAppRateLimit({
 			}
 
 			if (now - rowAfterInsert.lastRequest > windowMs) {
-				await transaction
-					.update(authSchema.rateLimit)
-					.set({
-						count: 1,
-						lastRequest: now,
-					})
-					.where(eq(authSchema.rateLimit.key, key));
+				await repos.rateLimit.updateByKey(key, {
+					count: 1,
+					lastRequest: now,
+				});
 
 				return {
 					allowed: true,
@@ -110,13 +88,10 @@ export async function consumeAppRateLimit({
 				};
 			}
 
-			await transaction
-				.update(authSchema.rateLimit)
-				.set({
-					count: rowAfterInsert.count + 1,
-					lastRequest: now,
-				})
-				.where(eq(authSchema.rateLimit.key, key));
+			await repos.rateLimit.updateByKey(key, {
+				count: rowAfterInsert.count + 1,
+				lastRequest: now,
+			});
 
 			return {
 				allowed: true,
@@ -125,13 +100,10 @@ export async function consumeAppRateLimit({
 		}
 
 		if (now - existing.lastRequest > windowMs) {
-			await transaction
-				.update(authSchema.rateLimit)
-				.set({
-					count: 1,
-					lastRequest: now,
-				})
-				.where(eq(authSchema.rateLimit.key, key));
+			await repos.rateLimit.updateByKey(key, {
+				count: 1,
+				lastRequest: now,
+			});
 
 			return {
 				allowed: true,
@@ -146,13 +118,10 @@ export async function consumeAppRateLimit({
 			};
 		}
 
-		await transaction
-			.update(authSchema.rateLimit)
-			.set({
-				count: existing.count + 1,
-				lastRequest: now,
-			})
-			.where(eq(authSchema.rateLimit.key, key));
+		await repos.rateLimit.updateByKey(key, {
+			count: existing.count + 1,
+			lastRequest: now,
+		});
 
 		return {
 			allowed: true,

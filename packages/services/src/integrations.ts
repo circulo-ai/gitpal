@@ -1,6 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { db } from "@gitpal/db";
-import * as integrationSchema from "@gitpal/db/schema/integrations";
+import { runTransactionWithRetry } from "@gitpal/db";
 import { env } from "@gitpal/env/server";
 import { createLogger } from "@gitpal/logger";
 import {
@@ -19,7 +18,11 @@ import {
 	redactSecret,
 } from "@gitpal/mcp";
 import { createConnectorMcpToolSet } from "@gitpal/mcp/ai-sdk";
-import { and, asc, eq } from "drizzle-orm";
+import {
+	createRepositories,
+	type IntegrationConnection,
+	repositories,
+} from "@gitpal/repositories";
 import { z } from "zod";
 import {
 	buildAppRateLimitKey,
@@ -32,8 +35,7 @@ import {
 } from "./secret-envelope";
 import { normalizeTrustedServiceUrl } from "./trusted-service-url";
 
-type IntegrationConnectionRow =
-	typeof integrationSchema.integrationConnection.$inferSelect;
+type IntegrationConnectionRow = IntegrationConnection;
 
 type StoredConnectorCredential = {
 	apiKey?: string;
@@ -356,19 +358,10 @@ async function getConnectionById({
 	connectionId: string;
 	organizationId: string;
 }) {
-	const [connection] = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(integrationSchema.integrationConnection.id, connectionId),
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					organizationId,
-				),
-			),
-		)
-		.limit(1);
+	const connection = await repositories.integrationConnection.findByIdAndOrg(
+		connectionId,
+		organizationId,
+	);
 
 	return connection ?? null;
 }
@@ -386,23 +379,12 @@ async function getExistingConnectionForUpsert(input: {
 		});
 	}
 
-	const [connection] = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					input.organizationId,
-				),
-				eq(
-					integrationSchema.integrationConnection.providerId,
-					input.providerId,
-				),
-				eq(integrationSchema.integrationConnection.label, input.label),
-			),
-		)
-		.limit(1);
+	const connection =
+		await repositories.integrationConnection.findByOrgProviderLabel(
+			input.organizationId,
+			input.providerId,
+			input.label.trim(),
+		);
 
 	return connection ?? null;
 }
@@ -468,18 +450,9 @@ export async function listIntegrationConnections({
 	type?: ConnectorType;
 	includeSensitive?: boolean;
 }) {
-	const rows = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			eq(
-				integrationSchema.integrationConnection.organizationId,
-				organizationId,
-			),
-		)
-		.orderBy(
-			asc(integrationSchema.integrationConnection.providerType),
-			asc(integrationSchema.integrationConnection.label),
+	const rows =
+		await repositories.integrationConnection.listByOrganizationSorted(
+			organizationId,
 		);
 
 	return rows
@@ -572,29 +545,8 @@ export async function upsertIntegrationConnection({
 		updatedAt: now,
 	};
 
-	const [connection] = await db
-		.insert(integrationSchema.integrationConnection)
-		.values(values)
-		.onConflictDoUpdate({
-			target: integrationSchema.integrationConnection.id,
-			set: {
-				label: values.label,
-				serverUrl: values.serverUrl,
-				usageGuidance: values.usageGuidance,
-				authMethod: values.authMethod,
-				credentialEnvelope: values.credentialEnvelope,
-				headerPreview: values.headerPreview,
-				status: values.status,
-				enabled: values.enabled,
-				rateLimitWindowSeconds: values.rateLimitWindowSeconds,
-				rateLimitMaxRequests: values.rateLimitMaxRequests,
-				connectedByUserId: values.connectedByUserId,
-				lastValidatedAt: values.lastValidatedAt,
-				metadata: values.metadata,
-				updatedAt: values.updatedAt,
-			},
-		})
-		.returning();
+	const connection =
+		await repositories.integrationConnection.upsertById(values);
 
 	if (!connection) {
 		throw new Error("Unable to save connector.");
@@ -661,7 +613,7 @@ export async function createIntegrationOAuthAuthorizationUrl({
 		authorizationUrl.searchParams.set("code_challenge_method", "S256");
 	}
 
-	await db.insert(integrationSchema.integrationOAuthState).values({
+	await repositories.integrationOAuthState.create({
 		id: `oauth_${randomUUID()}`,
 		organizationId,
 		providerId: provider.id,
@@ -779,24 +731,8 @@ export async function completeIntegrationOAuthCallback({
 		updatedAt: now,
 	};
 
-	const [connection] = await db
-		.insert(integrationSchema.integrationConnection)
-		.values(values)
-		.onConflictDoUpdate({
-			target: integrationSchema.integrationConnection.id,
-			set: {
-				authMethod: values.authMethod,
-				credentialEnvelope: values.credentialEnvelope,
-				headerPreview: values.headerPreview,
-				status: values.status,
-				enabled: values.enabled,
-				connectedByUserId: values.connectedByUserId,
-				lastValidatedAt: values.lastValidatedAt,
-				metadata: values.metadata,
-				updatedAt: values.updatedAt,
-			},
-		})
-		.returning();
+	const connection =
+		await repositories.integrationConnection.upsertById(values);
 
 	if (!connection) {
 		throw new Error("Unable to save OAuth connector.");
@@ -823,23 +759,11 @@ export async function setIntegrationConnectionEnabled({
 	organizationId: string;
 	enabled: boolean;
 }) {
-	const [connection] = await db
-		.update(integrationSchema.integrationConnection)
-		.set({
-			enabled,
-			status: enabled ? "connected" : "disabled",
-			updatedAt: new Date(),
-		})
-		.where(
-			and(
-				eq(integrationSchema.integrationConnection.id, connectionId),
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					organizationId,
-				),
-			),
-		)
-		.returning();
+	const connection = await repositories.integrationConnection.setEnabled(
+		connectionId,
+		organizationId,
+		enabled,
+	);
 
 	return connection ? toPublicConnection(connection) : null;
 }
@@ -851,20 +775,10 @@ export async function deleteIntegrationConnection({
 	connectionId: string;
 	organizationId: string;
 }) {
-	const [deleted] = await db
-		.delete(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(integrationSchema.integrationConnection.id, connectionId),
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					organizationId,
-				),
-			),
-		)
-		.returning({
-			id: integrationSchema.integrationConnection.id,
-		});
+	const deleted = await repositories.integrationConnection.deleteByIdAndOrg(
+		connectionId,
+		organizationId,
+	);
 
 	return Boolean(deleted);
 }
@@ -878,18 +792,8 @@ export async function listEnabledIntegrationToolContexts({
 		return [];
 	}
 
-	const connections = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					organizationId,
-				),
-				eq(integrationSchema.integrationConnection.enabled, true),
-			),
-		);
+	const connections =
+		await repositories.integrationConnection.listEnabledByOrg(organizationId);
 
 	return connections.flatMap((connection) => {
 		const provider = getConnectorProvider(connection.providerId);
@@ -935,18 +839,10 @@ export async function createEnabledMcpToolSetForOrganization({
 		return createConnectorMcpToolSet({ connections: [] });
 	}
 
-	const connections = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					organizationId,
-				),
-				eq(integrationSchema.integrationConnection.providerType, "mcp"),
-				eq(integrationSchema.integrationConnection.enabled, true),
-			),
+	const connections =
+		await repositories.integrationConnection.listEnabledByType(
+			organizationId,
+			"mcp",
 		);
 	const credentials = new Map(
 		await Promise.all(
@@ -1010,10 +906,7 @@ export async function createEnabledMcpToolSetForOrganization({
 			}
 
 			await consumeIntegrationToolRateLimit({ connection, toolName });
-			await db
-				.update(integrationSchema.integrationConnection)
-				.set({ lastUsedAt: new Date() })
-				.where(eq(integrationSchema.integrationConnection.id, connection.id));
+			await repositories.integrationConnection.touchLastUsed(connection.id);
 		},
 	});
 }
@@ -1176,13 +1069,11 @@ async function getFreshConnectionCredential(
 		return decryptCredential(connection.credentialEnvelope);
 	}
 	try {
-		return await db.transaction(async (tx) => {
-			const [locked] = await tx
-				.select()
-				.from(integrationSchema.integrationConnection)
-				.where(eq(integrationSchema.integrationConnection.id, connection.id))
-				.limit(1)
-				.for("update");
+		return await runTransactionWithRetry(async (tx) => {
+			const repos = createRepositories(tx);
+			const locked = await repos.integrationConnection.findByIdForUpdate(
+				connection.id,
+			);
 			if (!locked) return null;
 			const credential = decryptCredential(locked.credentialEnvelope);
 			const expiresAt = credential?.oauth?.expiresAt;
@@ -1219,59 +1110,44 @@ async function getFreshConnectionCredential(
 					scopes: token.scopes ?? credential.oauth.scopes,
 				},
 			};
-			await tx
-				.update(integrationSchema.integrationConnection)
-				.set({
-					credentialEnvelope: encryptCredential(nextCredential),
-					status: "connected",
-					metadata: {
-						...getConnectionMetadata(locked),
-						oauthLastRefreshedAt: now.toISOString(),
-						oauthLastRefreshError: null,
-						oauthReconnectRequired: false,
-					},
-					updatedAt: now,
-				})
-				.where(eq(integrationSchema.integrationConnection.id, locked.id));
+			await repos.integrationConnection.updateById(locked.id, {
+				credentialEnvelope: encryptCredential(nextCredential),
+				status: "connected",
+				metadata: {
+					...getConnectionMetadata(locked),
+					oauthLastRefreshedAt: now.toISOString(),
+					oauthLastRefreshError: null,
+					oauthReconnectRequired: false,
+				},
+				updatedAt: now,
+			});
 			return nextCredential;
 		});
 	} catch (error) {
 		const reconnectRequired =
 			(error as { reconnectRequired?: unknown })?.reconnectRequired === true;
-		const [current] = await db
-			.select()
-			.from(integrationSchema.integrationConnection)
-			.where(eq(integrationSchema.integrationConnection.id, connection.id))
-			.limit(1);
-		await db
-			.update(integrationSchema.integrationConnection)
-			.set({
-				status: reconnectRequired
-					? "error"
-					: (current?.status ?? connection.status),
-				metadata: {
-					...getConnectionMetadata(current ?? connection),
-					oauthLastRefreshError:
-						error instanceof Error ? error.message : "OAuth refresh failed.",
-					oauthReconnectRequired: reconnectRequired,
-				},
-				updatedAt: new Date(),
-			})
-			.where(eq(integrationSchema.integrationConnection.id, connection.id));
+		const current = await repositories.integrationConnection.findById(
+			connection.id,
+		);
+		await repositories.integrationConnection.updateById(connection.id, {
+			status: reconnectRequired
+				? "error"
+				: (current?.status ?? connection.status),
+			metadata: {
+				...getConnectionMetadata(current ?? connection),
+				oauthLastRefreshError:
+					error instanceof Error ? error.message : "OAuth refresh failed.",
+				oauthReconnectRequired: reconnectRequired,
+			},
+			updatedAt: new Date(),
+		});
 		throw error;
 	}
 }
 
 export async function refreshExpiringIntegrationTokens() {
-	const connections = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(integrationSchema.integrationConnection.authMethod, "oauth"),
-				eq(integrationSchema.integrationConnection.enabled, true),
-			),
-		);
+	const connections =
+		await repositories.integrationConnection.listEnabledOAuthConnections();
 	const results = await Promise.allSettled(
 		connections.map((connection) =>
 			getFreshConnectionCredential(
@@ -1288,10 +1164,8 @@ export async function refreshExpiringIntegrationTokens() {
 }
 
 async function readOAuthState(state: string) {
-	const [row] = await db
-		.delete(integrationSchema.integrationOAuthState)
-		.where(eq(integrationSchema.integrationOAuthState.state, state))
-		.returning();
+	const row =
+		await repositories.integrationOAuthState.deleteAndReturnByState(state);
 
 	return row ?? null;
 }
@@ -1464,20 +1338,11 @@ export async function searchLinearIssuesForOrganization({
 		return [];
 	}
 
-	const [connection] = await db
-		.select()
-		.from(integrationSchema.integrationConnection)
-		.where(
-			and(
-				eq(
-					integrationSchema.integrationConnection.organizationId,
-					organizationId,
-				),
-				eq(integrationSchema.integrationConnection.providerId, "linear"),
-				eq(integrationSchema.integrationConnection.enabled, true),
-			),
-		)
-		.limit(1);
+	const connection =
+		await repositories.integrationConnection.findEnabledByOrgAndProvider(
+			organizationId,
+			"linear",
+		);
 
 	if (!connection) {
 		return [];
@@ -1551,10 +1416,7 @@ query SearchLinearIssues($term: String!, $first: Int!) {
 
 	const results = assertLinearIssuesPayload(await response.json());
 
-	await db
-		.update(integrationSchema.integrationConnection)
-		.set({ lastUsedAt: new Date() })
-		.where(eq(integrationSchema.integrationConnection.id, connection.id));
+	await repositories.integrationConnection.touchLastUsed(connection.id);
 
 	return results;
 }

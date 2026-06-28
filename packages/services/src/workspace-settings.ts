@@ -1,5 +1,4 @@
-import { db } from "@gitpal/db";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import { type RepositorySettings, repositories } from "@gitpal/repositories";
 import {
 	createDefaultRepositorySettings,
 	createDefaultWorkspaceSettings,
@@ -9,11 +8,9 @@ import {
 	type WorkspaceSettings,
 	workspaceSettingsSchema,
 } from "@gitpal/utils";
-import { and, eq } from "drizzle-orm";
 import { stableId } from "./stable-id";
 
-type RepositorySettingsRow =
-	typeof dashboardSchema.repositorySettings.$inferSelect;
+type RepositorySettingsRow = RepositorySettings;
 
 function getOrganizationSettingsId(organizationId: string) {
 	return `org_settings_${stableId([organizationId]).slice(0, 32)}`;
@@ -43,13 +40,10 @@ function toRepositorySettings(
 }
 
 export async function getOrganizationWorkspaceSettings(organizationId: string) {
-	const [row] = await db
-		.select()
-		.from(dashboardSchema.organizationSettings)
-		.where(
-			eq(dashboardSchema.organizationSettings.organizationId, organizationId),
-		)
-		.limit(1);
+	const row =
+		await repositories.organizationSettings.findByOrganizationId(
+			organizationId,
+		);
 
 	return toWorkspaceSettings(row?.settings as WorkspaceSettings);
 }
@@ -64,23 +58,13 @@ export async function saveOrganizationWorkspaceSettings({
 	const validatedSettings = workspaceSettingsSchema.parse(settings);
 	const normalizedSettings = normalizeWorkspaceSettings(validatedSettings);
 	const now = new Date();
-	const [row] = await db
-		.insert(dashboardSchema.organizationSettings)
-		.values({
-			id: getOrganizationSettingsId(organizationId),
-			organizationId,
-			settings: normalizedSettings,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: dashboardSchema.organizationSettings.organizationId,
-			set: {
-				settings: normalizedSettings,
-				updatedAt: now,
-			},
-		})
-		.returning();
+	const row = await repositories.organizationSettings.upsertForOrganization({
+		id: getOrganizationSettingsId(organizationId),
+		organizationId,
+		settings: normalizedSettings,
+		createdAt: now,
+		updatedAt: now,
+	});
 
 	return toWorkspaceSettings(row?.settings as WorkspaceSettings);
 }
@@ -92,18 +76,10 @@ async function getRepositorySettingsRow({
 	organizationId: string;
 	repositoryId: string;
 }) {
-	const [row] = await db
-		.select()
-		.from(dashboardSchema.repositorySettings)
-		.where(
-			and(
-				eq(dashboardSchema.repositorySettings.organizationId, organizationId),
-				eq(dashboardSchema.repositorySettings.repositoryId, repositoryId),
-			),
-		)
-		.limit(1);
-
-	return row ?? null;
+	return repositories.repositorySettings.findByOrgAndRepository(
+		organizationId,
+		repositoryId,
+	);
 }
 
 export async function getRepositoryWorkspaceSettings({
@@ -119,45 +95,24 @@ export async function getRepositoryWorkspaceSettings({
 		return null;
 	}
 
-	const [accessRow] = await db
-		.select({
-			access: dashboardSchema.repositoryAccess,
-			repository: dashboardSchema.repository,
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryAccess.userId, userId),
-				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
-				eq(dashboardSchema.repository.organizationId, organizationId),
-			),
-		)
-		.limit(1);
+	const accessRow =
+		await repositories.repositoryAccess.findAccessWithRepository(
+			userId,
+			repositoryId,
+			organizationId,
+		);
 
 	if (!accessRow) {
 		return null;
 	}
 
 	const [organizationSettingsRow, repositorySettingsRow] = await Promise.all([
-		db
-			.select()
-			.from(dashboardSchema.organizationSettings)
-			.where(
-				eq(dashboardSchema.organizationSettings.organizationId, organizationId),
-			)
-			.limit(1),
+		repositories.organizationSettings.findByOrganizationId(organizationId),
 		getRepositorySettingsRow({ organizationId, repositoryId }),
 	]);
 
 	const organizationSettings = toWorkspaceSettings(
-		organizationSettingsRow[0]?.settings as WorkspaceSettings,
+		organizationSettingsRow?.settings as WorkspaceSettings,
 	);
 	const repositorySettings = toRepositorySettings(repositorySettingsRow);
 
@@ -185,16 +140,10 @@ export async function saveRepositoryWorkspaceSettings({
 	useOrganizationSettings: boolean;
 	settings: WorkspaceSettings;
 }) {
-	const [repository] = await db
-		.select({ id: dashboardSchema.repository.id })
-		.from(dashboardSchema.repository)
-		.where(
-			and(
-				eq(dashboardSchema.repository.id, repositoryId),
-				eq(dashboardSchema.repository.organizationId, organizationId),
-			),
-		)
-		.limit(1);
+	const repository = await repositories.repository.findByIdAndOrg(
+		repositoryId,
+		organizationId,
+	);
 	if (!repository) {
 		throw new Error("Repository was not found in this workspace.");
 	}
@@ -202,29 +151,15 @@ export async function saveRepositoryWorkspaceSettings({
 	const validatedSettings = workspaceSettingsSchema.parse(settings);
 	const normalizedSettings = normalizeWorkspaceSettings(validatedSettings);
 	const now = new Date();
-	const [row] = await db
-		.insert(dashboardSchema.repositorySettings)
-		.values({
-			id: getRepositorySettingsId(organizationId, repositoryId),
-			organizationId,
-			repositoryId,
-			useOrganizationSettings,
-			settings: normalizedSettings,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: [
-				dashboardSchema.repositorySettings.organizationId,
-				dashboardSchema.repositorySettings.repositoryId,
-			],
-			set: {
-				useOrganizationSettings,
-				settings: normalizedSettings,
-				updatedAt: now,
-			},
-		})
-		.returning();
+	const row = await repositories.repositorySettings.upsert({
+		id: getRepositorySettingsId(organizationId, repositoryId),
+		organizationId,
+		repositoryId,
+		useOrganizationSettings,
+		settings: normalizedSettings,
+		createdAt: now,
+		updatedAt: now,
+	});
 
 	return toRepositorySettings(row ?? null);
 }

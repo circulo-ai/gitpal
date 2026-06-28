@@ -1,4 +1,4 @@
-import { getTableColumns, sql, type SQL } from "drizzle-orm";
+import { getTableColumns, type SQL, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 
 /**

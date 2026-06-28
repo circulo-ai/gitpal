@@ -1,7 +1,5 @@
 import { workspaceAc, workspaceRoles } from "@gitpal/auth";
-import { db } from "@gitpal/db";
-import * as authSchema from "@gitpal/db/schema/auth";
-import { and, eq } from "drizzle-orm";
+import { repositories } from "@gitpal/repositories";
 import { z } from "zod";
 
 const permissionSchema = z.record(z.string(), z.array(z.string()));
@@ -45,16 +43,11 @@ async function getRoleDefinition(organizationId: string, role: string) {
 		return workspaceRoles[role as keyof typeof workspaceRoles];
 	}
 
-	const [customRole] = await db
-		.select()
-		.from(authSchema.organizationRole)
-		.where(
-			and(
-				eq(authSchema.organizationRole.organizationId, organizationId),
-				eq(authSchema.organizationRole.role, role),
-			),
-		)
-		.limit(1);
+	const customRole =
+		await repositories.organizationRole.findByOrganizationIdAndRole(
+			organizationId,
+			role,
+		);
 
 	const permissions = customRole
 		? parseRolePermission(customRole.permission)
@@ -74,16 +67,10 @@ export async function getActiveOrganizationMember({
 	userId: string;
 	organizationId: string;
 }) {
-	const [member] = await db
-		.select()
-		.from(authSchema.member)
-		.where(
-			and(
-				eq(authSchema.member.userId, userId),
-				eq(authSchema.member.organizationId, organizationId),
-			),
-		)
-		.limit(1);
+	const member = await repositories.member.findByUserIdAndOrganizationId(
+		userId,
+		organizationId,
+	);
 
 	return member ?? null;
 }

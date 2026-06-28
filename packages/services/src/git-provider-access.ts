@@ -1,24 +1,25 @@
-import { db } from "@gitpal/db";
-import * as authSchema from "@gitpal/db/schema/auth";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
 import {
 	createGitHubAppInstallationAdapter,
 	type GitActor,
 	type GitProviderAdapter,
 	type GitRepository,
-	listGitHubAppInstallations,
 	listGitHubAppInstallationRepositories,
+	listGitHubAppInstallations,
 } from "@gitpal/git";
 import { createLogger } from "@gitpal/logger";
-import { and, desc, eq, sql } from "drizzle-orm";
+import {
+	type Account,
+	type EnterpriseGitProvider,
+	type Repository,
+	repositories,
+} from "@gitpal/repositories";
 
 const log = createLogger("git-provider-access");
 
-export type GitAccount = typeof authSchema.account.$inferSelect;
-export type EnterpriseProvider =
-	typeof authSchema.enterpriseGitProvider.$inferSelect;
-type RepositoryRow = typeof dashboardSchema.repository.$inferSelect;
+export type GitAccount = Account;
+export type EnterpriseProvider = EnterpriseGitProvider;
+type RepositoryRow = Repository;
 
 function normalizePemSecret(value: string) {
 	const trimmed = value.trim().replace(/\\n/g, "\n");
@@ -44,9 +45,8 @@ function getCloudGitHubAppConfig() {
 }
 
 export async function getEnterpriseProviderMap() {
-	const enterpriseProviders = await db
-		.select()
-		.from(authSchema.enterpriseGitProvider);
+	const enterpriseProviders =
+		await repositories.enterpriseGitProvider.findMany();
 	return new Map(
 		enterpriseProviders.map((provider) => [provider.id, provider]),
 	);
@@ -59,16 +59,10 @@ export async function getAccountForProvider({
 	userId: string;
 	providerId: string;
 }) {
-	const [account] = await db
-		.select()
-		.from(authSchema.account)
-		.where(
-			and(
-				eq(authSchema.account.userId, userId),
-				eq(authSchema.account.providerId, providerId),
-			),
-		)
-		.limit(1);
+	const account = await repositories.account.findByUserIdAndProviderId(
+		userId,
+		providerId,
+	);
 	return account ?? null;
 }
 
@@ -116,55 +110,11 @@ export async function getAutomationActorForRepository({
 	repositoryId: string;
 	providerId: string;
 }) {
-	const candidates = await db
-		.select({
-			userId: dashboardSchema.repositoryAccess.userId,
-			account: authSchema.account,
-			repository: dashboardSchema.repository,
-			organizationRole: authSchema.member.role,
-			lastSeenAt: dashboardSchema.repositoryAccess.lastSeenAt,
-			roleRank: sql<number>`
-				case
-					when ${authSchema.member.role} = 'owner' then 0
-					when ${authSchema.member.role} = 'admin' then 1
-					else 2
-				end
-			`.as("role_rank"),
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.innerJoin(
-			authSchema.account,
-			and(
-				eq(authSchema.account.userId, dashboardSchema.repositoryAccess.userId),
-				eq(authSchema.account.providerId, providerId),
-			),
-		)
-		.innerJoin(
-			authSchema.member,
-			and(
-				eq(authSchema.member.userId, dashboardSchema.repositoryAccess.userId),
-				eq(
-					authSchema.member.organizationId,
-					dashboardSchema.repository.organizationId,
-				),
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
-				eq(dashboardSchema.repository.providerId, providerId),
-				eq(dashboardSchema.repositoryAccess.enabled, true),
-			),
-		)
-		.orderBy(sql`role_rank`, desc(dashboardSchema.repositoryAccess.lastSeenAt))
-		.limit(10);
+	const candidates =
+		await repositories.repositoryAccess.findAutomationActorCandidates(
+			repositoryId,
+			providerId,
+		);
 
 	if (candidates.length === 0) {
 		return null;

@@ -6,6 +6,21 @@ import {
 	UserLlmRoutingSettingsRepository,
 } from "./ai.repository";
 import {
+	AccountRepository,
+	ApiKeyRepository,
+	EnterpriseGitProviderRepository,
+	InvitationRepository,
+	MemberRepository,
+	OrganizationRepository,
+	OrganizationRoleRepository,
+	RateLimitRepository,
+	SessionRepository,
+	TeamMemberRepository,
+	TeamRepository,
+	UserRepository,
+	VerificationRepository,
+} from "./auth.repository";
+import {
 	OrganizationBudgetRepository,
 	WalletLedgerEntryRepository,
 	WalletRepository,
@@ -42,6 +57,7 @@ import {
 import type { Executor } from "./shared/types";
 
 export * from "./ai.repository";
+export * from "./auth.repository";
 export * from "./billing.repository";
 export * from "./dashboard.repository";
 export * from "./integrations.repository";
@@ -65,6 +81,21 @@ export function createRepositories(executor: Executor = db) {
 		userLlmRoutingSettings: new UserLlmRoutingSettingsRepository(executor),
 		userLlmApiKey: new UserLlmApiKeyRepository(executor),
 		aiGeneration: new AiGenerationRepository(executor),
+
+		// auth
+		user: new UserRepository(executor),
+		session: new SessionRepository(executor),
+		account: new AccountRepository(executor),
+		organization: new OrganizationRepository(executor),
+		member: new MemberRepository(executor),
+		team: new TeamRepository(executor),
+		teamMember: new TeamMemberRepository(executor),
+		invitation: new InvitationRepository(executor),
+		organizationRole: new OrganizationRoleRepository(executor),
+		apiKey: new ApiKeyRepository(executor),
+		rateLimit: new RateLimitRepository(executor),
+		verification: new VerificationRepository(executor),
+		enterpriseGitProvider: new EnterpriseGitProviderRepository(executor),
 
 		// billing
 		organizationBudget: new OrganizationBudgetRepository(executor),

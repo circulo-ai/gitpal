@@ -1,7 +1,6 @@
-import { db, runTransactionWithRetry } from "@gitpal/db";
-import * as billingSchema from "@gitpal/db/schema/billing";
+import { runTransactionWithRetry } from "@gitpal/db";
 import { env } from "@gitpal/env/server";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { createRepositories, repositories } from "@gitpal/repositories";
 import { sendUserNotification } from "./notifications";
 import {
 	createNowPaymentsCheckout,
@@ -12,7 +11,6 @@ import {
 import { recordObservabilityEvent } from "./observability";
 import { stableId } from "./stable-id";
 
-type WalletDbExecutor = Pick<typeof db, "select" | "insert" | "update">;
 const TOPUP_FINAL_STATUSES = new Set(["paid"]);
 const TOPUP_FAILURE_STATUSES = new Set([
 	"failed",
@@ -77,45 +75,9 @@ function formatUsd(cents: number) {
 	}).format(cents / 100);
 }
 
-async function ensureWalletForUser(
-	userId: string,
-	executor: WalletDbExecutor = db,
-) {
-	const now = new Date();
-	const [created] = await executor
-		.insert(billingSchema.wallet)
-		.values({
-			id: getWalletId(userId),
-			userId,
-			currency: "USD",
-			availableBalanceCents: 0,
-			totalDepositedCents: 0,
-			totalCreditedCents: 0,
-			totalRevenueCents: 0,
-			totalSpentCents: 0,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoNothing({
-			target: billingSchema.wallet.userId,
-		})
-		.returning();
-
-	if (created) {
-		return created;
-	}
-
-	const [existing] = await executor
-		.select()
-		.from(billingSchema.wallet)
-		.where(eq(billingSchema.wallet.userId, userId))
-		.limit(1);
-
-	if (!existing) {
-		throw new Error("Unable to create wallet.");
-	}
-
-	return existing;
+async function ensureWalletForUser(userId: string, executor?: any) {
+	const repos = executor ? createRepositories(executor) : repositories;
+	return repos.wallet.ensureWalletForUser(userId, getWalletId(userId));
 }
 
 export async function assertWalletCanStartUsage(userId: string) {
@@ -135,18 +97,8 @@ export async function getWalletSummaryForUser(
 	const cloudBillingEnabled = env.GITPAL_CLOUD_BILLING_ENABLED;
 	const checkoutEnabled = cloudBillingEnabled && isNowPaymentsCheckoutEnabled();
 	const [topups, entries] = await Promise.all([
-		db
-			.select()
-			.from(billingSchema.walletTopup)
-			.where(eq(billingSchema.walletTopup.walletId, wallet.id))
-			.orderBy(desc(billingSchema.walletTopup.createdAt))
-			.limit(10),
-		db
-			.select()
-			.from(billingSchema.walletLedgerEntry)
-			.where(eq(billingSchema.walletLedgerEntry.walletId, wallet.id))
-			.orderBy(desc(billingSchema.walletLedgerEntry.createdAt))
-			.limit(12),
+		repositories.walletTopup.findRecentByWallet(wallet.id, 10),
+		repositories.walletLedgerEntry.findRecentByWallet(wallet.id, 12),
 	]);
 
 	return {
@@ -236,34 +188,27 @@ export async function createWalletTopupForUser({
 		throw new Error("NOWPayments returned an unsafe invoice URL.");
 	}
 
-	const [topup] = await db
-		.insert(billingSchema.walletTopup)
-		.values({
-			id: getTopupId(userId, orderId),
-			walletId: wallet.id,
-			userId,
-			provider: "nowpayments",
-			status: "waiting",
-			orderId,
-			priceAmountUsdCents: amountUsdCents,
-			priceCurrency: "usd",
-			payCurrency: invoice.pay_currency,
-			providerInvoiceId,
-			invoiceUrl,
-			successUrl: invoice.success_url ?? successUrl,
-			cancelUrl: invoice.cancel_url ?? cancelUrl,
-			partiallyPaidUrl: invoice.partially_paid_url ?? partiallyPaidUrl,
-			externalCreatedAt: invoice.created_at
-				? new Date(invoice.created_at)
-				: null,
-			externalUpdatedAt: invoice.updated_at
-				? new Date(invoice.updated_at)
-				: null,
-			metadata: invoice as unknown as Record<string, unknown>,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.returning();
+	const topup = await repositories.walletTopup.create({
+		id: getTopupId(userId, orderId),
+		walletId: wallet.id,
+		userId,
+		provider: "nowpayments",
+		status: "waiting",
+		orderId,
+		priceAmountUsdCents: amountUsdCents,
+		priceCurrency: "usd",
+		payCurrency: invoice.pay_currency,
+		providerInvoiceId,
+		invoiceUrl,
+		successUrl: invoice.success_url ?? successUrl,
+		cancelUrl: invoice.cancel_url ?? cancelUrl,
+		partiallyPaidUrl: invoice.partially_paid_url ?? partiallyPaidUrl,
+		externalCreatedAt: invoice.created_at ? new Date(invoice.created_at) : null,
+		externalUpdatedAt: invoice.updated_at ? new Date(invoice.updated_at) : null,
+		metadata: invoice as unknown as Record<string, unknown>,
+		createdAt: now,
+		updatedAt: now,
+	});
 
 	if (!topup) {
 		throw new Error("Unable to create wallet top-up.");
@@ -326,7 +271,7 @@ export async function applyWalletUsageDebit({
 }
 
 export async function applyWalletUsageDebitInTransaction(
-	executor: WalletDbExecutor,
+	executor: any,
 	{
 		userId,
 		amountCents,
@@ -352,43 +297,31 @@ export async function applyWalletUsageDebitInTransaction(
 		};
 	}
 
-	const wallet = await ensureWalletForUser(userId, executor);
+	const repos = createRepositories(executor);
+	const wallet = await repos.wallet.ensureWalletForUser(
+		userId,
+		getWalletId(userId),
+	);
 	const entryId = getLedgerId(sourceType, sourceId, "usage-debit");
 	const now = new Date();
 
-	const [insertedLedger] = await executor
-		.insert(billingSchema.walletLedgerEntry)
-		.values({
-			id: entryId,
-			walletId: wallet.id,
-			userId,
-			type: "usage-debit",
-			amountCents: amountCents * -1,
-			balanceAfterCents: wallet.availableBalanceCents,
-			currency: "USD",
-			description,
-			sourceType,
-			sourceId,
-			metadata,
-			createdAt: now,
-		})
-		.onConflictDoNothing({
-			target: [
-				billingSchema.walletLedgerEntry.sourceType,
-				billingSchema.walletLedgerEntry.sourceId,
-				billingSchema.walletLedgerEntry.type,
-			],
-		})
-		.returning({
-			id: billingSchema.walletLedgerEntry.id,
-		});
+	const insertedLedger = await repos.walletLedgerEntry.createDoNothing({
+		id: entryId,
+		walletId: wallet.id,
+		userId,
+		type: "usage-debit",
+		amountCents: amountCents * -1,
+		balanceAfterCents: wallet.availableBalanceCents,
+		currency: "USD",
+		description,
+		sourceType,
+		sourceId,
+		metadata,
+		createdAt: now,
+	});
 
 	if (!insertedLedger) {
-		const [existingLedger] = await executor
-			.select()
-			.from(billingSchema.walletLedgerEntry)
-			.where(eq(billingSchema.walletLedgerEntry.id, entryId))
-			.limit(1);
+		const existingLedger = await repos.walletLedgerEntry.findById(entryId);
 
 		if (!existingLedger) {
 			throw new Error("Unable to resolve existing wallet usage debit.");
@@ -402,28 +335,18 @@ export async function applyWalletUsageDebitInTransaction(
 		};
 	}
 
-	const [updatedWallet] = await executor
-		.update(billingSchema.wallet)
-		.set({
-			availableBalanceCents: sql`${billingSchema.wallet.availableBalanceCents} - ${amountCents}`,
-			totalSpentCents: sql`${billingSchema.wallet.totalSpentCents} + ${amountCents}`,
-			updatedAt: now,
-		})
-		.where(eq(billingSchema.wallet.id, wallet.id))
-		.returning({
-			id: billingSchema.wallet.id,
-			availableBalanceCents: billingSchema.wallet.availableBalanceCents,
-		});
+	const updatedWallet = await repos.wallet.debitWallet(
+		wallet.id,
+		amountCents,
+		now,
+	);
 
 	if (!updatedWallet)
 		throw new Error("Wallet not found during usage settlement.");
 
-	await executor
-		.update(billingSchema.walletLedgerEntry)
-		.set({
-			balanceAfterCents: updatedWallet.availableBalanceCents,
-		})
-		.where(eq(billingSchema.walletLedgerEntry.id, entryId));
+	await repos.walletLedgerEntry.updateById(entryId, {
+		balanceAfterCents: updatedWallet.availableBalanceCents,
+	});
 
 	return {
 		applied: true,
@@ -446,22 +369,13 @@ export async function handleNowPaymentsWebhook(
 	const status = normalizeNowPaymentsStatus(payment.status);
 	const providerStatus = payment.payment_status?.trim().toLowerCase() || status;
 
-	const [existingTopup] = await db
-		.select()
-		.from(billingSchema.walletTopup)
-		.where(
-			or(
-				...(providerPaymentId
-					? [eq(billingSchema.walletTopup.providerPaymentId, providerPaymentId)]
-					: []),
-				...(providerInvoiceId
-					? [eq(billingSchema.walletTopup.providerInvoiceId, providerInvoiceId)]
-					: []),
-				...(orderId ? [eq(billingSchema.walletTopup.orderId, orderId)] : []),
-				eq(billingSchema.walletTopup.id, "__missing__"),
-			),
-		)
-		.limit(1);
+	const existingTopup = await repositories.walletTopup.findByWebhookIdentifiers(
+		{
+			providerPaymentId,
+			providerInvoiceId,
+			orderId,
+		},
+	);
 
 	if (!existingTopup) {
 		return {
@@ -490,94 +404,78 @@ export async function handleNowPaymentsWebhook(
 	const netAmountCents = existingTopup.priceAmountUsdCents - revenueAmountCents;
 
 	await runTransactionWithRetry(async (tx) => {
-		await tx
-			.update(billingSchema.walletTopup)
-			.set({
-				status,
-				providerStatus,
-				payCurrency: payment.pay_currency ?? existingTopup.payCurrency,
-				payAmount:
-					payment.pay_amount !== undefined && payment.pay_amount !== null
-						? String(payment.pay_amount)
-						: existingTopup.payAmount,
-				actuallyPaid:
-					payment.actually_paid !== undefined && payment.actually_paid !== null
-						? String(payment.actually_paid)
-						: existingTopup.actuallyPaid,
-				outcomeAmount:
-					payment.outcome_amount !== undefined &&
-					payment.outcome_amount !== null
-						? String(payment.outcome_amount)
-						: existingTopup.outcomeAmount,
-				outcomeCurrency:
-					payment.outcome_currency ?? existingTopup.outcomeCurrency,
-				payAddress: payment.pay_address ?? existingTopup.payAddress,
-				payinExtraId:
-					payment.payin_extra_id !== undefined &&
-					payment.payin_extra_id !== null
-						? String(payment.payin_extra_id)
-						: existingTopup.payinExtraId,
-				payinHash: payment.payin_hash ?? existingTopup.payinHash,
-				payoutHash: payment.payout_hash ?? existingTopup.payoutHash,
-				providerPaymentId: providerPaymentId ?? existingTopup.providerPaymentId,
-				providerInvoiceId: providerInvoiceId ?? existingTopup.providerInvoiceId,
-				providerPurchaseId:
-					payment.purchase_id !== undefined && payment.purchase_id !== null
-						? String(payment.purchase_id)
-						: existingTopup.providerPurchaseId,
-				externalCreatedAt: payment.created_at
-					? new Date(payment.created_at)
-					: existingTopup.externalCreatedAt,
-				externalUpdatedAt: payment.updated_at
-					? new Date(payment.updated_at)
-					: existingTopup.externalUpdatedAt,
-				errorMessage: TOPUP_FAILURE_STATUSES.has(status)
-					? `NOWPayments marked this top-up as ${status}.`
-					: existingTopup.errorMessage,
-				metadata: payment as unknown as Record<string, unknown>,
-				updatedAt: now,
-			})
-			.where(eq(billingSchema.walletTopup.id, existingTopup.id));
+		const repos = createRepositories(tx);
+		await repos.walletTopup.updateById(existingTopup.id, {
+			status,
+			providerStatus,
+			payCurrency: payment.pay_currency ?? existingTopup.payCurrency,
+			payAmount:
+				payment.pay_amount !== undefined && payment.pay_amount !== null
+					? String(payment.pay_amount)
+					: existingTopup.payAmount,
+			actuallyPaid:
+				payment.actually_paid !== undefined && payment.actually_paid !== null
+					? String(payment.actually_paid)
+					: existingTopup.actuallyPaid,
+			outcomeAmount:
+				payment.outcome_amount !== undefined && payment.outcome_amount !== null
+					? String(payment.outcome_amount)
+					: existingTopup.outcomeAmount,
+			outcomeCurrency:
+				payment.outcome_currency ?? existingTopup.outcomeCurrency,
+			payAddress: payment.pay_address ?? existingTopup.payAddress,
+			payinExtraId:
+				payment.payin_extra_id !== undefined && payment.payin_extra_id !== null
+					? String(payment.payin_extra_id)
+					: existingTopup.payinExtraId,
+			payinHash: payment.payin_hash ?? existingTopup.payinHash,
+			payoutHash: payment.payout_hash ?? existingTopup.payoutHash,
+			providerPaymentId: providerPaymentId ?? existingTopup.providerPaymentId,
+			providerInvoiceId: providerInvoiceId ?? existingTopup.providerInvoiceId,
+			providerPurchaseId:
+				payment.purchase_id !== undefined && payment.purchase_id !== null
+					? String(payment.purchase_id)
+					: existingTopup.providerPurchaseId,
+			externalCreatedAt: payment.created_at
+				? new Date(payment.created_at)
+				: existingTopup.externalCreatedAt,
+			externalUpdatedAt: payment.updated_at
+				? new Date(payment.updated_at)
+				: existingTopup.externalUpdatedAt,
+			errorMessage: TOPUP_FAILURE_STATUSES.has(status)
+				? `NOWPayments marked this top-up as ${status}.`
+				: existingTopup.errorMessage,
+			metadata: payment as unknown as Record<string, unknown>,
+			updatedAt: now,
+		});
 
 		if (!TOPUP_FINAL_STATUSES.has(status)) {
 			return;
 		}
 
-		const [creditableTopup] = await tx
-			.update(billingSchema.walletTopup)
-			.set({
+		const creditableTopup = await repos.walletTopup.creditTopup(
+			existingTopup.id,
+			{
 				creditedAt: now,
 				revenueAmountCents,
 				creditedAmountCents: netAmountCents,
 				updatedAt: now,
-			})
-			.where(
-				and(
-					eq(billingSchema.walletTopup.id, existingTopup.id),
-					isNull(billingSchema.walletTopup.creditedAt),
-				),
-			)
-			.returning();
+			},
+		);
 
 		if (!creditableTopup) {
 			return;
 		}
 
-		const [updatedWallet] = await tx
-			.update(billingSchema.wallet)
-			.set({
-				availableBalanceCents: sql`${billingSchema.wallet.availableBalanceCents} + ${creditableTopup.creditedAmountCents}`,
-				totalDepositedCents: sql`${billingSchema.wallet.totalDepositedCents} + ${creditableTopup.priceAmountUsdCents}`,
-				totalCreditedCents: sql`${billingSchema.wallet.totalCreditedCents} + ${creditableTopup.creditedAmountCents}`,
-				totalRevenueCents: sql`${billingSchema.wallet.totalRevenueCents} + ${creditableTopup.revenueAmountCents}`,
+		const updatedWallet = await repos.wallet.creditWallet(
+			creditableTopup.walletId,
+			{
+				creditedAmount: creditableTopup.creditedAmountCents,
+				priceAmount: creditableTopup.priceAmountUsdCents,
+				revenueAmount: creditableTopup.revenueAmountCents,
 				updatedAt: now,
-			})
-			.where(eq(billingSchema.wallet.id, creditableTopup.walletId))
-			.returning({
-				id: billingSchema.wallet.id,
-				userId: billingSchema.wallet.userId,
-				availableBalanceCents: billingSchema.wallet.availableBalanceCents,
-			});
+			},
+		);
 
 		if (!updatedWallet) {
 			throw new Error("Wallet not found.");
@@ -586,61 +484,43 @@ export async function handleNowPaymentsWebhook(
 		const netBalance = updatedWallet.availableBalanceCents;
 		const grossBalance = netBalance + creditableTopup.revenueAmountCents;
 
-		await tx
-			.insert(billingSchema.walletLedgerEntry)
-			.values({
-				id: getLedgerId("wallet-topup", creditableTopup.id, "topup-credit"),
+		await repos.walletLedgerEntry.createDoNothing({
+			id: getLedgerId("wallet-topup", creditableTopup.id, "topup-credit"),
+			walletId: updatedWallet.id,
+			userId: updatedWallet.userId,
+			type: "topup-credit",
+			amountCents: creditableTopup.priceAmountUsdCents,
+			balanceAfterCents: grossBalance,
+			currency: "USD",
+			description: "Wallet top-up received",
+			sourceType: "wallet-topup",
+			sourceId: creditableTopup.id,
+			metadata: {
+				provider: "nowpayments",
+				paymentId: providerPaymentId,
+				invoiceId: providerInvoiceId,
+			},
+			createdAt: now,
+		});
+
+		if (revenueAmountCents > 0) {
+			await repos.walletLedgerEntry.createDoNothing({
+				id: getLedgerId("wallet-topup", creditableTopup.id, "topup-fee"),
 				walletId: updatedWallet.id,
 				userId: updatedWallet.userId,
-				type: "topup-credit",
-				amountCents: creditableTopup.priceAmountUsdCents,
-				balanceAfterCents: grossBalance,
+				type: "topup-fee",
+				amountCents: revenueAmountCents * -1,
+				balanceAfterCents: netBalance,
 				currency: "USD",
-				description: "Wallet top-up received",
+				description: "Platform top-up fee",
 				sourceType: "wallet-topup",
 				sourceId: creditableTopup.id,
 				metadata: {
 					provider: "nowpayments",
-					paymentId: providerPaymentId,
-					invoiceId: providerInvoiceId,
+					feePercent: env.GITPAL_WALLET_REVENUE_SHARE_PERCENT,
 				},
 				createdAt: now,
-			})
-			.onConflictDoNothing({
-				target: [
-					billingSchema.walletLedgerEntry.sourceType,
-					billingSchema.walletLedgerEntry.sourceId,
-					billingSchema.walletLedgerEntry.type,
-				],
 			});
-
-		if (revenueAmountCents > 0) {
-			await tx
-				.insert(billingSchema.walletLedgerEntry)
-				.values({
-					id: getLedgerId("wallet-topup", creditableTopup.id, "topup-fee"),
-					walletId: updatedWallet.id,
-					userId: updatedWallet.userId,
-					type: "topup-fee",
-					amountCents: revenueAmountCents * -1,
-					balanceAfterCents: netBalance,
-					currency: "USD",
-					description: "Platform top-up fee",
-					sourceType: "wallet-topup",
-					sourceId: creditableTopup.id,
-					metadata: {
-						provider: "nowpayments",
-						feePercent: env.GITPAL_WALLET_REVENUE_SHARE_PERCENT,
-					},
-					createdAt: now,
-				})
-				.onConflictDoNothing({
-					target: [
-						billingSchema.walletLedgerEntry.sourceType,
-						billingSchema.walletLedgerEntry.sourceId,
-						billingSchema.walletLedgerEntry.type,
-					],
-				});
 		}
 
 		credited = true;

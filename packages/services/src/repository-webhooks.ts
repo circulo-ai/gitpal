@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { decryptSecret } from "@gitpal/auth";
-import { db } from "@gitpal/db";
-import * as aiSchema from "@gitpal/db/schema/ai";
-import * as authSchema from "@gitpal/db/schema/auth";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import type * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import { env } from "@gitpal/env/server";
 import {
 	createGitHubAdapter,
@@ -31,8 +28,8 @@ import {
 	providerWebhookJobSchema,
 } from "@gitpal/jobs/inngest/functions/provider-webhooks";
 import { createLogger } from "@gitpal/logger";
+import { repositories } from "@gitpal/repositories";
 import type { WorkspaceSettings } from "@gitpal/utils";
-import { and, desc, eq, inArray } from "drizzle-orm";
 import {
 	createAppAdapterForRepository,
 	type EnterpriseProvider,
@@ -942,31 +939,13 @@ async function findRepositoriesForWebhook({
 	providerId: string;
 	repositoryPath: string;
 }) {
-	return db
-		.select()
-		.from(dashboardSchema.repository)
-		.where(
-			and(
-				eq(dashboardSchema.repository.providerId, providerId),
-				eq(dashboardSchema.repository.repositoryPath, repositoryPath),
-			),
-		);
+	return repositories.repository.listByProviderAndPath(
+		providerId,
+		repositoryPath,
+	);
 }
 async function updateRepositoryWebhookHeartbeat(repositoryIds: string[]) {
-	if (repositoryIds.length === 0) {
-		return;
-	}
-	const now = new Date();
-	await db
-		.update(dashboardSchema.repositoryWebhook)
-		.set({
-			verifiedAt: now,
-			lastDeliveredAt: now,
-			updatedAt: now,
-		})
-		.where(
-			inArray(dashboardSchema.repositoryWebhook.repositoryId, repositoryIds),
-		);
+	await repositories.repositoryWebhook.updateHeartbeat(repositoryIds);
 }
 async function createWebhookReceipt({
 	providerId,
@@ -986,83 +965,19 @@ async function createWebhookReceipt({
 	payload: Record<string, unknown>;
 }): Promise<WebhookReceiptResult> {
 	const now = new Date();
-	if (deliveryId) {
-		const inserted = await db
-			.insert(dashboardSchema.webhookEventReceipt)
-			.values({
-				id: `webhook_receipt_${randomUUID()}`,
-				repositoryId,
-				providerId,
-				deliveryId,
-				repositoryPath,
-				event,
-				action,
-				status: "received",
-				payload,
-				receivedAt: now,
-				updatedAt: now,
-			})
-			.onConflictDoNothing({
-				target: [
-					dashboardSchema.webhookEventReceipt.providerId,
-					dashboardSchema.webhookEventReceipt.deliveryId,
-				],
-			})
-			.returning({
-				id: dashboardSchema.webhookEventReceipt.id,
-			});
-		if (inserted[0]) {
-			return {
-				receiptId: inserted[0].id,
-				duplicate: false,
-			};
-		}
-		const [existing] = await db
-			.select({
-				id: dashboardSchema.webhookEventReceipt.id,
-			})
-			.from(dashboardSchema.webhookEventReceipt)
-			.where(
-				and(
-					eq(dashboardSchema.webhookEventReceipt.providerId, providerId),
-					eq(dashboardSchema.webhookEventReceipt.deliveryId, deliveryId),
-				),
-			)
-			.limit(1);
-		if (!existing) {
-			throw new Error("Webhook receipt conflict could not be resolved.");
-		}
-		return {
-			receiptId: existing.id,
-			duplicate: true,
-		};
-	}
-	// No deliveryId — deduplication is not possible for this event.
-	const [receipt] = await db
-		.insert(dashboardSchema.webhookEventReceipt)
-		.values({
-			id: `webhook_receipt_${randomUUID()}`,
-			repositoryId,
-			providerId,
-			deliveryId: `no-delivery-id:${randomUUID()}`,
-			repositoryPath,
-			event,
-			action,
-			status: "received",
-			payload,
-			receivedAt: now,
-			updatedAt: now,
-		})
-		.returning({
-			id: dashboardSchema.webhookEventReceipt.id,
-		});
-	if (!receipt) {
-		throw new Error("Webhook receipt could not be created.");
-	}
-	return {
-		receiptId: receipt.id,
-		duplicate: false,
-	};
+	return repositories.webhookEventReceipt.createReceipt({
+		id: `webhook_receipt_${randomUUID()}`,
+		repositoryId,
+		providerId,
+		deliveryId: deliveryId ?? `no-delivery-id:${randomUUID()}`,
+		repositoryPath,
+		event,
+		action,
+		status: "received",
+		payload,
+		receivedAt: now,
+		updatedAt: now,
+	});
 }
 async function updateWebhookReceipt({
 	receiptId,
@@ -1071,16 +986,7 @@ async function updateWebhookReceipt({
 	receiptId: string;
 	status: WebhookReceiptStatus;
 }) {
-	const now = new Date();
-	await db
-		.update(dashboardSchema.webhookEventReceipt)
-		.set({
-			status,
-			processedAt:
-				status === "processing" || status === "received" ? null : now,
-			updatedAt: now,
-		})
-		.where(eq(dashboardSchema.webhookEventReceipt.id, receiptId));
+	await repositories.webhookEventReceipt.updateStatus(receiptId, status);
 }
 
 export async function processProviderWebhookFailure({
@@ -1127,53 +1033,35 @@ async function createReviewRun({
 	const now = new Date();
 	const id = precreatedRunId ?? `review_run_${randomUUID()}`;
 	if (precreatedRunId) {
-		const [row] = await db
-			.update(dashboardSchema.reviewRun)
-			.set({
-				status: "running",
-				trigger,
-				modelId,
-				thinkingEnabled,
-				startedAt: now,
-				updatedAt: now,
-			})
-			.where(
-				and(
-					eq(dashboardSchema.reviewRun.id, precreatedRunId),
-					eq(dashboardSchema.reviewRun.status, "queued"),
-				),
-			)
-			.returning();
+		const row = await repositories.reviewRun.startQueuedRun(precreatedRunId, {
+			trigger,
+			modelId,
+			thinkingEnabled,
+		});
 		if (!row) throw new Error("Queued review run could not be started.");
 		return row;
 	}
-	const [row] = await db
-		.insert(dashboardSchema.reviewRun)
-		.values({
-			id,
-			repositoryId: repository.id,
-			pullRequestId: pullRequest?.id ?? null,
-			issueId: issue?.id ?? null,
-			requestedByUserId,
-			retryOfRunId,
-			traceId: id,
-			reviewKind,
-			trigger,
-			providerId: repository.providerId,
-			providerDeliveryId: envelope.deliveryId,
-			providerEvent: envelope.event,
-			providerAction: envelope.action,
-			status: "running",
-			modelId,
-			thinkingEnabled,
-			startedAt: now,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.returning();
-	if (!row) {
-		throw new Error("Review run could not be created.");
-	}
+	const row = await repositories.reviewRun.create({
+		id,
+		repositoryId: repository.id,
+		pullRequestId: pullRequest?.id ?? null,
+		issueId: issue?.id ?? null,
+		requestedByUserId,
+		retryOfRunId,
+		traceId: id,
+		reviewKind,
+		trigger,
+		providerId: repository.providerId,
+		providerDeliveryId: envelope.deliveryId,
+		providerEvent: envelope.event,
+		providerAction: envelope.action,
+		status: "running",
+		modelId,
+		thinkingEnabled,
+		startedAt: now,
+		createdAt: now,
+		updatedAt: now,
+	});
 	return row;
 }
 
@@ -1187,22 +1075,13 @@ async function finalizeUnstartedManualRun({
 	reason: string;
 }) {
 	if (!reviewRunId) return;
-	const now = new Date();
-	await db
-		.update(dashboardSchema.reviewRun)
-		.set({
-			status,
-			result: { reason },
-			completedAt: now,
-			updatedAt: now,
-		})
-		.where(
-			and(
-				eq(dashboardSchema.reviewRun.id, reviewRunId),
-				eq(dashboardSchema.reviewRun.status, "queued"),
-			),
-		);
+	await repositories.reviewRun.finalizeUnstartedManualRun(
+		reviewRunId,
+		status,
+		reason,
+	);
 }
+
 async function finalizeReviewRun({
 	reviewRunId,
 	status,
@@ -1222,23 +1101,17 @@ async function finalizeReviewRun({
 	reviewTemplate?: string | null;
 	confidence?: RepositoryReviewOutput["confidence"] | null;
 }) {
-	const now = new Date();
-	await db
-		.update(dashboardSchema.reviewRun)
-		.set({
-			status,
-			summary,
-			finalCommentBody,
-			result: sanitizeRunDetails(result),
-			promptVersion: promptVersion ?? undefined,
-			reviewTemplate: reviewTemplate ?? undefined,
-			confidenceLevel: confidence?.risk ?? undefined,
-			confidenceScore: confidence?.score ?? undefined,
-			confidenceSummary: confidence?.summary ?? undefined,
-			completedAt: now,
-			updatedAt: now,
-		})
-		.where(eq(dashboardSchema.reviewRun.id, reviewRunId));
+	await repositories.reviewRun.finalizeReviewRun(reviewRunId, {
+		status,
+		summary,
+		finalCommentBody,
+		result: sanitizeRunDetails(result),
+		promptVersion: promptVersion ?? undefined,
+		reviewTemplate: reviewTemplate ?? undefined,
+		confidenceLevel: confidence?.risk ?? undefined,
+		confidenceScore: confidence?.score ?? undefined,
+		confidenceSummary: confidence?.summary ?? undefined,
+	});
 }
 function formatFindingBody(
 	finding: RepositoryReviewOutput["findings"][number],
@@ -1271,42 +1144,7 @@ function buildLabelerSummaryMarkdown({
 	return sections.join("\n\n");
 }
 async function listRepositoryReviewerCandidates(repositoryId: string) {
-	return db
-		.select({
-			access: dashboardSchema.repositoryAccess,
-			user: authSchema.user,
-			account: authSchema.account,
-		})
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.innerJoin(
-			authSchema.user,
-			eq(authSchema.user.id, dashboardSchema.repositoryAccess.userId),
-		)
-		.innerJoin(
-			authSchema.account,
-			and(
-				eq(authSchema.account.userId, dashboardSchema.repositoryAccess.userId),
-				eq(
-					authSchema.account.providerId,
-					dashboardSchema.repository.providerId,
-				),
-			),
-		)
-		.where(
-			and(
-				eq(dashboardSchema.repositoryAccess.repositoryId, repositoryId),
-				eq(dashboardSchema.repositoryAccess.enabled, true),
-			),
-		)
-		.orderBy(desc(dashboardSchema.repositoryAccess.lastSeenAt))
-		.limit(10);
+	return repositories.repositoryAccess.listReviewerCandidates(repositoryId);
 }
 async function listSuggestedReviewersForRepository(repositoryId: string) {
 	const rows = await listRepositoryReviewerCandidates(repositoryId);
@@ -1352,28 +1190,10 @@ async function requestProviderNativeReviewers({
 			reviewerIds: [] as number[],
 		};
 	}
-	// Stored-identity mapping: resolve each reviewer candidate provider identity
-	// from data we already have (their connected account id plus synced workspace
-	// member logins). We never authenticate as the candidate to call the
-	// provider, so no user OAuth login token is used here.
-	const providerMembers = await db
-		.select({
-			providerMemberId:
-				dashboardSchema.providerWorkspaceMember.providerMemberId,
-			login: dashboardSchema.providerWorkspaceMember.login,
-		})
-		.from(dashboardSchema.providerWorkspaceMember)
-		.where(
-			and(
-				eq(
-					dashboardSchema.providerWorkspaceMember.organizationId,
-					repository.organizationId,
-				),
-				eq(
-					dashboardSchema.providerWorkspaceMember.providerId,
-					repository.providerId,
-				),
-			),
+	const providerMembers =
+		await repositories.providerWorkspaceMember.listProviderMembersForOrgAndProvider(
+			repository.organizationId,
+			repository.providerId,
 		);
 	const loginByMemberId = new Map(
 		providerMembers.map((member) => [member.providerMemberId, member.login]),
@@ -1600,7 +1420,7 @@ async function createReviewCommentRecords({
 				providerCommentId = null;
 			}
 		}
-		await db.insert(dashboardSchema.reviewComment).values({
+		await repositories.reviewComment.create({
 			id: `review_comment_${randomUUID()}`,
 			reviewRunId,
 			pullRequestId: pullRequest.id,
@@ -1640,7 +1460,7 @@ async function createPreMergeCheckRecords({
 }) {
 	for (const check of output.preMergeChecks) {
 		const now = new Date();
-		await db.insert(dashboardSchema.preMergeCheckRun).values({
+		await repositories.preMergeCheckRun.create({
 			id: `pre_merge_check_${randomUUID()}`,
 			reviewRunId,
 			repositoryId: repository.id,
@@ -2353,10 +2173,9 @@ async function runWebhookLabeler({
 			return "ignored" as const;
 		}
 		if (issueRow && labelResult.generationId) {
-			await db
-				.update(aiSchema.aiGeneration)
-				.set({ issueId: issueRow.id })
-				.where(eq(aiSchema.aiGeneration.id, labelResult.generationId));
+			await repositories.aiGeneration.updateById(labelResult.generationId, {
+				issueId: issueRow.id,
+			});
 		}
 		await finishRunStep({
 			reviewRunId: labelRun.id,
@@ -2713,20 +2532,10 @@ async function processWebhookReceipt({
 	});
 }
 async function getWebhookReceipt(receiptId: string) {
-	const [receipt] = await db
-		.select()
-		.from(dashboardSchema.webhookEventReceipt)
-		.where(eq(dashboardSchema.webhookEventReceipt.id, receiptId))
-		.limit(1);
-	return receipt ?? null;
+	return repositories.webhookEventReceipt.findById(receiptId);
 }
 async function getRepositoryById(repositoryId: string) {
-	const [repository] = await db
-		.select()
-		.from(dashboardSchema.repository)
-		.where(eq(dashboardSchema.repository.id, repositoryId))
-		.limit(1);
-	return repository ?? null;
+	return repositories.repository.findById(repositoryId);
 }
 function createWebhookEnvelopeFromReceipt(
 	receipt: WebhookEventReceiptRow,
@@ -3076,28 +2885,12 @@ async function ensureRepositoryWebhookSubscription({
 		const matchingWebhookIds = matchingWebhooks.map((webhook) =>
 			String(webhook.id),
 		);
-		const recordedWebhooks = matchingWebhookIds.length
-			? await db
-					.select({
-						providerWebhookId:
-							dashboardSchema.repositoryWebhook.providerWebhookId,
-						secretPreview: dashboardSchema.repositoryWebhook.secretPreview,
-					})
-					.from(dashboardSchema.repositoryWebhook)
-					.where(
-						and(
-							eq(dashboardSchema.repositoryWebhook.repositoryId, repository.id),
-							eq(
-								dashboardSchema.repositoryWebhook.providerId,
-								repository.providerId,
-							),
-							inArray(
-								dashboardSchema.repositoryWebhook.providerWebhookId,
-								matchingWebhookIds,
-							),
-						),
-					)
-			: [];
+		const recordedWebhooks =
+			await repositories.repositoryWebhook.listMatchingWebhookSecretPreviews(
+				repository.id,
+				repository.providerId,
+				matchingWebhookIds,
+			);
 		const recordedWebhookSecretPreviewById = new Map(
 			recordedWebhooks.map((recordedWebhook) => [
 				recordedWebhook.providerWebhookId,
@@ -3181,47 +2974,24 @@ async function ensureRepositoryWebhookSubscription({
 			activeWebhook = await createWebhook();
 		}
 		const now = new Date();
-		await db
-			.delete(dashboardSchema.repositoryWebhook)
-			.where(
-				and(
-					eq(dashboardSchema.repositoryWebhook.repositoryId, repository.id),
-					eq(
-						dashboardSchema.repositoryWebhook.providerId,
-						repository.providerId,
-					),
-				),
-			);
-		await db
-			.insert(dashboardSchema.repositoryWebhook)
-			.values({
-				id: `repository_webhook_${randomUUID()}`,
-				repositoryId: repository.id,
-				providerId: repository.providerId,
-				providerWebhookId: String(activeWebhook.id),
-				deliveryUrl,
-				events: requiredEvents,
-				enabled: activeWebhook.active,
-				secretPreview: configuredSecretPreview,
-				verifiedAt: null,
-				lastDeliveredAt: null,
-				createdAt: now,
-				updatedAt: now,
-			})
-			.onConflictDoUpdate({
-				target: [
-					dashboardSchema.repositoryWebhook.repositoryId,
-					dashboardSchema.repositoryWebhook.providerId,
-					dashboardSchema.repositoryWebhook.providerWebhookId,
-				],
-				set: {
-					deliveryUrl,
-					events: requiredEvents,
-					enabled: activeWebhook.active,
-					secretPreview: configuredSecretPreview,
-					updatedAt: now,
-				},
-			});
+		await repositories.repositoryWebhook.deleteByRepositoryAndProvider(
+			repository.id,
+			repository.providerId,
+		);
+		await repositories.repositoryWebhook.upsert({
+			id: `repository_webhook_${randomUUID()}`,
+			repositoryId: repository.id,
+			providerId: repository.providerId,
+			providerWebhookId: String(activeWebhook.id),
+			deliveryUrl,
+			events: requiredEvents,
+			enabled: activeWebhook.active,
+			secretPreview: configuredSecretPreview,
+			verifiedAt: null,
+			lastDeliveredAt: null,
+			createdAt: now,
+			updatedAt: now,
+		});
 		return {
 			status: createdWebhook ? ("created" as const) : ("existing" as const),
 			error: null,
@@ -3247,33 +3017,13 @@ export async function syncRepositoryWebhooksForUser({
 	organizationId?: string | null;
 	repositoryId?: string;
 }) {
-	const conditions = [
-		eq(dashboardSchema.repositoryAccess.userId, userId),
-		eq(dashboardSchema.repositoryAccess.enabled, true),
-	];
-	if (organizationId) {
-		conditions.push(
-			eq(dashboardSchema.repository.organizationId, organizationId),
-		);
-	}
-	if (repositoryId) {
-		conditions.push(eq(dashboardSchema.repository.id, repositoryId));
-	}
-	const repositories = await db
-		.select({ repository: dashboardSchema.repository })
-		.from(dashboardSchema.repositoryAccess)
-		.innerJoin(
-			dashboardSchema.repository,
-			eq(
-				dashboardSchema.repositoryAccess.repositoryId,
-				dashboardSchema.repository.id,
-			),
-		)
-		.where(and(...conditions));
-	const accounts = await db
-		.select()
-		.from(authSchema.account)
-		.where(eq(authSchema.account.userId, userId));
+	const syncRepositories =
+		await repositories.repository.listWebhookSyncRepositories({
+			userId,
+			organizationId,
+			repositoryId,
+		});
+	const accounts = await repositories.account.listByUserId(userId);
 	const enterpriseProviders = await getEnterpriseProviderMap();
 	const accountMap = new Map(
 		accounts.map((account) => [account.providerId, account]),
@@ -3286,7 +3036,7 @@ export async function syncRepositoryWebhooksForUser({
 		warnings: [],
 		errors: [],
 	};
-	for (const { repository } of repositories) {
+	for (const { repository } of syncRepositories) {
 		const account = accountMap.get(repository.providerId);
 		if (!account) {
 			result.skipped += 1;

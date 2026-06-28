@@ -3,10 +3,9 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { decryptSecret, encryptSecret } from "@gitpal/auth";
-import { db } from "@gitpal/db";
-import * as aiSchema from "@gitpal/db/schema/ai";
 import { env } from "@gitpal/env/server";
 import { normalizeConnectorServerUrl } from "@gitpal/mcp";
+import { repositories, type UserLlmApiKey } from "@gitpal/repositories";
 import {
 	type ByokProviderKeyInput,
 	type ByokRoutingSettings,
@@ -22,11 +21,10 @@ import {
 } from "@gitpal/utils";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createGateway, type LanguageModel } from "ai";
-import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { createOllama } from "ollama-ai-provider-v2";
 import { stableId } from "./stable-id";
 
-type UserLlmApiKeyRow = typeof aiSchema.userLlmApiKey.$inferSelect;
+type UserLlmApiKeyRow = UserLlmApiKey;
 
 export type StoredByokKeySummary = {
 	id: string;
@@ -140,14 +138,7 @@ async function getMatchingDirectKey({
 		return null;
 	}
 
-	const rows = await db
-		.select()
-		.from(aiSchema.userLlmApiKey)
-		.where(eq(aiSchema.userLlmApiKey.userId, userId))
-		.orderBy(
-			asc(aiSchema.userLlmApiKey.priority),
-			desc(aiSchema.userLlmApiKey.updatedAt),
-		);
+	const rows = await repositories.userLlmApiKey.listByUserPriority(userId);
 
 	return (
 		rows.find(
@@ -298,12 +289,7 @@ export async function resolveLanguageModelForUser({
 		};
 	}
 
-	const directKey = await db
-		.select()
-		.from(aiSchema.userLlmApiKey)
-		.where(eq(aiSchema.userLlmApiKey.id, preview.keyId ?? ""))
-		.limit(1);
-	const key = directKey[0] ?? null;
+	const key = await repositories.userLlmApiKey.findById(preview.keyId ?? "");
 
 	if (!key) {
 		throw new Error("Provider key could not be found.");
@@ -470,11 +456,7 @@ function createDirectProviderModel({
 }
 
 export async function getByokRoutingSettingsForUser(userId: string) {
-	const [row] = await db
-		.select()
-		.from(aiSchema.userLlmRoutingSettings)
-		.where(eq(aiSchema.userLlmRoutingSettings.userId, userId))
-		.limit(1);
+	const row = await repositories.userLlmRoutingSettings.findByUserId(userId);
 
 	return byokRoutingSettingsSchema.parse({
 		defaultRouter: row?.defaultRouter,
@@ -492,27 +474,15 @@ export async function saveByokRoutingSettingsForUser({
 }) {
 	const validatedSettings = byokRoutingSettingsSchema.parse(settings);
 	const now = new Date();
-	const [row] = await db
-		.insert(aiSchema.userLlmRoutingSettings)
-		.values({
-			id: getRoutingSettingsId(userId),
-			userId,
-			defaultRouter: validatedSettings.defaultRouter,
-			fallbackRouter: validatedSettings.fallbackRouter,
-			preferUserKeys: validatedSettings.preferUserKeys,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: aiSchema.userLlmRoutingSettings.userId,
-			set: {
-				defaultRouter: validatedSettings.defaultRouter,
-				fallbackRouter: validatedSettings.fallbackRouter,
-				preferUserKeys: validatedSettings.preferUserKeys,
-				updatedAt: now,
-			},
-		})
-		.returning();
+	const row = await repositories.userLlmRoutingSettings.upsertForUser({
+		id: getRoutingSettingsId(userId),
+		userId,
+		defaultRouter: validatedSettings.defaultRouter,
+		fallbackRouter: validatedSettings.fallbackRouter,
+		preferUserKeys: validatedSettings.preferUserKeys,
+		createdAt: now,
+		updatedAt: now,
+	});
 
 	return byokRoutingSettingsSchema.parse({
 		defaultRouter: row?.defaultRouter,
@@ -522,14 +492,9 @@ export async function saveByokRoutingSettingsForUser({
 }
 
 export async function listByokKeysForUser(userId: string) {
-	const rows = await db
-		.select()
-		.from(aiSchema.userLlmApiKey)
-		.where(eq(aiSchema.userLlmApiKey.userId, userId))
-		.orderBy(
-			asc(aiSchema.userLlmApiKey.providerId),
-			asc(aiSchema.userLlmApiKey.priority),
-			desc(aiSchema.userLlmApiKey.createdAt),
+	const rows =
+		await repositories.userLlmApiKey.listByUserOrderedByProviderAndPriority(
+			userId,
 		);
 
 	return rows.map(mapStoredKey);
@@ -554,19 +519,13 @@ export async function saveByokKeyForUser({
 		throw new Error("Unsupported provider.");
 	}
 
-	const existing = validated.id
-		? await db
-				.select()
-				.from(aiSchema.userLlmApiKey)
-				.where(
-					and(
-						eq(aiSchema.userLlmApiKey.id, validated.id),
-						eq(aiSchema.userLlmApiKey.userId, userId),
-					),
-				)
-				.limit(1)
-		: [];
-	const currentRow = existing[0] ?? null;
+	let currentRow: UserLlmApiKey | null = null;
+	if (validated.id) {
+		const key = await repositories.userLlmApiKey.findById(validated.id);
+		if (key?.userId === userId) {
+			currentRow = key;
+		}
+	}
 
 	if (!validated.apiKey && !currentRow) {
 		throw new Error("API key is required.");
@@ -582,18 +541,12 @@ export async function saveByokKeyForUser({
 	const now = new Date();
 
 	if (currentRow) {
-		const [duplicate] = await db
-			.select({ id: aiSchema.userLlmApiKey.id })
-			.from(aiSchema.userLlmApiKey)
-			.where(
-				and(
-					eq(aiSchema.userLlmApiKey.userId, userId),
-					eq(aiSchema.userLlmApiKey.providerId, validated.providerId),
-					eq(aiSchema.userLlmApiKey.name, validated.name),
-					ne(aiSchema.userLlmApiKey.id, currentRow.id),
-				),
-			)
-			.limit(1);
+		const duplicate = await repositories.userLlmApiKey.findDuplicateKey(
+			userId,
+			validated.providerId,
+			validated.name,
+			currentRow.id,
+		);
 
 		if (duplicate) {
 			throw new Error(
@@ -601,31 +554,22 @@ export async function saveByokKeyForUser({
 			);
 		}
 
-		const [row] = await db
-			.update(aiSchema.userLlmApiKey)
-			.set({
-				providerId: validated.providerId,
-				name: validated.name,
-				encryptedApiKey: validated.apiKey
-					? encryptSecret(validated.apiKey)
-					: currentRow.encryptedApiKey,
-				keyPreview: validated.apiKey
-					? maskSecret(validated.apiKey)
-					: currentRow.keyPreview,
-				enabled: validated.enabled,
-				priority: validated.priority,
-				forceDirect: validated.forceDirect,
-				allowedModels: validated.allowedModels,
-				baseUrl: resolvedBaseUrl,
-				updatedAt: now,
-			})
-			.where(
-				and(
-					eq(aiSchema.userLlmApiKey.id, currentRow.id),
-					eq(aiSchema.userLlmApiKey.userId, userId),
-				),
-			)
-			.returning();
+		const row = await repositories.userLlmApiKey.updateById(currentRow.id, {
+			providerId: validated.providerId,
+			name: validated.name,
+			encryptedApiKey: validated.apiKey
+				? encryptSecret(validated.apiKey)
+				: currentRow.encryptedApiKey,
+			keyPreview: validated.apiKey
+				? maskSecret(validated.apiKey)
+				: currentRow.keyPreview,
+			enabled: validated.enabled,
+			priority: validated.priority,
+			forceDirect: validated.forceDirect,
+			allowedModels: validated.allowedModels,
+			baseUrl: resolvedBaseUrl,
+			updatedAt: now,
+		});
 
 		if (!row) {
 			throw new Error("Unable to save provider key.");
@@ -639,44 +583,24 @@ export async function saveByokKeyForUser({
 		throw new Error("API key is required.");
 	}
 
-	const [row] = await db
-		.insert(aiSchema.userLlmApiKey)
-		.values({
-			id:
-				validated.id ??
-				getByokKeyId(userId, validated.providerId, validated.name),
-			userId,
-			providerId: validated.providerId,
-			name: validated.name,
-			encryptedApiKey: encryptSecret(newApiKey),
-			keyPreview: maskSecret(newApiKey),
-			enabled: validated.enabled,
-			priority: validated.priority,
-			forceDirect: validated.forceDirect,
-			allowedModels: validated.allowedModels,
-			baseUrl: resolvedBaseUrl,
-			metadata: {},
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: [
-				aiSchema.userLlmApiKey.userId,
-				aiSchema.userLlmApiKey.providerId,
-				aiSchema.userLlmApiKey.name,
-			],
-			set: {
-				encryptedApiKey: encryptSecret(newApiKey),
-				keyPreview: maskSecret(newApiKey),
-				enabled: validated.enabled,
-				priority: validated.priority,
-				forceDirect: validated.forceDirect,
-				allowedModels: validated.allowedModels,
-				baseUrl: resolvedBaseUrl,
-				updatedAt: now,
-			},
-		})
-		.returning();
+	const row = await repositories.userLlmApiKey.upsertForUser({
+		id:
+			validated.id ??
+			getByokKeyId(userId, validated.providerId, validated.name),
+		userId,
+		providerId: validated.providerId,
+		name: validated.name,
+		encryptedApiKey: encryptSecret(newApiKey),
+		keyPreview: maskSecret(newApiKey),
+		enabled: validated.enabled,
+		priority: validated.priority,
+		forceDirect: validated.forceDirect,
+		allowedModels: validated.allowedModels,
+		baseUrl: resolvedBaseUrl,
+		metadata: {},
+		createdAt: now,
+		updatedAt: now,
+	});
 
 	if (!row || row.userId !== userId) {
 		throw new Error("Unable to save provider key.");
@@ -692,20 +616,12 @@ export async function deleteByokKeyForUser({
 	userId: string;
 	keyId: string;
 }) {
-	const [deleted] = await db
-		.delete(aiSchema.userLlmApiKey)
-		.where(
-			and(
-				eq(aiSchema.userLlmApiKey.id, keyId),
-				eq(aiSchema.userLlmApiKey.userId, userId),
-			),
-		)
-		.returning({
-			id: aiSchema.userLlmApiKey.id,
-			userId: aiSchema.userLlmApiKey.userId,
-		});
-
-	return deleted?.userId === userId ? deleted : null;
+	const key = await repositories.userLlmApiKey.findById(keyId);
+	if (key && key.userId === userId) {
+		await repositories.userLlmApiKey.deleteById(keyId);
+		return { id: key.id, userId: key.userId };
+	}
+	return null;
 }
 
 export function listAvailableByokProviders() {

@@ -1279,10 +1279,10 @@ export function createGitLabAdapter({
 			.parse(notesResponse);
 		for (const note of notes) {
 			if (!note.system) continue;
-			
+
 			const state = classifyGitLabApprovalNote(note.body);
 			if (!state) continue;
-			
+
 			const author = mapActor(note.author ?? undefined);
 			if (author?.id) {
 				seenApprovers.add(author.id);
@@ -1331,8 +1331,7 @@ export function createGitLabAdapter({
 					htmlUrl: null,
 				});
 			}
-		} catch {
-		}
+		} catch {}
 
 		return reviews.sort((left, right) =>
 			(left.submittedAt ?? "").localeCompare(right.submittedAt ?? ""),
@@ -1720,8 +1719,7 @@ export function createGitLabAdapter({
 			for (const reviewer of existing.reviewers ?? []) {
 				reviewerIds.add(reviewer.id);
 			}
-		} catch {
-		}
+		} catch {}
 
 		await requestJson<unknown>(
 			mergeRequestUrl,

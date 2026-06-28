@@ -1,16 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { db, runTransactionWithRetry } from "@gitpal/db";
-import * as dashboardSchema from "@gitpal/db/schema/dashboard";
+import { runTransactionWithRetry } from "@gitpal/db";
 import type { GitPullRequest } from "@gitpal/git";
 import { createLogger } from "@gitpal/logger";
-import { and, eq } from "drizzle-orm";
+import {
+	createRepositories,
+	type PullRequest,
+	type Repository,
+	repositories,
+} from "@gitpal/repositories";
 import { recordObservabilityEvent } from "./observability";
 import type { HumanReviewSummary } from "./pull-request-reviews";
 
 const log = createLogger("pull-request-projection");
 
-export type ProjectedPullRequestRow =
-	typeof dashboardSchema.pullRequest.$inferSelect;
+export type ProjectedPullRequestRow = PullRequest;
 
 function toDateOrNull(value: string | null | undefined) {
 	if (!value) {
@@ -53,55 +56,28 @@ export async function projectPullRequestSnapshot({
 	const mergedAt = toDateOrNull(pullRequest.mergedAt);
 	const closedAt = toDateOrNull(pullRequest.closedAt);
 	const reviewReadyAt = pullRequest.draft ? null : updatedAt;
-	const [row] = await db
-		.insert(dashboardSchema.pullRequest)
-		.values({
-			id: `pull_request_${randomUUID()}`,
-			repositoryId,
-			providerPullRequestId: pullRequest.id,
-			number: pullRequest.number,
-			title: pullRequest.title,
-			state: pullRequest.state,
-			draft: pullRequest.draft,
-			htmlUrl: pullRequest.htmlUrl,
-			sourceBranch: pullRequest.sourceBranch,
-			targetBranch: pullRequest.targetBranch,
-			authorLogin: pullRequest.author?.login,
-			authorName: pullRequest.author?.name,
-			authorAvatarUrl: pullRequest.author?.avatarUrl,
-			createdAt,
-			updatedAt,
-			mergedAt,
-			closedAt,
-			lastCommitAt: updatedAt,
-			reviewReadyAt,
-			mergeCommitSha: pullRequest.mergeCommitSha,
-		})
-		.onConflictDoUpdate({
-			target: [
-				dashboardSchema.pullRequest.repositoryId,
-				dashboardSchema.pullRequest.number,
-			],
-			set: {
-				providerPullRequestId: pullRequest.id,
-				title: pullRequest.title,
-				state: pullRequest.state,
-				draft: pullRequest.draft,
-				htmlUrl: pullRequest.htmlUrl,
-				sourceBranch: pullRequest.sourceBranch,
-				targetBranch: pullRequest.targetBranch,
-				authorLogin: pullRequest.author?.login,
-				authorName: pullRequest.author?.name,
-				authorAvatarUrl: pullRequest.author?.avatarUrl,
-				updatedAt,
-				mergedAt,
-				closedAt,
-				lastCommitAt: updatedAt,
-				reviewReadyAt,
-				mergeCommitSha: pullRequest.mergeCommitSha,
-			},
-		})
-		.returning();
+	const row = await repositories.pullRequest.upsertFromProvider({
+		id: `pull_request_${randomUUID()}`,
+		repositoryId,
+		providerPullRequestId: pullRequest.id,
+		number: pullRequest.number,
+		title: pullRequest.title,
+		state: pullRequest.state,
+		draft: pullRequest.draft,
+		htmlUrl: pullRequest.htmlUrl,
+		sourceBranch: pullRequest.sourceBranch,
+		targetBranch: pullRequest.targetBranch,
+		authorLogin: pullRequest.author?.login,
+		authorName: pullRequest.author?.name,
+		authorAvatarUrl: pullRequest.author?.avatarUrl,
+		createdAt,
+		updatedAt,
+		mergedAt,
+		closedAt,
+		lastCommitAt: updatedAt,
+		reviewReadyAt,
+		mergeCommitSha: pullRequest.mergeCommitSha,
+	});
 	if (!row) {
 		throw new Error("Pull request snapshot could not be stored.");
 	}
@@ -137,17 +113,11 @@ export async function recordHumanReviewSignal({
 	approvalState = null,
 }: HumanReviewSignal): Promise<ProjectedPullRequestRow | null> {
 	return runTransactionWithRetry(async (tx) => {
-		const [existing] = await tx
-			.select()
-			.from(dashboardSchema.pullRequest)
-			.where(
-				and(
-					eq(dashboardSchema.pullRequest.repositoryId, repositoryId),
-					eq(dashboardSchema.pullRequest.number, pullRequestNumber),
-				),
-			)
-			.limit(1)
-			.for("update");
+		const repos = createRepositories(tx);
+		const existing = await repos.pullRequest.findByNumberForUpdate(
+			repositoryId,
+			pullRequestNumber,
+		);
 		if (!existing) {
 			log.warn(
 				{ repositoryId, pullRequestNumber },
@@ -171,24 +141,20 @@ export async function recordHumanReviewSignal({
 			: isLatestSignal && isDecisiveNonApproval
 				? null
 				: (existing.approvedAt ?? null);
-		const [row] = await tx
-			.update(dashboardSchema.pullRequest)
-			.set({
-				firstHumanReviewAt,
-				lastHumanReviewAt: isLatestSignal
-					? reviewedAt
-					: existing.lastHumanReviewAt,
-				approvalState:
-					isLatestSignal &&
-					approvalState &&
-					(isDecisiveReview || !existing.approvalState)
-						? approvalState
-						: (existing.approvalState ?? null),
-				approvedAt,
-				reviewStateUpdatedAt: new Date(),
-			})
-			.where(eq(dashboardSchema.pullRequest.id, existing.id))
-			.returning();
+		const row = await repos.pullRequest.updateById(existing.id, {
+			firstHumanReviewAt,
+			lastHumanReviewAt: isLatestSignal
+				? reviewedAt
+				: existing.lastHumanReviewAt,
+			approvalState:
+				isLatestSignal &&
+				approvalState &&
+				(isDecisiveReview || !existing.approvalState)
+					? approvalState
+					: (existing.approvalState ?? null),
+			approvedAt,
+			reviewStateUpdatedAt: new Date(),
+		});
 		return row ?? null;
 	});
 }
@@ -205,17 +171,11 @@ export async function reconcileHumanReviewSummary({
 	observedAt: Date;
 }): Promise<ProjectedPullRequestRow | null> {
 	return runTransactionWithRetry(async (tx) => {
-		const [existing] = await tx
-			.select()
-			.from(dashboardSchema.pullRequest)
-			.where(
-				and(
-					eq(dashboardSchema.pullRequest.repositoryId, repositoryId),
-					eq(dashboardSchema.pullRequest.number, pullRequestNumber),
-				),
-			)
-			.limit(1)
-			.for("update");
+		const repos = createRepositories(tx);
+		const existing = await repos.pullRequest.findByNumberForUpdate(
+			repositoryId,
+			pullRequestNumber,
+		);
 		if (!existing) return null;
 
 		const firstHumanReviewAt =
@@ -237,21 +197,17 @@ export async function reconcileHumanReviewSummary({
 			? (summary.approvedAt ??
 				(summary.approvalState === "approved" ? existing.approvedAt : null))
 			: existing.approvedAt;
-		const [row] = await tx
-			.update(dashboardSchema.pullRequest)
-			.set({
-				firstHumanReviewAt,
-				lastHumanReviewAt,
-				approvalState: canReplaceCurrentState
-					? summary.approvalState
-					: existing.approvalState,
-				approvedAt,
-				reviewStateUpdatedAt: canReplaceCurrentState
-					? new Date()
-					: existing.reviewStateUpdatedAt,
-			})
-			.where(eq(dashboardSchema.pullRequest.id, existing.id))
-			.returning();
+		const row = await repos.pullRequest.updateById(existing.id, {
+			firstHumanReviewAt,
+			lastHumanReviewAt,
+			approvalState: canReplaceCurrentState
+				? summary.approvalState
+				: existing.approvalState,
+			approvedAt,
+			reviewStateUpdatedAt: canReplaceCurrentState
+				? new Date()
+				: existing.reviewStateUpdatedAt,
+		});
 
 		return row ?? null;
 	});
@@ -265,7 +221,7 @@ export async function recordPullRequestMetricEvents({
 }: {
 	userId: string;
 	repository: Pick<
-		typeof dashboardSchema.repository.$inferSelect,
+		Repository,
 		"id" | "organizationId" | "fullName" | "providerId"
 	>;
 	pullRequest: ProjectedPullRequestRow;

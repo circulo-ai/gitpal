@@ -3112,7 +3112,6 @@ export async function syncRepositoryWebhooksForUser({
 	}
 	return result;
 }
-export const ensureRepositoryWebhooksForUser = syncRepositoryWebhooksForUser;
 export async function receiveProviderWebhook({
 	providerId,
 	headers,

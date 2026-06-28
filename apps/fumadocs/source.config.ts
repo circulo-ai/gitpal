@@ -15,9 +15,3 @@ export const docs = defineDocs({
     schema: metaSchema,
   },
 });
-
-export default defineConfig({
-  mdxOptions: {
-    // MDX options
-  },
-});

@@ -13,12 +13,12 @@ import {
 import { llmProviderCatalog } from "@gitpal/utils";
 import * as React from "react";
 
-export type ModelPickerOption = {
+type ModelPickerOption = {
 	value: string;
 	label?: string;
 };
 
-export type ModelPickerGroup = {
+type ModelPickerGroup = {
 	label: string;
 	options: ModelPickerOption[];
 };

@@ -85,18 +85,18 @@ import type { DashboardView } from "./workspace-nav";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface DashboardAnalyticsPageProps {
+interface DashboardAnalyticsPageProps {
 	view: DashboardView;
 	title: string;
 	description: string;
 }
 
-export interface ChartSeries {
+interface ChartSeries {
 	key: string;
 	label: string;
 }
 
-export interface ChartBlock {
+interface ChartBlock {
 	id: string;
 	title: string;
 	description?: string;
@@ -106,12 +106,12 @@ export interface ChartBlock {
 	emptyLabel?: string;
 }
 
-export interface TableColumn {
+interface TableColumn {
 	key: string;
 	label: string;
 }
 
-export interface TableBlock {
+interface TableBlock {
 	id: string;
 	title: string;
 	description?: string;
@@ -120,7 +120,7 @@ export interface TableBlock {
 	rows: Array<Record<string, number | string | boolean | null>>;
 }
 
-export interface StatCard {
+interface StatCard {
 	label: string;
 	value: string;
 	description?: string;

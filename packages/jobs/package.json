@@ -15,8 +15,6 @@
 	"dependencies": {
 		"@gitpal/env": "workspace:*",
 		"@gitpal/logger": "workspace:*",
-		"@gitpal/redis": "workspace:*",
-		"bullmq": "catalog:",
 		"inngest": "catalog:",
 		"zod": "catalog:"
 	},

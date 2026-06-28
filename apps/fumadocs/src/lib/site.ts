@@ -6,7 +6,7 @@ function normalizeSiteUrl(siteUrl: string) {
     : `https://${siteUrl}`;
 }
 
-export function getSiteUrl() {
+function getSiteUrl() {
   return (
     process.env.NEXT_PUBLIC_SITE_URL ??
     process.env.VERCEL_URL ??

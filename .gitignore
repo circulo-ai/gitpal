@@ -53,5 +53,6 @@ coverage
 .cache
 tmp
 temp
+.agents/
 
 .playwright-mcp

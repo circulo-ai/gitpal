@@ -19,9 +19,6 @@
 		"@gitpal/logger": "workspace:*",
 		"@hono/trpc-server": "^0.4.0",
 		"@trpc/server": "catalog:",
-		"ai": "catalog:",
-		"better-auth": "catalog:",
-		"dotenv": "catalog:",
 		"hono": "^4.12.26",
 		"inngest": "catalog:",
 		"zod": "catalog:"

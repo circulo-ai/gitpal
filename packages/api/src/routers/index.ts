@@ -1,4 +1,5 @@
 import { z } from "zod";
+import * as authPackage from "@gitpal/auth";
 import {
 	enforcePublicAppRateLimit,
 	protectedMutationProcedure,
@@ -65,7 +66,6 @@ type EnterpriseGitProviderService = {
 };
 
 const enterpriseGitProviderTypeSchema = z.enum(["github", "gitlab"]);
-const authPackageName = "@gitpal/auth";
 
 const enterpriseGitProviderLookupSchema = z.object({
 	type: enterpriseGitProviderTypeSchema,
@@ -83,7 +83,7 @@ const enterpriseGitProviderRegisterSchema =
 	});
 
 async function getEnterpriseGitProviderService() {
-	return (await import(authPackageName)) as EnterpriseGitProviderService;
+	return authPackage as EnterpriseGitProviderService;
 }
 
 export const appRouter = router({

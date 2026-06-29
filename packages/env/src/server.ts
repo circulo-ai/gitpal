@@ -169,6 +169,7 @@ export const env = createEnv({
 			.enum(["development", "production", "test"])
 			.default("development"),
 		INNGEST_BASE_URL: z.url().optional(),
+		INNGEST_DEV: z.stringbool().default(true),
 		INNGEST_EVENT_KEY: z.string().trim().min(32).optional(),
 		INNGEST_SIGNING_KEY: z.string().trim().min(32).optional(),
 	},

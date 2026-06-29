@@ -87,6 +87,7 @@ export const billingRouter = router({
 				permissions: { billing: ["update"] },
 			});
 			return saveOrganizationBudget({
+				actorUserId: ctx.session.user.id,
 				organizationId,
 				enabled: input.enabled,
 				monthlyLimitCents: Math.round(input.monthlyLimitUsd * 100),

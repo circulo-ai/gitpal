@@ -111,6 +111,7 @@
         "@gitpal/db": "workspace:*",
         "@gitpal/env": "workspace:*",
         "@gitpal/mcp": "workspace:*",
+        "@gitpal/repositories": "workspace:*",
         "@gitpal/services": "workspace:*",
         "@gitpal/utils": "workspace:*",
         "@trpc/server": "catalog:",

@@ -18,8 +18,9 @@ If you want the fastest path from zero to useful, start here. Each tutorial is s
 
 1. Start the local stack with `bun run docker:dev:up`.
 2. Run `bun run dev` to start the web app, API, and docs site.
-3. Connect GitHub or GitLab.
-4. Open a pull request and confirm the review comment, walkthrough, and labels look right.
+3. Run `bun run dev:inngest` to start the local Inngest dev server.
+4. Connect GitHub or GitLab.
+5. Open a pull request and confirm the review comment, walkthrough, and labels look right.
 
 ## 2. Set up a notification channel
 
@@ -30,10 +31,11 @@ If you want the fastest path from zero to useful, start here. Each tutorial is s
 
 ## 3. Run self-hosted locally
 
-1. Start Postgres, Redis, and Inngest with `bun run docker:dev:up`.
-2. Set `GITPAL_CLOUD_BILLING_ENABLED=false` and `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false`.
-3. Leave `BETTER_AUTH_COOKIE_DOMAIN` unset unless you need a shared cookie domain.
-4. Use `bun run db:push` before you start reviewing pull requests.
+1. Start Postgres and Redis with `bun run docker:dev:up`.
+2. Start the local Inngest dev server with `bun run dev:inngest`.
+3. Set `GITPAL_CLOUD_BILLING_ENABLED=false` and `NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false`.
+4. Leave `BETTER_AUTH_COOKIE_DOMAIN` unset unless you need a shared cookie domain.
+5. Use `bun run db:push` before you start reviewing pull requests.
 
 ## 4. Read the result of a review
 

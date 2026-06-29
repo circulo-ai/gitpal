@@ -34,6 +34,40 @@ import {
 const log = createLogger("ReviewAgent");
 export const REVIEW_PROMPT_VERSION = "review-v2.0.0";
 
+const reviewSuggestionSchema = z.object({
+	kind: z.enum(["patch_hint", "code_snippet", "note"]),
+	title: z
+		.string()
+		.min(1)
+		.describe("Short title for the remediation idea."),
+	body: z
+		.string()
+		.min(1)
+		.describe("Concise explanation of the remediation idea."),
+	filePath: z
+		.string()
+		.nullable()
+		.describe("Repository-relative path the suggestion applies to, or null."),
+	line: z
+		.number()
+		.int()
+		.positive()
+		.nullable()
+		.describe("1-based line number for the suggestion, or null."),
+	language: z
+		.string()
+		.nullable()
+		.describe("Optional language tag for a code snippet, or null."),
+	patch: z
+		.string()
+		.nullable()
+		.describe("Optional unified patch hint, or null."),
+	codeSnippet: z
+		.string()
+		.nullable()
+		.describe("Optional code snippet, or null."),
+});
+
 const reviewFindingSchema = z.object({
 	title: z
 		.string()
@@ -69,6 +103,7 @@ const reviewFindingSchema = z.object({
 		.positive()
 		.nullable()
 		.describe("1-based line number within filePath, or null."),
+	suggestions: z.array(reviewSuggestionSchema).default([]),
 });
 
 const relatedWorkSchema = z.object({
@@ -250,6 +285,30 @@ function sanitizeReviewOutput(
 				filePath: finding.filePath?.trim() ? finding.filePath.trim() : null,
 				line:
 					finding.line && finding.line > 0 ? Math.round(finding.line) : null,
+				suggestions: finding.suggestions
+					.filter((suggestion) => suggestion.title.trim() && suggestion.body.trim())
+					.map((suggestion) => ({
+						...suggestion,
+						kind: suggestion.kind,
+						title: suggestion.title.trim(),
+						body: cleanMarkdown(stripCodeFence(suggestion.body)),
+						filePath: suggestion.filePath?.trim()
+							? suggestion.filePath.trim()
+							: null,
+						line:
+							suggestion.line && suggestion.line > 0
+								? Math.round(suggestion.line)
+								: null,
+						language: suggestion.language?.trim()
+							? suggestion.language.trim()
+							: null,
+						patch: suggestion.patch?.trim()
+							? cleanMarkdown(stripCodeFence(suggestion.patch))
+							: null,
+						codeSnippet: suggestion.codeSnippet?.trim()
+							? cleanMarkdown(stripCodeFence(suggestion.codeSnippet))
+							: null,
+					})),
 			})),
 		preMergeChecks: output.preMergeChecks
 			.filter((check) => check.name.trim())
@@ -710,6 +769,8 @@ Required output expectations:
 - Produce a concise summary as Markdown prose (no heading, no code fences).
 - Produce a walkthrough that reflects repository context, not just the diff.
 - Produce findings only for real issues; do not invent them. Use severity low|medium|high|critical.
+- Attach a suggestions array to findings when a finding can be remediated with a patch hint, code snippet, or concise note.
+- Use kind="patch_hint" for a diff-style remediation, kind="code_snippet" for an illustrative snippet, and kind="note" for a lightweight pointer.
 - Include pre-merge checks when relevant (status passed|warning|failed).
 - Include related issues and pull requests only when you have evidence.
 - Provide a confidence summary that explains the change risk using concrete diff, test, and context signals.

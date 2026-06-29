@@ -30,7 +30,13 @@ Start the local development apps with hot reload:
 bun run dev
 ```
 
-The web app runs at [http://localhost:3001](http://localhost:3001), the API runs at [http://localhost:3000](http://localhost:3000), and the docs site runs at [http://localhost:4000](http://localhost:4000).
+Start the local Inngest dev server in a separate terminal:
+
+```bash
+bun run dev:inngest
+```
+
+The web app runs at [http://localhost:3001](http://localhost:3001), the API runs at [http://localhost:3000](http://localhost:3000), the docs site runs at [http://localhost:4000](http://localhost:4000), and the Inngest dev server runs at [http://localhost:8288](http://localhost:8288).
 
 ## Environment Variables
 
@@ -85,6 +91,7 @@ Inngest self-hosted variables:
 | `INNGEST_EVENT_KEY`                                               | Event key shared by the GitPal server and self-hosted Inngest.                |
 | `INNGEST_SIGNING_KEY`                                             | Signing key used by the SDK route and Inngest.                                |
 | `INNGEST_BASE_URL`                                                | Internal URL used by the GitPal server, `http://inngest:8288` in Compose.     |
+| `INNGEST_DEV`                                                     | Enable the local Inngest dev server mode for host-run development.            |
 | `INNGEST_POSTGRES_URI`, `INNGEST_REDIS_URI`                       | Storage backends for the self-hosted Inngest service.                         |
 | `INNGEST_POLL_INTERVAL`                                           | SDK polling interval; defaults to `15` seconds in Compose.                    |
 | `INNGEST_QUEUE_WORKERS`, `INNGEST_RETRY_INTERVAL`, `INNGEST_TICK` | Inngest runtime tuning.                                                       |
@@ -128,7 +135,7 @@ The Compose stack includes:
 
 The Inngest SDK route does not need to be internet reachable in this deployment. It only needs to be reachable from the Inngest service through the Compose network. Keep `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` identical between `server` and `inngest`.
 
-For local development, use `docker-compose.dev.yml` for the supporting services only. Run `bun run dev` for the hot-reloaded `server`, `web`, and `fumadocs` apps, then point your local env to `localhost` ports for Postgres and Redis.
+For local development, use `docker-compose.dev.yml` for the supporting services only. Run `bun run dev` for the hot-reloaded `server`, `web`, and `fumadocs` apps, then run `bun run dev:inngest` in a separate terminal for the local Inngest dev server.
 
 Typical local overrides are:
 
@@ -136,11 +143,10 @@ Typical local overrides are:
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/gitpal
 REDIS_URL=redis://localhost:6379
 INNGEST_BASE_URL=http://localhost:8288
+INNGEST_DEV=1
 GITPAL_CLOUD_BILLING_ENABLED=false
 NEXT_PUBLIC_GITPAL_CLOUD_BILLING_ENABLED=false
 ```
-
-Keep the same `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` values in both the host env and the Inngest container.
 
 If sign-in feels like it bounces back to `/login` after GitHub or GitLab authorization, check `BETTER_AUTH_COOKIE_DOMAIN` first. Set it when the app and API need to share cookies across sibling subdomains and you want the first workspace render to stay server-side. Leave it unset for host-only deployments or when you are happy with the client-side fallback.
 
@@ -229,7 +235,7 @@ import { Button } from "@gitpal/ui/components/button";
 - `bun run build` - build all applications.
 - `bun run dev:web` - start only the web application.
 - `bun run dev:server` - start only the server.
-- `bun run dev:worker` - start only the worker.
+- `bun run dev:inngest` - start the local Inngest dev server.
 - `bun run check-types` - check TypeScript types across apps and packages.
 - `bun run check` - run Biome formatting and linting.
 - `bun run db:push` - push schema changes to the database.
@@ -239,6 +245,7 @@ import { Button } from "@gitpal/ui/components/button";
 - `bun run docker:dev:up` - start the local infrastructure stack for host-run apps.
 - `bun run docker:dev:down` - stop the local infrastructure stack.
 - `bun run docker:dev:logs` - tail local infrastructure logs.
+- `bun run reset:dev` - stop local Compose services and remove dev caches.
 - `bun run docker:build` - build Compose images.
 - `bun run docker:up` - build and start the Compose stack.
 - `bun run docker:logs` - tail Compose logs.

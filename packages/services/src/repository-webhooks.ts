@@ -1116,7 +1116,37 @@ async function finalizeReviewRun({
 function formatFindingBody(
 	finding: RepositoryReviewOutput["findings"][number],
 ) {
-	return `**${finding.severity.toUpperCase()}** · ${finding.title}\n\n${finding.body}`;
+	const suggestionBlocks = finding.suggestions
+		.map((suggestion) => {
+			const label =
+				suggestion.kind === "patch_hint"
+					? "Suggested patch"
+					: suggestion.kind === "code_snippet"
+						? "Suggested snippet"
+						: "Suggestion";
+			const sections = [`**${label}** - ${suggestion.title}`];
+			if (suggestion.body.trim()) {
+				sections.push(suggestion.body.trim());
+			}
+			if (suggestion.patch?.trim()) {
+				sections.push(`Patch hint:\n\`\`\`diff\n${suggestion.patch.trim()}\n\`\`\``);
+			}
+			if (suggestion.codeSnippet?.trim()) {
+				sections.push(
+					`Code snippet${suggestion.language?.trim() ? ` (${suggestion.language.trim()})` : ""}:\n\`\`\`${suggestion.language?.trim() || "text"}\n${suggestion.codeSnippet.trim()}\n\`\`\``,
+				);
+			}
+			return sections.join("\n\n");
+		})
+		.join("\n\n");
+
+	return [
+		`**${finding.severity.toUpperCase()}** · ${finding.title}`,
+		finding.body,
+		suggestionBlocks,
+	]
+		.filter((section) => section.trim().length > 0)
+		.join("\n\n");
 }
 function buildLabelerSummaryMarkdown({
 	summary,
@@ -1439,6 +1469,8 @@ async function createReviewCommentRecords({
 				anchorStatus: anchor.status,
 				requestedLine: anchor.originalLine,
 				publishedInline: Boolean(providerCommentId),
+				suggestionCount: finding.suggestions.length,
+				suggestionKinds: finding.suggestions.map((suggestion) => suggestion.kind),
 			},
 			accepted: false,
 			resolved: false,

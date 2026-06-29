@@ -1,5 +1,6 @@
 import { auth } from "@gitpal/auth";
 import { type ApiKey, repositories } from "@gitpal/repositories";
+import { recordAdminActionEvent } from "./observability";
 
 type ApiKeyRow = ApiKey;
 type ApiKeyLike = Pick<
@@ -135,6 +136,22 @@ export async function createAppApiKeyForUser({
 		},
 	});
 
+	await recordAdminActionEvent({
+		userId,
+		action: "create-api-key",
+		status: "created",
+		title: "API key created",
+		body: `${created.name} is now active.`,
+		sourceType: "app-api-key",
+		sourceId: created.id,
+		metadata: {
+			name: created.name,
+			prefix: created.prefix,
+			enabled: created.enabled,
+			expiresAt: created.expiresAt?.toISOString() ?? null,
+		},
+	});
+
 	return {
 		...mapApiKey(created),
 		key: created.key,
@@ -169,6 +186,25 @@ export async function updateAppApiKeyForUser({
 		},
 	});
 
+	await recordAdminActionEvent({
+		userId,
+		action: "update-api-key",
+		status: enabled === false ? "disabled" : "updated",
+		title: enabled === false ? "API key disabled" : "API key updated",
+		body: enabled === false
+			? `${updated.name} is no longer active.`
+			: `${updated.name} was updated.`,
+		sourceType: "app-api-key",
+		sourceId: updated.id,
+		severity: enabled === false ? "warning" : "success",
+		metadata: {
+			name: updated.name,
+			prefix: updated.prefix,
+			enabled: updated.enabled,
+			expiresAt: updated.expiresAt?.toISOString() ?? null,
+		},
+	});
+
 	return mapApiKey(updated);
 }
 
@@ -179,10 +215,33 @@ export async function deleteAppApiKeyForUser({
 	userId: string;
 	keyId: string;
 }) {
+	const ownedKey = await repositories.apiKey.findByIdAndReferenceId(keyId, userId);
+	if (!ownedKey) {
+		return null;
+	}
 	const deleted = await repositories.apiKey.deleteByIdAndReferenceId(
 		keyId,
 		userId,
 	);
+
+	if (deleted) {
+		await recordAdminActionEvent({
+			userId,
+			action: "delete-api-key",
+			status: "deleted",
+			title: "API key deleted",
+			body: `${ownedKey.name} was removed.`,
+			sourceType: "app-api-key",
+			sourceId: keyId,
+			severity: "warning",
+			metadata: {
+				name: ownedKey.name,
+				prefix: ownedKey.prefix,
+				enabled: ownedKey.enabled,
+				expiresAt: ownedKey.expiresAt?.toISOString() ?? null,
+			},
+		});
+	}
 
 	return deleted ? { id: keyId } : null;
 }

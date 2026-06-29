@@ -5,7 +5,9 @@ import { Inngest } from "inngest";
 if (
 	env.NODE_ENV === "production" &&
 	!skipEnvValidation &&
-	(!env.INNGEST_EVENT_KEY || !env.INNGEST_SIGNING_KEY)
+	(!env.INNGEST_BASE_URL ||
+		!env.INNGEST_EVENT_KEY ||
+		!env.INNGEST_SIGNING_KEY)
 ) {
 	throw new Error(
 		"INNGEST_BASE_URL, INNGEST_EVENT_KEY, and INNGEST_SIGNING_KEY are required in production.",
@@ -24,7 +26,8 @@ export const inngest = new Inngest(
 			}
 		: {
 				id: "gitpal-dev",
-				isDev: true,
+				isDev: env.INNGEST_DEV,
+				...(env.INNGEST_BASE_URL ? { baseUrl: env.INNGEST_BASE_URL } : {}),
 				env: env.NODE_ENV,
 				logger: createLogger("inngest"),
 			},

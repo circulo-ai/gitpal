@@ -11,8 +11,9 @@ This package owns Inngest client setup, event schemas, and durable workflow defi
 - Validate incoming payloads close to the function boundary.
 - Put processing logic in `packages/services`.
 - Keep concurrency, throttling, and retry semantics explicit in the function config.
+- Keep local dev Inngest wiring env-driven so host-run development does not rely
+  on the Compose image version.
 
 ## Notes
 
 - This repo uses self-hosted Inngest. Do not add cloud-only workflow requirements.
-

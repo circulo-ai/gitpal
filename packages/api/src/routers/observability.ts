@@ -3,8 +3,10 @@ import * as aiSchema from "@gitpal/db/schema/ai";
 import * as billingSchema from "@gitpal/db/schema/billing";
 import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
+import { repositories } from "@gitpal/repositories";
 import { listRepositoriesForUser } from "@gitpal/services/repository-sync";
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 
@@ -14,6 +16,7 @@ const observabilityKindSchema = z
 	.enum([
 		"all",
 		"ai",
+		"admin",
 		"billing",
 		"job",
 		"notification",
@@ -41,6 +44,17 @@ const observabilityTimelineSchema = z.object({
 		})
 		.optional(),
 	limit: z.number().int().min(20).max(300).default(120),
+});
+
+const observabilityDetailSchema = z.object({
+	id: z.string().min(1),
+	kind: observabilityKindSchema.optional(),
+	sourceType: z.string().trim().max(120).optional().nullable(),
+	sourceId: z.string().trim().max(240).optional().nullable(),
+	traceId: z.string().trim().max(240).optional().nullable(),
+	repositoryId: z.string().min(1).optional().nullable(),
+	pullRequestId: z.string().min(1).optional().nullable(),
+	issueId: z.string().min(1).optional().nullable(),
 });
 
 type TimelineKind = Exclude<z.infer<typeof observabilityKindSchema>, "all">;
@@ -77,6 +91,28 @@ type TimelineEvent = {
 		htmlUrl: string;
 	} | null;
 	metadata: Record<string, unknown>;
+};
+
+type DetailField = {
+	label: string;
+	value: string | null;
+};
+
+type DetailSource = {
+	title: string;
+	subtitle: string | null;
+	fields: DetailField[];
+	raw: Record<string, unknown>;
+};
+
+type DetailSourceInput = Omit<DetailSource, "fields"> & {
+	fields: Array<DetailField | null>;
+};
+
+type ObservabilityDetailResponse = {
+	source: DetailSource | null;
+	timeline: TimelineEvent[];
+	errorTimeline: TimelineEvent[];
 };
 
 function parseDate(value: string | undefined, fallback: Date) {
@@ -232,8 +268,161 @@ function issuePayload(
 				number: issue.number,
 				title: issue.title,
 				htmlUrl: issue.htmlUrl,
-			}
+		}
 		: null;
+}
+
+function formatDetailValue(value: unknown): string | null {
+	if (value === null || value === undefined) {
+		return null;
+	}
+
+	if (typeof value === "string") {
+		return value;
+	}
+
+	if (
+		typeof value === "number" ||
+		typeof value === "bigint" ||
+		typeof value === "boolean"
+	) {
+		return String(value);
+	}
+
+	if (value instanceof Date) {
+		return value.toISOString();
+	}
+
+	if (Array.isArray(value)) {
+		return value.map(formatDetailValue).filter(Boolean).join(", ") || null;
+	}
+
+	try {
+		return JSON.stringify(value, null, 2);
+	} catch {
+		return String(value);
+	}
+}
+
+function buildDetailField(label: string, value: unknown): DetailField | null {
+	const formatted = formatDetailValue(value);
+	return formatted ? { label, value: formatted } : null;
+}
+
+function buildDetailSource({
+	title,
+	subtitle,
+	fields,
+	raw,
+}: DetailSourceInput): DetailSource {
+	return {
+		title,
+		subtitle,
+		fields: fields.filter((field): field is DetailField => Boolean(field)),
+		raw,
+	};
+}
+
+function buildReviewStepEvent(
+	step: typeof dashboardSchema.reviewRunStep.$inferSelect,
+	context: {
+		repository: TimelineEvent["repository"];
+		pullRequest: TimelineEvent["pullRequest"];
+		issue?: TimelineEvent["issue"] | null;
+		traceId: string | null;
+	},
+): TimelineEvent {
+	return {
+		id: step.id,
+		timestamp: (step.completedAt ?? step.startedAt ?? new Date()).toISOString(),
+		kind: "job",
+		action: step.stepKey,
+		status: step.status,
+		severity: severityForStatus(step.status),
+		title: step.title,
+		body: step.summary ?? step.errorCode ?? null,
+		sourceType: "review-run-step",
+		sourceId: step.id,
+		traceId: context.traceId,
+		durationMs: step.durationMs,
+		costCents: null,
+		repository: context.repository,
+		pullRequest: context.pullRequest,
+		issue: context.issue ?? null,
+		metadata: {
+			stepKey: step.stepKey,
+			position: step.position,
+			attempt: step.attempt,
+			errorCode: step.errorCode,
+			details: step.details,
+		},
+	};
+}
+
+function isFailureStatus(status: string) {
+	return ["cancelled", "expired", "failed", "ignored"].includes(
+		status.toLowerCase(),
+	);
+}
+
+function buildErrorTimeline(items: TimelineEvent[]) {
+	const selectedIndexes = new Set<number>();
+
+	for (let index = 0; index < items.length; index += 1) {
+		const item = items[index];
+		if (!item) {
+			continue;
+		}
+		if (item.severity !== "error" && !isFailureStatus(item.status)) {
+			continue;
+		}
+
+		selectedIndexes.add(index);
+		if (index > 0) {
+			selectedIndexes.add(index - 1);
+		}
+	}
+
+	return [...selectedIndexes]
+		.sort((left, right) => left - right)
+		.map((index) => items[index])
+		.filter((item): item is TimelineEvent => item !== undefined);
+}
+
+function timelineEventFromObservabilityRow(
+	row:
+		| typeof observabilitySchema.observabilityEvent.$inferSelect
+		| null
+		| undefined,
+	context: {
+		repository: TimelineEvent["repository"];
+		pullRequest: TimelineEvent["pullRequest"];
+		issue?: TimelineEvent["issue"] | null;
+	},
+): TimelineEvent | null {
+	if (!row) {
+		return null;
+	}
+
+	return {
+		id: row.id,
+		timestamp: row.occurredAt.toISOString(),
+		kind: row.kind as TimelineKind,
+		action: row.action,
+		status: row.status,
+		severity: row.severity as TimelineEvent["severity"],
+		title: row.title,
+		body: row.body,
+		sourceType: row.sourceType,
+		sourceId: row.sourceId,
+		traceId: row.traceId,
+		durationMs: row.durationMs,
+		costCents: row.costCents,
+		repository: context.repository,
+		pullRequest: context.pullRequest,
+		issue: context.issue ?? null,
+		metadata: row.metadata ?? {},
+	};
 }
 
 function buildStats(events: TimelineEvent[]) {
@@ -291,7 +480,602 @@ function dedupeAndSort(events: TimelineEvent[], limit: number) {
 	return result;
 }
 
+function dedupeAndSortAscending(events: TimelineEvent[], limit: number) {
+	const seen = new Set<string>();
+	const result: TimelineEvent[] = [];
+
+	for (const event of events.sort(
+		(left, right) =>
+			new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+	)) {
+		const key =
+			event.sourceType && event.sourceId
+				? `${event.kind}:${event.action}:${event.sourceType}:${event.sourceId}`
+				: event.id;
+
+		if (seen.has(key)) {
+			continue;
+		}
+
+		seen.add(key);
+		result.push(event);
+
+		if (result.length >= limit) {
+			break;
+		}
+	}
+
+	return result;
+}
+
 export const observabilityRouter = router({
+	detail: protectedProcedure
+		.input(observabilityDetailSchema)
+		.query(async ({ ctx, input }) => {
+			const [eventRows, requestedRepository, requestedPullRequest, requestedIssue] =
+				await Promise.all([
+					db
+						.select({
+							event: observabilitySchema.observabilityEvent,
+							repository: dashboardSchema.repository,
+							pullRequest: dashboardSchema.pullRequest,
+							issue: dashboardSchema.issue,
+						})
+						.from(observabilitySchema.observabilityEvent)
+						.leftJoin(
+							dashboardSchema.repository,
+							eq(
+								observabilitySchema.observabilityEvent.repositoryId,
+								dashboardSchema.repository.id,
+							),
+						)
+						.leftJoin(
+							dashboardSchema.pullRequest,
+							eq(
+								observabilitySchema.observabilityEvent.pullRequestId,
+								dashboardSchema.pullRequest.id,
+							),
+						)
+						.leftJoin(
+							dashboardSchema.issue,
+							eq(
+								observabilitySchema.observabilityEvent.issueId,
+								dashboardSchema.issue.id,
+							),
+						)
+						.where(
+							and(
+								eq(
+									observabilitySchema.observabilityEvent.id,
+									input.id,
+								),
+								eq(
+									observabilitySchema.observabilityEvent.userId,
+									ctx.session.user.id,
+								),
+							),
+						)
+						.limit(1),
+					input.repositoryId
+						? repositories.repository.findById(input.repositoryId)
+						: Promise.resolve(null),
+					input.pullRequestId
+						? repositories.pullRequest.findById(input.pullRequestId)
+						: Promise.resolve(null),
+					input.issueId
+						? repositories.issue.findById(input.issueId)
+						: Promise.resolve(null),
+				]);
+
+			const eventRow = eventRows[0] ?? null;
+			const sourceType = input.sourceType ?? eventRow?.event.sourceType ?? null;
+			const sourceId = input.sourceId ?? eventRow?.event.sourceId ?? null;
+			let traceId = input.traceId ?? eventRow?.event.traceId ?? null;
+			let repository = repositoryPayload(
+				eventRow?.repository ?? requestedRepository ?? null,
+			);
+			let pullRequest = pullRequestPayload(
+				eventRow?.pullRequest ?? requestedPullRequest ?? null,
+			);
+			let issue = issuePayload(eventRow?.issue ?? requestedIssue ?? null);
+			let sourceEvent: TimelineEvent | null = eventRow
+				? timelineEventFromObservabilityRow(eventRow.event, {
+						repository,
+						pullRequest,
+						issue,
+					})
+				: null;
+			let source: DetailSource | null = eventRow
+				? buildDetailSource({
+						title: eventRow.event.title,
+						subtitle: eventRow.event.body,
+						fields: [
+							buildDetailField("Kind", eventRow.event.kind),
+							buildDetailField("Action", eventRow.event.action),
+							buildDetailField("Status", eventRow.event.status),
+							buildDetailField("Severity", eventRow.event.severity),
+							buildDetailField("Source type", eventRow.event.sourceType),
+							buildDetailField("Source ID", eventRow.event.sourceId),
+							buildDetailField("Trace ID", eventRow.event.traceId),
+							buildDetailField("Duration", eventRow.event.durationMs),
+							buildDetailField("Cost", eventRow.event.costCents),
+							buildDetailField("Occurred at", eventRow.event.occurredAt),
+						],
+						raw: eventRow.event.metadata ?? {},
+					})
+				: null;
+			const traceEvents: TimelineEvent[] = [];
+
+			switch (sourceType) {
+				case "review-run": {
+					const reviewRun = sourceId
+						? await repositories.reviewRun.findById(sourceId)
+						: null;
+					if (!reviewRun) {
+						break;
+					}
+
+					const [reviewRepository, reviewPullRequest, reviewIssue, reviewSteps] =
+						await Promise.all([
+							repositories.repository.findById(reviewRun.repositoryId),
+							reviewRun.pullRequestId
+								? repositories.pullRequest.findById(reviewRun.pullRequestId)
+								: Promise.resolve(null),
+							reviewRun.issueId
+								? repositories.issue.findById(reviewRun.issueId)
+								: Promise.resolve(null),
+							repositories.reviewRunStep.listByReviewRun(reviewRun.id),
+						]);
+
+					repository = repositoryPayload(reviewRepository ?? requestedRepository);
+					pullRequest = pullRequestPayload(
+						reviewPullRequest ?? requestedPullRequest,
+					);
+					issue = issuePayload(reviewIssue ?? requestedIssue);
+					traceId = reviewRun.traceId ?? reviewRun.id;
+					sourceEvent = {
+						id: `review:${reviewRun.id}`,
+						timestamp: (
+							reviewRun.completedAt ??
+							reviewRun.startedAt ??
+							reviewRun.createdAt
+						).toISOString(),
+						kind: "review",
+						action: reviewRun.reviewKind,
+						status: reviewRun.status,
+						severity: severityForStatus(reviewRun.status),
+						title: `${reviewRun.reviewKind} review ${reviewRun.status}`,
+						body: reviewRun.summary,
+						sourceType: "review-run",
+						sourceId: reviewRun.id,
+						traceId,
+						durationMs: durationMs(reviewRun.startedAt, reviewRun.completedAt),
+						costCents: null,
+						repository,
+						pullRequest,
+						issue,
+						metadata: {
+							trigger: reviewRun.trigger,
+							modelId: reviewRun.modelId,
+							providerEvent: reviewRun.providerEvent,
+							providerAction: reviewRun.providerAction,
+							promptVersion: reviewRun.promptVersion,
+							reviewTemplate: reviewRun.reviewTemplate,
+							confidenceLevel: reviewRun.confidenceLevel,
+							confidenceScore: reviewRun.confidenceScore,
+							confidenceSummary: reviewRun.confidenceSummary,
+							result: reviewRun.result,
+						},
+					};
+					source = buildDetailSource({
+						title: `${reviewRun.reviewKind} review`,
+						subtitle: reviewRun.summary ?? reviewRun.status,
+						fields: [
+							buildDetailField("Status", reviewRun.status),
+							buildDetailField("Trigger", reviewRun.trigger),
+							buildDetailField("Model", reviewRun.modelId),
+							buildDetailField("Confidence", reviewRun.confidenceSummary),
+							buildDetailField("Confidence score", reviewRun.confidenceScore),
+							buildDetailField("Confidence level", reviewRun.confidenceLevel),
+							buildDetailField("Provider event", reviewRun.providerEvent),
+							buildDetailField("Provider action", reviewRun.providerAction),
+							buildDetailField("Prompt version", reviewRun.promptVersion),
+							buildDetailField("Review template", reviewRun.reviewTemplate),
+							buildDetailField("Started at", reviewRun.startedAt),
+							buildDetailField("Completed at", reviewRun.completedAt),
+							buildDetailField(
+								"Step count",
+								reviewSteps.length,
+							),
+						],
+						raw: toRecord(reviewRun.result),
+					});
+					traceEvents.push(
+						...reviewSteps.map((step) =>
+							buildReviewStepEvent(step, {
+								repository,
+								pullRequest,
+								issue,
+								traceId,
+							}),
+						),
+					);
+					break;
+				}
+				case "webhook-receipt": {
+					const receipt = sourceId
+						? await repositories.webhookEventReceipt.findById(sourceId)
+						: null;
+					if (!receipt) {
+						break;
+					}
+
+					const relatedRunRows = await db
+						.select({ run: dashboardSchema.reviewRun })
+						.from(dashboardSchema.reviewRun)
+						.where(
+							and(
+								eq(dashboardSchema.reviewRun.providerId, receipt.providerId),
+								eq(
+									dashboardSchema.reviewRun.providerDeliveryId,
+									receipt.deliveryId,
+								),
+							),
+						)
+						.orderBy(desc(dashboardSchema.reviewRun.createdAt))
+						.limit(1);
+					const relatedRun = relatedRunRows[0]?.run ?? null;
+					const relatedRepository = relatedRun
+						? await repositories.repository.findById(relatedRun.repositoryId)
+						: receipt.repositoryId
+							? await repositories.repository.findById(receipt.repositoryId)
+							: null;
+					const relatedPullRequest = relatedRun?.pullRequestId
+						? await repositories.pullRequest.findById(relatedRun.pullRequestId)
+						: null;
+					const relatedIssue = relatedRun?.issueId
+						? await repositories.issue.findById(relatedRun.issueId)
+						: null;
+					repository = repositoryPayload(relatedRepository ?? requestedRepository);
+					pullRequest = pullRequestPayload(
+						relatedPullRequest ?? requestedPullRequest,
+					);
+					issue = issuePayload(relatedIssue ?? requestedIssue);
+					traceId =
+						relatedRun?.traceId ??
+						relatedRun?.id ??
+						traceId ??
+						receipt.deliveryId;
+					sourceEvent = {
+						id: `webhook:${receipt.id}`,
+						timestamp: (
+							receipt.processedAt ?? receipt.receivedAt
+						).toISOString(),
+						kind: "webhook",
+						action: receipt.event,
+						status: receipt.status,
+						severity: severityForStatus(receipt.status),
+						title: `${receipt.providerId} ${receipt.event}`,
+						body: receipt.action,
+						sourceType: "webhook-receipt",
+						sourceId: receipt.id,
+						traceId,
+						durationMs: durationMs(receipt.receivedAt, receipt.processedAt),
+						costCents: null,
+						repository,
+						pullRequest: null,
+						issue: null,
+						metadata: {
+							deliveryId: receipt.deliveryId,
+							repositoryPath: receipt.repositoryPath,
+							action: receipt.action,
+							relatedReviewRunId: relatedRun?.id ?? null,
+						},
+					};
+					source = buildDetailSource({
+						title: "Webhook receipt",
+						subtitle: `${receipt.providerId} ${receipt.event}`,
+						fields: [
+							buildDetailField("Provider", receipt.providerId),
+							buildDetailField("Delivery ID", receipt.deliveryId),
+							buildDetailField("Event", receipt.event),
+							buildDetailField("Action", receipt.action),
+							buildDetailField("Status", receipt.status),
+							buildDetailField("Repository path", receipt.repositoryPath),
+							buildDetailField("Received at", receipt.receivedAt),
+							buildDetailField("Processed at", receipt.processedAt),
+							buildDetailField("Related review run", relatedRun?.id ?? null),
+							buildDetailField(
+								"Related review status",
+								relatedRun?.status ?? null,
+							),
+						],
+						raw: toRecord(receipt.payload),
+					});
+					if (relatedRun) {
+						const relatedSteps = await repositories.reviewRunStep.listByReviewRun(
+							relatedRun.id,
+						);
+						traceEvents.push(
+							...relatedSteps.map((step) =>
+								buildReviewStepEvent(step, {
+									repository,
+									pullRequest,
+									issue,
+									traceId,
+								}),
+							),
+						);
+					}
+					break;
+				}
+				case "ai-generation": {
+					const generation = sourceId
+						? await repositories.aiGeneration.findById(sourceId)
+						: null;
+					if (!generation) {
+						break;
+					}
+
+					const [generationRepository, generationPullRequest, generationIssue] =
+						await Promise.all([
+							generation.repositoryId
+								? repositories.repository.findById(generation.repositoryId)
+								: Promise.resolve(null),
+							generation.pullRequestId
+								? repositories.pullRequest.findById(generation.pullRequestId)
+								: Promise.resolve(null),
+							generation.issueId
+								? repositories.issue.findById(generation.issueId)
+								: Promise.resolve(null),
+						]);
+
+					repository = repositoryPayload(
+						generationRepository ?? requestedRepository,
+					);
+					pullRequest = pullRequestPayload(
+						generationPullRequest ?? requestedPullRequest,
+					);
+					issue = issuePayload(generationIssue ?? requestedIssue);
+					traceId = generation.reviewRunId ?? generation.id;
+					const costCents =
+						generation.actualCostCents ?? generation.estimatedCostCents;
+					sourceEvent = {
+						id: `ai:${generation.id}`,
+						timestamp: (
+							generation.completedAt ??
+							generation.startedAt ??
+							generation.createdAt
+						).toISOString(),
+						kind: "ai",
+						action: generation.callKind,
+						status: generation.status,
+						severity: severityForStatus(generation.status),
+						title: `${generation.callKind} AI generation ${generation.status}`,
+						body: `${generation.providerLabel} ${generation.modelId} through ${generation.routeLabel ?? generation.routeId}`,
+						sourceType: "ai-generation",
+						sourceId: generation.id,
+						traceId,
+						durationMs: durationMs(
+							generation.startedAt,
+							generation.completedAt,
+						),
+						costCents,
+						repository,
+						pullRequest,
+						issue,
+						metadata: {
+							routeId: generation.routeId,
+							routeLabel: generation.routeLabel,
+							billingMode: generation.billingMode,
+							totalTokens: generation.totalTokens,
+							inputTokens: generation.inputTokens,
+							outputTokens: generation.outputTokens,
+							walletDebitCents: generation.walletDebitCents,
+							walletBalanceAfterCents: generation.walletBalanceAfterCents,
+							providerGenerationId: generation.providerGenerationId,
+							errorMessage: generation.errorMessage,
+						},
+					};
+					source = buildDetailSource({
+						title: `${generation.callKind} generation`,
+						subtitle: `${generation.providerLabel} ${generation.modelId}`,
+						fields: [
+							buildDetailField("Status", generation.status),
+							buildDetailField("Call kind", generation.callKind),
+							buildDetailField("Billing mode", generation.billingMode),
+							buildDetailField("Model", generation.modelId),
+							buildDetailField("Provider", generation.providerLabel),
+							buildDetailField("Route", generation.routeLabel ?? generation.routeId),
+							buildDetailField("Input tokens", generation.inputTokens),
+							buildDetailField("Output tokens", generation.outputTokens),
+							buildDetailField("Total tokens", generation.totalTokens),
+							buildDetailField("Actual cost", costCents),
+							buildDetailField("Wallet debit", generation.walletDebitCents),
+							buildDetailField("Provider generation ID", generation.providerGenerationId),
+							buildDetailField("Error", generation.errorMessage),
+						],
+						raw: {
+							...(generation.providerMetadata ?? {}),
+							...(generation.metadata ?? {}),
+						},
+					});
+					break;
+				}
+				case "wallet-topup": {
+					const topup = sourceId
+						? await repositories.walletTopup.findById(sourceId)
+						: null;
+					if (!topup) {
+						break;
+					}
+
+					traceId = topup.orderId;
+					sourceEvent = {
+						id: `billing-topup:${topup.id}`,
+						timestamp: topup.updatedAt.toISOString(),
+						kind: "billing",
+						action: "wallet-topup",
+						status: topup.status,
+						severity: severityForStatus(topup.status),
+						title: `Wallet top-up ${topup.status}`,
+						body: topup.errorMessage ?? topup.providerStatus,
+						sourceType: "wallet-topup",
+						sourceId: topup.id,
+						traceId,
+						durationMs: durationMs(topup.createdAt, topup.creditedAt),
+						costCents: topup.priceAmountUsdCents,
+						repository,
+						pullRequest: null,
+						issue: null,
+						metadata: {
+							orderId: topup.orderId,
+							provider: topup.provider,
+							providerInvoiceId: topup.providerInvoiceId,
+							providerPaymentId: topup.providerPaymentId,
+							revenueAmountCents: topup.revenueAmountCents,
+							creditedAmountCents: topup.creditedAmountCents,
+							invoiceUrl: topup.invoiceUrl,
+						},
+					};
+					source = buildDetailSource({
+						title: "Wallet top-up",
+						subtitle: topup.providerStatus ?? topup.status,
+						fields: [
+							buildDetailField("Status", topup.status),
+							buildDetailField("Provider", topup.provider),
+							buildDetailField("Order ID", topup.orderId),
+							buildDetailField("Provider invoice ID", topup.providerInvoiceId),
+							buildDetailField("Provider payment ID", topup.providerPaymentId),
+							buildDetailField("Price amount", topup.priceAmountUsdCents),
+							buildDetailField("Revenue amount", topup.revenueAmountCents),
+							buildDetailField("Credited amount", topup.creditedAmountCents),
+							buildDetailField("Invoice URL", topup.invoiceUrl),
+							buildDetailField("Error", topup.errorMessage),
+							buildDetailField("Created at", topup.createdAt),
+							buildDetailField("Credited at", topup.creditedAt),
+						],
+						raw: toRecord({
+							...topup,
+							metadata: topup.metadata,
+						}),
+					});
+					break;
+				}
+				case "wallet-ledger-entry": {
+					const entry = sourceId
+						? await repositories.walletLedgerEntry.findById(sourceId)
+						: null;
+					if (!entry) {
+						break;
+					}
+
+					traceId = entry.sourceId;
+					sourceEvent = {
+						id: `billing-ledger:${entry.id}`,
+						timestamp: entry.createdAt.toISOString(),
+						kind: "billing",
+						action: entry.type,
+						status: entry.type,
+						severity: severityForStatus(entry.type),
+						title: entry.description,
+						body: entry.sourceType,
+						sourceType: "wallet-ledger-entry",
+						sourceId: entry.id,
+						traceId,
+						durationMs: null,
+						costCents: Math.abs(entry.amountCents),
+						repository,
+						pullRequest: null,
+						issue: null,
+						metadata: {
+							amountCents: entry.amountCents,
+							balanceAfterCents: entry.balanceAfterCents,
+							sourceType: entry.sourceType,
+							sourceId: entry.sourceId,
+							currency: entry.currency,
+						},
+					};
+					source = buildDetailSource({
+						title: "Wallet ledger entry",
+						subtitle: entry.description,
+						fields: [
+							buildDetailField("Type", entry.type),
+							buildDetailField("Amount", entry.amountCents),
+							buildDetailField("Balance after", entry.balanceAfterCents),
+							buildDetailField("Source type", entry.sourceType),
+							buildDetailField("Source ID", entry.sourceId),
+							buildDetailField("Currency", entry.currency),
+							buildDetailField("Created at", entry.createdAt),
+						],
+						raw: toRecord(entry.metadata),
+					});
+					break;
+				}
+				default: {
+					if (!sourceEvent && sourceType && eventRow) {
+						sourceEvent = timelineEventFromObservabilityRow(eventRow.event, {
+							repository,
+							pullRequest,
+							issue,
+						});
+					}
+
+					if (eventRow?.event) {
+						source = buildDetailSource({
+							title: eventRow.event.title,
+							subtitle: eventRow.event.body,
+							fields: [
+								buildDetailField("Kind", eventRow.event.kind),
+								buildDetailField("Action", eventRow.event.action),
+								buildDetailField("Status", eventRow.event.status),
+								buildDetailField("Severity", eventRow.event.severity),
+								buildDetailField("Source type", eventRow.event.sourceType),
+								buildDetailField("Source ID", eventRow.event.sourceId),
+								buildDetailField("Trace ID", eventRow.event.traceId),
+								buildDetailField("Duration", eventRow.event.durationMs),
+								buildDetailField("Cost", eventRow.event.costCents),
+								buildDetailField("Occurred at", eventRow.event.occurredAt),
+							],
+							raw: eventRow.event.metadata ?? {},
+						});
+					}
+				}
+			}
+
+			if (!sourceEvent && sourceType && sourceId) {
+				throw new TRPCError({
+					code: "NOT_FOUND",
+					message: "Observability source could not be resolved.",
+				});
+			}
+
+			const traceRows = traceId
+				? await repositories.observabilityEvent.listByTrace(traceId)
+				: [];
+			const traceContext = {
+				repository,
+				pullRequest,
+				issue,
+			};
+			const traceTimeline = traceRows
+				.map((row) => timelineEventFromObservabilityRow(row, traceContext))
+				.filter((row): row is TimelineEvent => row !== null);
+			const timeline = dedupeAndSortAscending(
+				[
+					...(sourceEvent ? [sourceEvent] : []),
+					...traceTimeline,
+					...traceEvents,
+				],
+				200,
+			);
+
+			return {
+				source,
+				timeline,
+				errorTimeline: buildErrorTimeline(timeline),
+			} satisfies ObservabilityDetailResponse;
+		}),
 	timeline: protectedProcedure
 		.input(observabilityTimelineSchema)
 		.query(async ({ ctx, input }) => {

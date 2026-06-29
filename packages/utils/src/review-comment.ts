@@ -24,6 +24,23 @@ export type ReviewCommentFinding = {
 	body: string;
 	filePath: string | null;
 	line: number | null;
+	suggestions: ReviewCommentSuggestion[];
+};
+
+export type ReviewCommentSuggestionKind =
+	| "patch_hint"
+	| "code_snippet"
+	| "note";
+
+export type ReviewCommentSuggestion = {
+	kind: ReviewCommentSuggestionKind;
+	title: string;
+	body: string;
+	filePath: string | null;
+	line: number | null;
+	language: string | null;
+	patch: string | null;
+	codeSnippet: string | null;
 };
 
 export type ReviewCommentRelatedWork = {
@@ -147,6 +164,13 @@ function inlineCode(value: string) {
 	return `${fence}${padding}${value}${padding}${fence}`;
 }
 
+function indentBlock(value: string, indentation = "  ") {
+	return value
+		.split("\n")
+		.map((line) => (line.length > 0 ? `${indentation}${line}` : indentation))
+		.join("\n");
+}
+
 function fencedCode(language: string, body: string) {
 	// Choose a fence longer than any backtick run inside the body so an embedded
 	// code fence cannot terminate the block early.
@@ -258,10 +282,47 @@ function buildFindingsSection(findings: ReviewCommentFinding[]) {
 					: finding.filePath
 						? ` ${inlineCode(finding.filePath)}`
 						: "";
+			const suggestions =
+				finding.suggestions.length > 0
+					? `\n${finding.suggestions
+							.map((suggestion) =>
+								indentBlock(buildSuggestionSection(suggestion)),
+							)
+							.join("\n\n")}`
+					: "";
 
-			return `- ${SEVERITY_EMOJI[finding.severity]} **${finding.severity.toUpperCase()}** ${inlineCode(finding.category)}${location} - ${finding.title}\n  ${finding.body}`;
+			return `- ${SEVERITY_EMOJI[finding.severity]} **${finding.severity.toUpperCase()}** ${inlineCode(finding.category)}${location} - ${finding.title}\n  ${finding.body}${suggestions}`;
 		})
 		.join("\n");
+}
+
+function buildSuggestionSection(suggestion: ReviewCommentSuggestion) {
+	const label =
+		suggestion.kind === "patch_hint"
+			? "Suggested patch"
+			: suggestion.kind === "code_snippet"
+				? "Suggested snippet"
+				: "Suggestion";
+	const sections = [`**${label}** - ${suggestion.title}`];
+
+	if (suggestion.body.trim()) {
+		sections.push(suggestion.body.trim());
+	}
+
+	if (suggestion.patch?.trim()) {
+		sections.push(`Patch hint:\n${fencedCode("diff", suggestion.patch.trim())}`);
+	}
+
+	if (suggestion.codeSnippet?.trim()) {
+		sections.push(
+			`Code snippet${suggestion.language?.trim() ? ` (${suggestion.language.trim()})` : ""}:\n${fencedCode(
+				suggestion.language?.trim() || "text",
+				suggestion.codeSnippet.trim(),
+			)}`,
+		);
+	}
+
+	return sections.join("\n\n");
 }
 
 function buildRelatedWorkSection(items: ReviewCommentRelatedWork[]) {
@@ -478,6 +539,23 @@ function buildPreviewFindings(
 					body: "Mark the token as consumed before returning the success response so retries cannot reuse it.",
 					filePath: "src/auth/token-service.ts",
 					line: 42,
+					suggestions: [
+						{
+							kind: "patch_hint",
+							title: "Consume before returning success",
+							body: "Close the replay window immediately by mutating state before you emit the response.",
+							filePath: "src/auth/token-service.ts",
+							line: 42,
+							language: "diff",
+							patch: [
+								"@@",
+								"-  return success(token)",
+								"+  markTokenConsumed(token.id)",
+								"+  return success(token)",
+							].join("\n"),
+							codeSnippet: null,
+						},
+					],
 				},
 			];
 		case "performance":
@@ -489,6 +567,22 @@ function buildPreviewFindings(
 					body: "Cache the repository row for the request instead of re-querying after the validation pass.",
 					filePath: "src/services/review-agent.ts",
 					line: 188,
+					suggestions: [
+						{
+							kind: "code_snippet",
+							title: "Reuse the loaded repository row",
+							body: "Carry the first lookup through the rest of the request instead of re-reading from the database.",
+							filePath: "src/services/review-agent.ts",
+							line: 188,
+							language: "ts",
+							patch: null,
+							codeSnippet: [
+								"const repositoryRow = await loadRepository(id);",
+								"if (!repositoryRow) return null;",
+								"return reviewRepository(repositoryRow);",
+							].join("\n"),
+						},
+					],
 				},
 			];
 		case "maintainability":
@@ -500,6 +594,18 @@ function buildPreviewFindings(
 					body: "Extract the tool-policy merge into a helper so the workspace and repository paths stay aligned.",
 					filePath: "packages/api/src/services/workspace-settings.ts",
 					line: 176,
+					suggestions: [
+						{
+							kind: "note",
+							title: "Pull the merge into one helper",
+							body: "A shared helper keeps the workspace and repository flows in lockstep when defaults change.",
+							filePath: "packages/api/src/services/workspace-settings.ts",
+							line: 176,
+							language: null,
+							patch: null,
+							codeSnippet: null,
+						},
+					],
 				},
 			];
 		default:
@@ -511,6 +617,23 @@ function buildPreviewFindings(
 					body: "Guard the comment publication path so a missing author or empty body does not silently short-circuit the review.",
 					filePath: "packages/api/src/services/repository-webhooks.ts",
 					line: 923,
+					suggestions: [
+						{
+							kind: "patch_hint",
+							title: "Gate the publish step",
+							body: "Return early when the comment payload is empty and keep the failure path explicit.",
+							filePath: "packages/api/src/services/repository-webhooks.ts",
+							line: 923,
+							language: "diff",
+							patch: [
+								"@@",
+								"+ if (!commentBody?.trim()) {",
+								"+   return null;",
+								"+ }",
+							].join("\n"),
+							codeSnippet: null,
+						},
+					],
 				},
 			];
 	}

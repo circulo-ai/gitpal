@@ -11,6 +11,7 @@ import {
 	getAccountForProvider,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
+import { recordAdminActionEvent } from "./observability";
 import { readWorkspaceMetadata } from "./repository-sync";
 import { stableId } from "./stable-id";
 
@@ -495,6 +496,10 @@ export async function updateWorkspaceTeamMemberAccess({
 		}
 
 		const currentRole = target.member?.role ?? null;
+		const targetLabel =
+			target.providerMember.login ??
+			target.providerMember.name ??
+			targetUserId;
 
 		if (currentRole === "owner" && workspaceRole && workspaceRole !== "owner") {
 			const otherOwnersCount = await txRepos.member.countOtherOwners(
@@ -505,6 +510,13 @@ export async function updateWorkspaceTeamMemberAccess({
 				throw new Error("At least one workspace owner must remain.");
 			}
 		}
+
+		const nextRole =
+			workspaceRole === undefined
+				? currentRole
+				: workspaceRole === "none"
+					? null
+					: workspaceRole;
 
 		if (workspaceRole === "none") {
 			await txRepos.member.deleteMembership(targetUserId, organizationId);
@@ -564,6 +576,58 @@ export async function updateWorkspaceTeamMemberAccess({
 				);
 			}
 		}
+
+		const actionStatus =
+			workspaceRole === "none"
+				? "removed"
+				: repositoryAccessEnabled === true
+					? "granted"
+					: repositoryAccessEnabled === false
+						? "revoked"
+						: "updated";
+		const severity =
+			actionStatus === "removed" || actionStatus === "revoked"
+				? "warning"
+				: "success";
+		const bodyParts = [
+			workspaceRole === "none"
+				? `${targetLabel} was removed from the workspace.`
+				: workspaceRole
+					? `${targetLabel} now has ${workspaceRole} workspace access.`
+					: null,
+			repositoryAccessEnabled === undefined
+				? null
+				: repositoryAccessEnabled
+					? `${targetLabel} now has repository access.`
+					: `${targetLabel} no longer has repository access.`,
+		].filter((part): part is string => Boolean(part));
+
+		await recordAdminActionEvent(
+			{
+				userId: actorUserId,
+				organizationId,
+				action: "update-member-access",
+				status: actionStatus,
+				title:
+					workspaceRole === "none"
+						? "Workspace member removed"
+						: "Workspace member access updated",
+				body: bodyParts.join(" "),
+				sourceType: "workspace-member",
+				sourceId: targetUserId,
+				severity,
+				metadata: {
+					targetUserId,
+					targetProviderMemberId: target.providerMember.providerMemberId,
+					targetLogin: target.providerMember.login,
+					targetName: target.providerMember.name,
+					previousRole: currentRole,
+					nextRole,
+					repositoryAccessEnabled,
+				},
+			},
+			tx,
+		);
 	});
 
 	return listWorkspaceTeamMembersForUser({

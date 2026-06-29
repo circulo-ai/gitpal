@@ -265,6 +265,7 @@ export const repositoriesRouter = router({
 			});
 
 			const settings = await saveOrganizationWorkspaceSettings({
+				actorUserId: ctx.session.user.id,
 				organizationId,
 				settings: input.settings,
 			});
@@ -328,6 +329,7 @@ export const repositoriesRouter = router({
 			});
 
 			const saved = await saveRepositoryWorkspaceSettings({
+				actorUserId: ctx.session.user.id,
 				organizationId,
 				repositoryId: input.repositoryId,
 				useOrganizationSettings: input.useOrganizationSettings,

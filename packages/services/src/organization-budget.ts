@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { repositories } from "@gitpal/repositories";
 import { sendUserNotification } from "./notifications";
+import { recordAdminActionEvent } from "./observability";
 
 function currentMonthStart(now = new Date()) {
 	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -40,11 +41,13 @@ export async function getOrganizationBudgetSummary(organizationId: string) {
 }
 
 export async function saveOrganizationBudget({
+	actorUserId,
 	organizationId,
 	enabled,
 	monthlyLimitCents,
 	alertThresholdPercent,
 }: {
+	actorUserId: string;
 	organizationId: string;
 	enabled: boolean;
 	monthlyLimitCents: number;
@@ -59,6 +62,24 @@ export async function saveOrganizationBudget({
 		alertThresholdPercent,
 		createdAt: now,
 		updatedAt: now,
+	});
+	await recordAdminActionEvent({
+		userId: actorUserId,
+		organizationId,
+		action: "update-budget",
+		status: "updated",
+		title: "Workspace budget updated",
+		body: enabled
+			? `Monthly AI spend cap set to $${(monthlyLimitCents / 100).toFixed(2)} with alerts at ${alertThresholdPercent}%.`
+			: "Monthly AI spend cap disabled.",
+		sourceType: "organization-budget",
+		sourceId: organizationId,
+		metadata: {
+			enabled,
+			monthlyLimitCents,
+			alertThresholdPercent,
+			organizationId,
+		},
 	});
 	return getOrganizationBudgetSummary(organizationId);
 }

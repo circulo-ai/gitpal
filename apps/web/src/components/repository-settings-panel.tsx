@@ -16,13 +16,27 @@ import {
 	CardTitle,
 } from "@gitpal/ui/components/card";
 import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@gitpal/ui/components/select";
+import {
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyTitle,
 } from "@gitpal/ui/components/empty";
 import type { WorkspaceSettings } from "@gitpal/utils";
-import { resolveEffectiveWorkspaceSettings } from "@gitpal/utils";
+import {
+	applyRepositoryPolicyPreset,
+	getRepositoryPolicyPreset,
+	repositoryPolicyPresets,
+	resolveEffectiveWorkspaceSettings,
+	type RepositoryPolicyPresetId,
+} from "@gitpal/utils";
 import { Alert01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -57,6 +71,8 @@ export function RepositorySettingsPanel({
 		React.useState(true);
 	const [savedUseOrganizationSettings, setSavedUseOrganizationSettings] =
 		React.useState(true);
+	const [presetId, setPresetId] =
+		React.useState<RepositoryPolicyPresetId>("balanced");
 
 	React.useEffect(() => {
 		if (!repositorySettingsQuery.data) {
@@ -122,6 +138,7 @@ export function RepositorySettingsPanel({
 			useOrganizationSettings,
 		});
 	}, [repositorySettingsQuery.data, settings, useOrganizationSettings]);
+	const selectedPreset = getRepositoryPolicyPreset(presetId);
 
 	if (!activeWorkspace) {
 		return (
@@ -216,6 +233,68 @@ export function RepositorySettingsPanel({
 						<Badge variant="outline">
 							{useOrganizationSettings ? "Inherited" : "Custom"}
 						</Badge>
+					</div>
+
+					<div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-4">
+						<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+							<div className="space-y-1">
+								<div className="font-medium text-sm">Repository policy preset</div>
+								<p className="text-muted-foreground text-sm">
+									Apply an opinionated starting point, then fine-tune the fields
+									below for this repository.
+								</p>
+								<p className="text-muted-foreground text-xs">
+									{selectedPreset.description}
+								</p>
+							</div>
+							<div className="flex flex-col gap-2 sm:min-w-96 sm:flex-row sm:items-center">
+								<Select
+									items={repositoryPolicyPresets.map((preset) => ({
+										label: preset.label,
+										value: preset.id,
+									}))}
+									value={presetId}
+									onValueChange={(value) => {
+										if (value) {
+											setPresetId(value as RepositoryPolicyPresetId);
+										}
+									}}
+								>
+									<SelectTrigger className="w-full sm:w-56">
+										<SelectValue placeholder="Preset" />
+									</SelectTrigger>
+									<SelectContent align="end">
+										<SelectGroup>
+											{repositoryPolicyPresets.map((preset) => (
+												<SelectItem key={preset.id} value={preset.id}>
+													{preset.label}
+												</SelectItem>
+											))}
+										</SelectGroup>
+									</SelectContent>
+								</Select>
+								<Button
+									type="button"
+									variant="outline"
+									onClick={() => {
+										if (!settings) {
+											return;
+										}
+
+										const base =
+											previewSettings ??
+											repositorySettingsQuery.data?.effectiveSettings ??
+											settings;
+										setUseOrganizationSettings(false);
+										setSettings(
+											applyRepositoryPolicyPreset(base, presetId),
+										);
+									}}
+								>
+									Apply preset
+								</Button>
+							</div>
+						</div>
 					</div>
 				</CardHeader>
 			</Card>

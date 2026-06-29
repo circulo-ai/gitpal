@@ -15,6 +15,7 @@
 	"dependencies": {
 		"@gitpal/db": "workspace:*",
 		"@gitpal/env": "workspace:*",
+		"@gitpal/repositories": "workspace:*",
 		"@gitpal/services": "workspace:*",
 		"@gitpal/auth": "workspace:*",
 		"@gitpal/mcp": "workspace:*",

@@ -27,6 +27,7 @@ GitPal is a monorepo for a self-host-friendly review product with a cloud-only b
 - `packages/redis` owns Redis client helpers and queue/cache plumbing.
 - `packages/services` owns business logic, workflows, and provider orchestration.
 - `packages/jobs` owns Inngest events and functions.
+- `packages/repositories` owns repository data-access helpers and query wiring.
 - `packages/env` owns environment validation.
 - `packages/git` owns GitHub/GitLab adapters and webhook parsing.
 - `packages/mcp` owns connector catalogs and MCP toolsets.
@@ -36,7 +37,8 @@ GitPal is a monorepo for a self-host-friendly review product with a cloud-only b
 
 - Use `bun run docker:dev:up` for the supporting services.
 - Use `bun run dev` for the hot-reloaded `server`, `web`, and `fumadocs` apps.
-- Keep `docker-compose.yml` for the production stack and `docker-compose.dev.yml` for host-run development.
+- Use `bun run dev:inngest` for the local Inngest dev server.
+- Keep `docker-compose.yml` for the production stack and `docker-compose.dev.yml` for host-run development support services.
 
 ## Validation
 

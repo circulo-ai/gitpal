@@ -25,6 +25,15 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@gitpal/ui/components/select";
+import { ScrollArea } from "@gitpal/ui/components/scroll-area";
+import { Separator } from "@gitpal/ui/components/separator";
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+} from "@gitpal/ui/components/sheet";
 import { Skeleton } from "@gitpal/ui/components/skeleton";
 import {
 	Table,
@@ -48,6 +57,9 @@ import {
 	CreditCardIcon,
 	GitPullRequestIcon,
 	RefreshCcwIcon,
+	AlertTriangleIcon,
+	InfoIcon,
+	ShieldCheckIcon,
 	WrenchIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -62,6 +74,7 @@ const kindFilters = [
 	{ label: "Reviews", value: "review" },
 	{ label: "Webhooks", value: "webhook" },
 	{ label: "Billing", value: "billing" },
+	{ label: "Admin", value: "admin" },
 	{ label: "Jobs", value: "job" },
 ] as const;
 
@@ -81,6 +94,63 @@ const severityOptions = [
 ] as const;
 
 type KindFilter = (typeof kindFilters)[number]["value"];
+type ObservabilityKind = Exclude<KindFilter, "all">;
+type ObservabilitySeverity = "info" | "success" | "warning" | "error";
+
+type ObservabilityTimelineEvent = {
+	id: string;
+	timestamp: string;
+	kind: ObservabilityKind;
+	action: string;
+	status: string;
+	severity: ObservabilitySeverity;
+	title: string;
+	body: string | null;
+	sourceType: string | null;
+	sourceId: string | null;
+	traceId: string | null;
+	durationMs: number | null;
+	costCents: number | null;
+	repository: {
+		id: string;
+		fullName: string;
+		htmlUrl: string;
+	} | null;
+	pullRequest: {
+		id: string;
+		number: number;
+		title: string;
+		htmlUrl: string;
+	} | null;
+	issue: {
+		id: string;
+		number: number;
+		title: string;
+		htmlUrl: string;
+	} | null;
+	metadata: Record<string, unknown>;
+};
+
+type ObservabilityDetailSource = {
+	title: string;
+	subtitle: string | null;
+	fields: Array<{
+		label: string;
+		value: string | null;
+	}>;
+	raw: Record<string, unknown>;
+};
+
+type ObservabilityDetailInput = {
+	id: string;
+	kind?: ObservabilityKind;
+	sourceType?: string | null;
+	sourceId?: string | null;
+	traceId?: string | null;
+	repositoryId?: string | null;
+	pullRequestId?: string | null;
+	issueId?: string | null;
+};
 
 function formatUsd(cents: number) {
 	return new Intl.NumberFormat("en-US", {
@@ -112,15 +182,17 @@ function EventIcon({ kind }: { kind: string }) {
 			? BotIcon
 			: kind === "tool"
 				? WrenchIcon
-				: kind === "review"
-					? GitPullRequestIcon
-					: kind === "webhook"
-						? ActivityIcon
-						: kind === "billing"
-							? CreditCardIcon
-							: kind === "notification"
-								? BellIcon
-								: BriefcaseBusinessIcon;
+			: kind === "review"
+				? GitPullRequestIcon
+			: kind === "webhook"
+				? ActivityIcon
+			: kind === "admin"
+				? ShieldCheckIcon
+			: kind === "billing"
+				? CreditCardIcon
+			: kind === "notification"
+				? BellIcon
+				: BriefcaseBusinessIcon;
 
 	return <Icon className="text-muted-foreground" />;
 }
@@ -137,6 +209,375 @@ function severityBadgeVariant(severity: string) {
 	return "outline" as const;
 }
 
+function buildDetailInput(
+	event: ObservabilityTimelineEvent | null,
+): ObservabilityDetailInput {
+	if (!event) {
+		return {
+			id: "placeholder",
+			sourceType: null,
+			sourceId: null,
+			traceId: null,
+			repositoryId: null,
+			pullRequestId: null,
+			issueId: null,
+		};
+	}
+
+	return {
+		id: event.id,
+		kind: event.kind,
+		sourceType: event.sourceType,
+		sourceId: event.sourceId,
+		traceId: event.traceId,
+		repositoryId: event.repository?.id ?? null,
+		pullRequestId: event.pullRequest?.id ?? null,
+		issueId: event.issue?.id ?? null,
+	};
+}
+
+function hasRawPayload(raw: Record<string, unknown>) {
+	return Object.keys(raw).length > 0;
+}
+
+function formatTimelineTimestamp(timestamp: string) {
+	return format(new Date(timestamp), "MMM d, HH:mm:ss");
+}
+
+function TimelineEventCard({
+	event,
+	emphasis,
+}: {
+	event: ObservabilityTimelineEvent;
+	emphasis?: "normal" | "error";
+}) {
+	return (
+		<div
+			className={
+				emphasis === "error"
+					? "rounded-xl border border-destructive/20 bg-destructive/5 p-4"
+					: "rounded-xl border border-border/60 bg-background p-4"
+			}
+		>
+			<div className="flex items-start gap-3">
+				<div
+					className={
+						emphasis === "error"
+							? "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full border border-destructive/20 bg-destructive/10 text-destructive"
+							: "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/40"
+					}
+				>
+					{emphasis === "error" ? (
+						<AlertTriangleIcon className="size-4" />
+					) : (
+						<EventIcon kind={event.kind} />
+					)}
+				</div>
+				<div className="min-w-0 flex-1">
+					<div className="flex flex-wrap items-center gap-2">
+						<div className="font-medium">{event.title}</div>
+						<Badge variant="outline">{event.kind}</Badge>
+						<Badge variant={severityBadgeVariant(event.severity)}>
+							{event.status}
+						</Badge>
+					</div>
+					<p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+						{event.body ?? event.traceId ?? event.sourceId ?? "-"}
+					</p>
+					<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground text-xs">
+						<span className="tabular-nums">
+							{formatTimelineTimestamp(event.timestamp)}
+						</span>
+						<span>Duration {formatDuration(event.durationMs)}</span>
+						<span>
+							Cost {event.costCents !== null ? formatUsd(event.costCents) : "-"}
+						</span>
+						{event.sourceType ? (
+							<span className="font-mono">
+								{event.sourceType}
+								{event.sourceId ? ` · ${event.sourceId}` : ""}
+							</span>
+						) : null}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function TimelineSection({
+	title,
+	description,
+	events,
+	emptyTitle,
+	emptyDescription,
+	emphasis,
+}: {
+	title: string;
+	description: string;
+	events: ObservabilityTimelineEvent[];
+	emptyTitle: string;
+	emptyDescription: string;
+	emphasis?: "normal" | "error";
+}) {
+	return (
+		<Card
+			className={
+				emphasis === "error"
+					? "border-destructive/20 bg-destructive/5"
+					: "border-border/60"
+			}
+		>
+			<CardHeader className="pb-3">
+				<CardTitle className="text-lg">{title}</CardTitle>
+				<CardDescription>{description}</CardDescription>
+			</CardHeader>
+			<CardContent>
+				{events.length > 0 ? (
+					<div className="flex flex-col gap-3">
+						{events.map((event) => (
+							<TimelineEventCard
+								key={event.id}
+								event={event}
+								emphasis={emphasis}
+							/>
+						))}
+					</div>
+				) : (
+					<Empty className="min-h-40 border border-dashed border-border/60 bg-background">
+						<EmptyHeader>
+							<EmptyMedia variant="icon">
+								{emphasis === "error" ? <AlertTriangleIcon /> : <InfoIcon />}
+							</EmptyMedia>
+							<EmptyTitle>{emptyTitle}</EmptyTitle>
+							<EmptyDescription>{emptyDescription}</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
+
+function DetailFieldsCard({
+	source,
+}: {
+	source: ObservabilityDetailSource | null;
+}) {
+	if (!source) {
+		return (
+			<Card className="border-border/60">
+				<CardContent className="pt-6 text-muted-foreground text-sm">
+					No source data was returned for this event.
+				</CardContent>
+			</Card>
+		);
+	}
+
+	return (
+		<Card className="border-border/60">
+			<CardHeader className="space-y-2">
+				<CardTitle className="text-lg">{source.title}</CardTitle>
+				{source.subtitle ? (
+					<CardDescription className="text-sm">{source.subtitle}</CardDescription>
+				) : null}
+			</CardHeader>
+			<CardContent className="flex flex-col gap-4">
+				{source.fields.length > 0 ? (
+					<div className="grid gap-3 md:grid-cols-2">
+						{source.fields.map((field) => (
+							<div
+								key={`${field.label}:${field.value}`}
+								className="rounded-lg border border-border/60 bg-muted/20 p-3"
+							>
+								<div className="text-muted-foreground text-xs uppercase tracking-wide">
+									{field.label}
+								</div>
+								<div className="mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-5">
+									{field.value}
+								</div>
+							</div>
+						))}
+					</div>
+				) : null}
+				<Separator />
+				<div className="flex flex-col gap-2">
+					<div className="font-medium text-sm">Raw payload</div>
+					{hasRawPayload(source.raw) ? (
+						<details className="rounded-lg border border-border/60 bg-background">
+							<summary className="cursor-pointer select-none px-4 py-3 font-medium text-sm">
+								View JSON
+							</summary>
+							<div className="border-border/60 border-t p-4">
+								<pre className="max-h-96 overflow-auto rounded-lg bg-muted/30 p-4 font-mono text-xs leading-5">
+									{JSON.stringify(source.raw, null, 2)}
+								</pre>
+							</div>
+						</details>
+					) : (
+						<div className="rounded-lg border border-dashed border-border/60 bg-background px-4 py-3 text-muted-foreground text-sm">
+							No raw payload was captured for this source event.
+						</div>
+					)}
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+function ObservabilityDetailSheet({
+	open,
+	onOpenChange,
+	event,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	event: ObservabilityTimelineEvent | null;
+}) {
+	const detailInput = React.useMemo(() => buildDetailInput(event), [event]);
+	const detailQuery = useQuery({
+		...trpc.observability.detail.queryOptions(detailInput),
+		enabled: open && Boolean(event),
+	});
+
+	const source = detailQuery.data?.source ?? null;
+	const timeline = (detailQuery.data?.timeline ?? []) as ObservabilityTimelineEvent[];
+	const errorTimeline = (detailQuery.data?.errorTimeline ??
+		[]) as ObservabilityTimelineEvent[];
+
+	return (
+		<Sheet
+			open={open}
+			onOpenChange={(nextOpen) => {
+				onOpenChange(nextOpen);
+			}}
+		>
+			<SheetContent className="w-full p-0 sm:!max-w-4xl" side="right">
+				<div className="flex h-full min-h-0 flex-col">
+					<SheetHeader className="border-border/60 border-b bg-muted/30 px-6 py-5">
+						<div className="flex items-start justify-between gap-4">
+							<div className="min-w-0">
+								<SheetTitle className="truncate">
+									{event?.title ?? "Observability details"}
+								</SheetTitle>
+								<SheetDescription className="mt-1 line-clamp-2">
+									{event?.body ??
+										"Inspect the exact source event and failure timeline."}
+								</SheetDescription>
+								{event ? (
+									<div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+										{event.repository ? (
+											<span className="rounded-full border border-border/60 bg-background px-2.5 py-1 font-medium text-foreground">
+												{event.repository.fullName}
+											</span>
+										) : null}
+										{event.pullRequest && event.repository ? (
+											<Link
+												href={`/repositories/${event.repository.id}/pull-requests/${event.pullRequest.number}`}
+												className="rounded-full border border-border/60 bg-background px-2.5 py-1 font-medium text-foreground transition-colors hover:bg-muted/40"
+											>
+												PR #{event.pullRequest.number}
+											</Link>
+										) : null}
+										{event.issue && event.repository ? (
+											<Link
+												href={`/repositories/${event.repository.id}/issues/${event.issue.number}`}
+												className="rounded-full border border-border/60 bg-background px-2.5 py-1 font-medium text-foreground transition-colors hover:bg-muted/40"
+											>
+												Issue #{event.issue.number}
+											</Link>
+										) : null}
+										<span className="rounded-full border border-border/60 bg-background px-2.5 py-1 font-medium text-foreground">
+											Source {event.sourceType ?? "event"}
+										</span>
+										<span className="rounded-full border border-border/60 bg-background px-2.5 py-1 font-medium text-foreground">
+											Trace {event.traceId ?? "-"}
+										</span>
+										<span className="rounded-full border border-border/60 bg-background px-2.5 py-1 font-medium text-foreground">
+											{formatTimelineTimestamp(event.timestamp)}
+										</span>
+									</div>
+								) : null}
+							</div>
+							{event ? (
+								<div className="flex flex-wrap items-center justify-end gap-2">
+									<Badge variant="outline">{event.kind}</Badge>
+									<Badge variant={severityBadgeVariant(event.severity)}>
+										{event.status}
+									</Badge>
+								</div>
+							) : null}
+						</div>
+					</SheetHeader>
+					<ScrollArea className="min-h-0 flex-1">
+						<div className="flex flex-col gap-6 p-6">
+							{detailQuery.isLoading ? (
+								<div className="flex flex-col gap-4">
+									<Skeleton className="h-40 w-full" />
+									<Skeleton className="h-80 w-full" />
+									<Skeleton className="h-72 w-full" />
+								</div>
+							) : detailQuery.isError ? (
+								<Card className="border-destructive/20 bg-destructive/5">
+									<CardContent className="pt-6">
+										<Empty className="min-h-52">
+											<EmptyHeader>
+												<EmptyMedia variant="icon">
+													<AlertTriangleIcon />
+												</EmptyMedia>
+												<EmptyTitle>Failed to load details</EmptyTitle>
+												<EmptyDescription>
+													We could not resolve the source event for this row.
+												</EmptyDescription>
+											</EmptyHeader>
+										</Empty>
+									</CardContent>
+								</Card>
+							) : detailQuery.data ? (
+								<>
+									<DetailFieldsCard source={source} />
+									<TimelineSection
+										title="Trace timeline"
+										description="Chronological view of the source event and its related records."
+										events={timeline}
+										emptyTitle="No related events"
+										emptyDescription="This source event did not produce any related trace records."
+									/>
+									<TimelineSection
+										title="Failure timeline"
+										description="Only the events tied to the failure path are shown here."
+										events={errorTimeline}
+										emptyTitle="No failure events"
+										emptyDescription="This trace did not capture a failure path."
+										emphasis="error"
+									/>
+								</>
+							) : (
+								<Card className="border-border/60">
+									<CardContent className="pt-6">
+										<Empty className="min-h-52">
+											<EmptyHeader>
+												<EmptyMedia variant="icon">
+													<InfoIcon />
+												</EmptyMedia>
+												<EmptyTitle>Select a row</EmptyTitle>
+												<EmptyDescription>
+													Choose a timeline row to inspect the exact source
+													event.
+												</EmptyDescription>
+											</EmptyHeader>
+										</Empty>
+									</CardContent>
+								</Card>
+							)}
+						</div>
+					</ScrollArea>
+				</div>
+			</SheetContent>
+		</Sheet>
+	);
+}
+
 export function ObservabilityPage() {
 	const { activeWorkspace, activeWorkspaceId } = useActiveWorkspace();
 	const [kind, setKind] = React.useState<KindFilter>("all");
@@ -148,6 +589,9 @@ export function ObservabilityPage() {
 	const [issueNumber, setIssueNumber] = React.useState("");
 	const [user, setUser] = React.useState("");
 	const [sourceId, setSourceId] = React.useState("");
+	const [detailOpen, setDetailOpen] = React.useState(false);
+	const [selectedEvent, setSelectedEvent] =
+		React.useState<ObservabilityTimelineEvent | null>(null);
 	const now = React.useMemo(() => new Date(), []);
 	const dateRange = React.useMemo(() => {
 		const to = new Date();
@@ -183,7 +627,17 @@ export function ObservabilityPage() {
 	];
 
 	const stats = timelineQuery.data?.stats;
-	const events = timelineQuery.data?.events ?? [];
+	const events = (timelineQuery.data?.events ?? []) as ObservabilityTimelineEvent[];
+	const openDetails = (event: ObservabilityTimelineEvent) => {
+		setSelectedEvent(event);
+		setDetailOpen(true);
+	};
+	const handleDetailOpenChange = (open: boolean) => {
+		setDetailOpen(open);
+		if (!open) {
+			setSelectedEvent(null);
+		}
+	};
 
 	if (!activeWorkspace) {
 		return (
@@ -220,8 +674,8 @@ export function ObservabilityPage() {
 						Observability
 					</h1>
 					<p className="max-w-3xl text-muted-foreground text-sm">
-						Trace AI calls, tool activity, webhooks, billing, jobs, and inbox
-						events across {activeWorkspace.name}.
+						Trace AI calls, tool activity, webhooks, billing, admin actions,
+						jobs, and inbox events across {activeWorkspace.name}.
 					</p>
 				</div>
 				<Badge variant="outline">
@@ -473,7 +927,9 @@ export function ObservabilityPage() {
 														<span className="font-medium text-foreground">
 															Cost
 														</span>{" "}
-														{event.costCents ? formatUsd(event.costCents) : "-"}
+														{event.costCents !== null
+															? formatUsd(event.costCents)
+															: "-"}
 													</div>
 													<div className="min-w-0">
 														<span className="font-medium text-foreground">
@@ -488,6 +944,18 @@ export function ObservabilityPage() {
 															addSuffix: true,
 														})}
 													</div>
+												</div>
+												<div className="mt-4 flex justify-end">
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														className="h-8 gap-2"
+														onClick={() => openDetails(event)}
+													>
+														<InfoIcon className="size-4" />
+														Details
+													</Button>
 												</div>
 											</div>
 										</div>
@@ -504,6 +972,7 @@ export function ObservabilityPage() {
 											<TableHead>Duration</TableHead>
 											<TableHead>Cost</TableHead>
 											<TableHead>Time</TableHead>
+											<TableHead className="text-right">Details</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -566,7 +1035,9 @@ export function ObservabilityPage() {
 													{formatDuration(event.durationMs)}
 												</TableCell>
 												<TableCell>
-													{event.costCents ? formatUsd(event.costCents) : "-"}
+													{event.costCents !== null
+														? formatUsd(event.costCents)
+														: "-"}
 												</TableCell>
 												<TableCell>
 													<div className="whitespace-nowrap text-sm">
@@ -574,6 +1045,18 @@ export function ObservabilityPage() {
 															addSuffix: true,
 														})}
 													</div>
+												</TableCell>
+												<TableCell className="text-right">
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														className="h-8 gap-2"
+														onClick={() => openDetails(event)}
+													>
+														<InfoIcon className="size-4" />
+														Details
+													</Button>
 												</TableCell>
 											</TableRow>
 										))}
@@ -596,6 +1079,11 @@ export function ObservabilityPage() {
 					)}
 				</CardContent>
 			</Card>
+			<ObservabilityDetailSheet
+				open={detailOpen}
+				onOpenChange={handleDetailOpenChange}
+				event={selectedEvent}
+			/>
 		</main>
 	);
 }

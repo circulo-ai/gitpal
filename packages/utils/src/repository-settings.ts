@@ -352,9 +352,120 @@ export type DeepPartial<T> =
 		? Array<DeepPartial<U>>
 		: T extends Record<string, unknown>
 			? {
-					[K in keyof T]?: DeepPartial<T[K]>;
+				[K in keyof T]?: DeepPartial<T[K]>;
 				}
 			: T;
+
+export type RepositoryPolicyPresetId = "balanced" | "guardrails" | "lean";
+
+export type RepositoryPolicyPreset = {
+	id: RepositoryPolicyPresetId;
+	label: string;
+	description: string;
+	settings: DeepPartial<WorkspaceSettings>;
+};
+
+export const repositoryPolicyPresets = [
+	{
+		id: "balanced",
+		label: "Balanced",
+		description: "Keep the current workspace defaults and use them as the repo baseline.",
+		settings: {},
+	},
+	{
+		id: "guardrails",
+		label: "Guardrails",
+		description: "Bias toward stricter reviews, stronger pre-merge checks, and fewer local overrides.",
+		settings: {
+			reviews: {
+				behavior: {
+					profile: "assertive",
+					requestChangesWorkflow: true,
+					autoAssignReviewers: true,
+				},
+				walkthrough: {
+					sequenceDiagrams: true,
+				},
+			},
+			ai: {
+				reviewer: {
+					focus: "security",
+					postInlineFindings: true,
+				},
+				tools: {
+					allowRepositoryOverrides: false,
+				},
+			},
+			preMergeChecks: {
+				enabled: true,
+				blockOnOpenFindings: true,
+				requireAiReview: true,
+				requireContextScan: true,
+			},
+		},
+	},
+	{
+		id: "lean",
+		label: "Lean",
+		description: "Trim the ceremony so the repository moves faster with fewer automatic extras.",
+		settings: {
+			reviews: {
+				walkthrough: {
+					sequenceDiagrams: false,
+					estimateCodeReviewEffort: false,
+				},
+				behavior: {
+					autoAssignReviewers: false,
+					context: {
+						contextAware: false,
+						includeRepositoryFiles: false,
+						includePullRequestHistory: false,
+						includeRelatedIssues: false,
+						includeRelatedPRs: false,
+						mentionRelatedWork: false,
+					},
+				},
+			},
+			ai: {
+				reviewer: {
+					focus: "balanced",
+					maxSteps: 5,
+					postInlineFindings: true,
+				},
+				tools: {
+					allowRepositoryOverrides: true,
+				},
+			},
+			preMergeChecks: {
+				enabled: false,
+				blockOnOpenFindings: false,
+				requireAiReview: false,
+				requireContextScan: false,
+			},
+			fun: {
+				poem: false,
+				inProgressFortune: false,
+				art: false,
+			},
+		},
+	},
+] as const satisfies readonly RepositoryPolicyPreset[];
+
+export function getRepositoryPolicyPreset(
+	presetId: RepositoryPolicyPresetId,
+) {
+	return (
+		repositoryPolicyPresets.find((preset) => preset.id === presetId) ??
+		repositoryPolicyPresets[0]
+	);
+}
+
+export function applyRepositoryPolicyPreset(
+	base: WorkspaceSettings = createDefaultWorkspaceSettings(),
+	presetId: RepositoryPolicyPresetId,
+) {
+	return mergeWorkspaceSettings(base, getRepositoryPolicyPreset(presetId).settings);
+}
 
 export const defaultWorkspaceSettings = {
 	general: {

@@ -15,3 +15,5 @@ cross-cutting logic used across the repo.
 - Reuse existing utilities instead of duplicating formatting, routing, or
   normalization logic.
 - When adding new helpers, document expected inputs and edge cases in code.
+- Keep repository policy presets as pure setting transforms so apps can apply
+  them without introducing another persisted configuration layer.

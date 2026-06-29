@@ -4,6 +4,7 @@ import { sanitizeDiagnosticText, sanitizeRunDetails } from "./safe-diagnostics";
 
 export type ObservabilityEventKind =
 	| "ai"
+	| "admin"
 	| "billing"
 	| "job"
 	| "notification"
@@ -81,6 +82,22 @@ export async function recordObservabilityEvent(
 	const row = await repos.observabilityEvent.upsertByDedupeKey(values);
 
 	return row;
+}
+
+export async function recordAdminActionEvent(
+	input: Omit<RecordObservabilityEventInput, "kind"> & {
+		severity?: ObservabilityEventSeverity;
+	},
+	executor?: any,
+) {
+	return recordObservabilityEvent(
+		{
+			...input,
+			kind: "admin",
+			severity: input.severity ?? "success",
+		},
+		executor,
+	);
 }
 
 export async function appendObservabilityEventMetadata({

@@ -8,6 +8,7 @@ import {
 	type WorkspaceSettings,
 	workspaceSettingsSchema,
 } from "@gitpal/utils";
+import { recordAdminActionEvent } from "./observability";
 import { stableId } from "./stable-id";
 
 type RepositorySettingsRow = RepositorySettings;
@@ -39,6 +40,19 @@ function toRepositorySettings(
 	};
 }
 
+function buildWorkspaceSettingsAuditMetadata(settings: WorkspaceSettings) {
+	return {
+		reviewProfile: settings.reviews.behavior.profile,
+		reviewFocus: settings.ai.reviewer.focus,
+		requestChangesWorkflow: settings.reviews.behavior.requestChangesWorkflow,
+		autoAssignReviewers: settings.reviews.behavior.autoAssignReviewers,
+		preMergeChecksEnabled: settings.preMergeChecks.enabled,
+		sequenceDiagrams: settings.reviews.walkthrough.sequenceDiagrams,
+		inlineFindings: settings.ai.reviewer.postInlineFindings,
+		allowRepositoryOverrides: settings.ai.tools.allowRepositoryOverrides,
+	};
+}
+
 export async function getOrganizationWorkspaceSettings(organizationId: string) {
 	const row =
 		await repositories.organizationSettings.findByOrganizationId(
@@ -49,9 +63,11 @@ export async function getOrganizationWorkspaceSettings(organizationId: string) {
 }
 
 export async function saveOrganizationWorkspaceSettings({
+	actorUserId,
 	organizationId,
 	settings,
 }: {
+	actorUserId: string;
 	organizationId: string;
 	settings: WorkspaceSettings;
 }) {
@@ -64,6 +80,18 @@ export async function saveOrganizationWorkspaceSettings({
 		settings: normalizedSettings,
 		createdAt: now,
 		updatedAt: now,
+	});
+
+	await recordAdminActionEvent({
+		userId: actorUserId,
+		organizationId,
+		action: "update",
+		status: "updated",
+		title: "Workspace settings updated",
+		body: "Workspace-level review policy and automation defaults were saved.",
+		sourceType: "workspace-settings",
+		sourceId: organizationId,
+		metadata: buildWorkspaceSettingsAuditMetadata(normalizedSettings),
 	});
 
 	return toWorkspaceSettings(row?.settings as WorkspaceSettings);
@@ -130,11 +158,13 @@ export async function getRepositoryWorkspaceSettings({
 }
 
 export async function saveRepositoryWorkspaceSettings({
+	actorUserId,
 	organizationId,
 	repositoryId,
 	useOrganizationSettings,
 	settings,
 }: {
+	actorUserId: string;
 	organizationId: string;
 	repositoryId: string;
 	useOrganizationSettings: boolean;
@@ -159,6 +189,26 @@ export async function saveRepositoryWorkspaceSettings({
 		settings: normalizedSettings,
 		createdAt: now,
 		updatedAt: now,
+	});
+
+	await recordAdminActionEvent({
+		userId: actorUserId,
+		organizationId,
+		repositoryId,
+		action: useOrganizationSettings ? "inherit" : "update",
+		status: useOrganizationSettings ? "updated" : "customized",
+		title: "Repository settings updated",
+		body: useOrganizationSettings
+			? "This repository now inherits workspace policy defaults."
+			: "This repository now uses repository-specific policy overrides.",
+		sourceType: "repository-settings",
+		sourceId: repositoryId,
+		metadata: {
+			...buildWorkspaceSettingsAuditMetadata(normalizedSettings),
+			useOrganizationSettings,
+			repositoryId,
+			organizationId,
+		},
 	});
 
 	return toRepositorySettings(row ?? null);

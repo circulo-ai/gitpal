@@ -15,8 +15,9 @@ GitPal is designed to get from install to a useful review path quickly, while st
 
 ## 1. Start the local stack
 
-- Run `bun run docker:dev:up` to start Postgres, Redis, and Inngest.
+- Run `bun run docker:dev:up` to start Postgres and Redis.
 - Run `bun run dev` to start `server`, `web`, and `fumadocs` with hot reload.
+- Run `bun run dev:inngest` in a second terminal for the local Inngest dev server.
 - Run `bun run db:push` or `bun run db:migrate` once the database is reachable.
 
 ## 2. Connect a provider

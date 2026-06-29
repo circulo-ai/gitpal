@@ -1,48 +1,50 @@
 import { randomUUID } from "node:crypto";
 import type * as dashboardSchema from "@gitpal/db/schema/dashboard";
-import {
-	type GitActor,
-	type GitProviderAdapter,
-	type GitPullRequest,
-	type GitPullRequestFile,
-	type GitRepository,
-	type GitWebhookEnvelope,
+import type {
+	GitActor,
+	GitProviderAdapter,
+	GitPullRequest,
+	GitPullRequestFile,
+	GitRepository,
+	GitWebhookEnvelope,
 } from "@gitpal/git";
 import { createLogger } from "@gitpal/logger";
 import { repositories } from "@gitpal/repositories";
 import type { WorkspaceSettings } from "@gitpal/utils";
 import {
-	createAppAdapterForRepository,
+	createProviderAdapterForAccount,
 	type GitAccount,
-	getAutomationActorForRepository,
+	type getAutomationActorForRepository,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
+import type {
+	ReviewDispatch,
+	ReviewDispatchKind,
+} from "./repository-webhooks-dispatch";
 import {
-	type RepositoryReviewOutput,
-} from "./review-agent";
+	buildDeliveryUrl,
+	buildGitHubRepositoryWebhookAccessMessage,
+	formatSecretPreview,
+	getRequiredWebhookEvents,
+	getWebhookBaseUrl,
+	isGitHubRepositoryWebhookAccessError,
+	normalizeWebhookUrl,
+	type ProviderType,
+	type ProviderWebhookTarget,
+	resolveWebhookTarget,
+} from "./repository-webhooks-shared";
+import type { RepositoryReviewOutput } from "./review-agent";
 import { resolveDiffAnchor } from "./review-anchors";
 import { sanitizeRunDetails } from "./safe-diagnostics";
 import {
 	findWebhookAfterDuplicate,
 	isGitHubDuplicateWebhookError,
 } from "./webhook-reconciliation";
-import {
-	buildDeliveryUrl,
-	buildGitHubRepositoryWebhookAccessMessage,
-	formatSecretPreview,
-	getRequiredWebhookEvents,
-	isGitHubRepositoryWebhookAccessError,
-	normalizeWebhookUrl,
-	resolveWebhookTarget,
-	getWebhookBaseUrl,
-	type ProviderType,
-	type ProviderWebhookTarget,
-} from "./repository-webhooks-shared";
-import {
-	type ReviewDispatch,
-	type ReviewDispatchKind,
-} from "./repository-webhooks-dispatch";
-export { processProviderWebhookFailure, receiveProviderWebhook } from "./repository-webhook-ingress";
+
+export {
+	processProviderWebhookFailure,
+	receiveProviderWebhook,
+} from "./repository-webhook-ingress";
 export { processProviderWebhookReceiptJob } from "./repository-webhook-receipts";
 export { isGitHubRepositoryWebhookAccessError } from "./repository-webhooks-shared";
 
@@ -197,7 +199,9 @@ function formatFindingBody(
 				sections.push(suggestion.body.trim());
 			}
 			if (suggestion.patch?.trim()) {
-				sections.push(`Patch hint:\n\`\`\`diff\n${suggestion.patch.trim()}\n\`\`\``);
+				sections.push(
+					`Patch hint:\n\`\`\`diff\n${suggestion.patch.trim()}\n\`\`\``,
+				);
 			}
 			if (suggestion.codeSnippet?.trim()) {
 				sections.push(
@@ -244,7 +248,9 @@ export function buildLabelerSummaryMarkdown({
 async function listRepositoryReviewerCandidates(repositoryId: string) {
 	return repositories.repositoryAccess.listReviewerCandidates(repositoryId);
 }
-export async function listSuggestedReviewersForRepository(repositoryId: string) {
+export async function listSuggestedReviewersForRepository(
+	repositoryId: string,
+) {
 	const rows = await listRepositoryReviewerCandidates(repositoryId);
 	return rows
 		.map(({ user }) => user.name?.trim() || user.email.split("@")[0] || user.id)
@@ -538,7 +544,9 @@ export async function createReviewCommentRecords({
 				requestedLine: anchor.originalLine,
 				publishedInline: Boolean(providerCommentId),
 				suggestionCount: finding.suggestions.length,
-				suggestionKinds: finding.suggestions.map((suggestion) => suggestion.kind),
+				suggestionKinds: finding.suggestions.map(
+					(suggestion) => suggestion.kind,
+				),
 			},
 			accepted: false,
 			resolved: false,
@@ -774,31 +782,32 @@ export async function syncRepositoryWebhooksForUser({
 			result.skipped += 1;
 			continue;
 		}
-		// App-installation-only: webhook setup authenticates as the GitHub App
-		// installation. We never fall back to the OAuth login token of the user.
-		// GitLab and enterprise providers cannot authenticate as a GitHub App, so
-		// their webhook setup is disabled rather than borrowing user credentials.
-		const adapter =
-			repository.providerId === "github"
-				? await createAppAdapterForRepository({
-						repository,
-						webhookSecrets: target.secret ? [target.secret] : [],
-					}).catch((error) => {
-						log.debug(
-							{
-								err: error,
-								repositoryId: repository.id,
-								providerId: repository.providerId,
-							},
-							"GitHub App installation adapter could not be created for webhook sync.",
-						);
-						return null;
-					})
-				: null;
+		const provider = repository.providerId.startsWith("enterprise-git:")
+			? enterpriseProviders.get(
+					repository.providerId.replace("enterprise-git:", ""),
+				)
+			: null;
+		const adapter = await createProviderAdapterForAccount({
+			account,
+			repository,
+			provider,
+			webhookSecrets: target.secret ? [target.secret] : [],
+			webhookSigningSecrets: target.signingSecret ? [target.signingSecret] : [],
+		}).catch((error) => {
+			log.debug(
+				{
+					err: error,
+					repositoryId: repository.id,
+					providerId: repository.providerId,
+				},
+				"Provider adapter could not be created for webhook sync.",
+			);
+			return null;
+		});
 		if (!adapter) {
 			result.skipped += 1;
 			result.errors.push(
-				`${repository.fullName}: webhook setup requires GitHub App installation access (GitLab and enterprise providers are not supported).`,
+				`${repository.fullName}: webhook setup could not resolve provider credentials for this account.`,
 			);
 			continue;
 		}
@@ -833,5 +842,3 @@ export async function syncRepositoryWebhooksForUser({
 	}
 	return result;
 }
-
-

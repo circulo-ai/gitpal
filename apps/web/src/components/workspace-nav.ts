@@ -153,6 +153,14 @@ export function getWorkspacePageInfo(pathname: string) {
 		? "Workspaces, billing, and keys"
 		: "Workspaces and keys";
 
+	if (pathname.startsWith("/repositories/install")) {
+		return {
+			section: "Repositories",
+			title: "Install wizard",
+			subtitle: "Provider installation and repository sync",
+		};
+	}
+
 	if (pathname.startsWith("/repositories/")) {
 		const repositoryId = pathname.split("/")[2] ?? "Repository";
 

@@ -1,12 +1,12 @@
-import { createLogger } from "@gitpal/logger";
 import type { GitPullRequest, GitWebhookEnvelope } from "@gitpal/git";
+import { createLogger } from "@gitpal/logger";
 import type { WorkspaceSettings } from "@gitpal/utils";
 import {
 	isCommentWebhookEvent,
 	isPullRequestOpenAction,
 	isPullRequestPushAction,
-	normalizeText,
 	type LabelEventContext,
+	normalizeText,
 	type ProviderType,
 	type PullRequestEventContext,
 } from "./repository-webhooks-shared";

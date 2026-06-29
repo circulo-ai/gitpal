@@ -4,13 +4,13 @@ import type { GitWebhookEnvelope } from "@gitpal/git";
 import { enqueueProviderWebhookReceiptJob } from "@gitpal/jobs/inngest/functions/provider-webhooks";
 import { createLogger } from "@gitpal/logger";
 import { repositories } from "@gitpal/repositories";
-import { sanitizeRunDetails } from "./safe-diagnostics";
 import {
 	asRecord,
 	createWebhookVerifier,
 	resolveWebhookTarget,
 	type WebhookReceiptStatus,
 } from "./repository-webhooks-shared";
+import { sanitizeRunDetails } from "./safe-diagnostics";
 import { getUnverifiedWebhookDecision } from "./webhook-reconciliation";
 
 const log = createLogger("repository-webhook-ingress");
@@ -37,7 +37,9 @@ export async function findRepositoriesForWebhook({
 	);
 }
 
-export async function updateRepositoryWebhookHeartbeat(repositoryIds: string[]) {
+export async function updateRepositoryWebhookHeartbeat(
+	repositoryIds: string[],
+) {
 	await repositories.repositoryWebhook.updateHeartbeat(repositoryIds);
 }
 

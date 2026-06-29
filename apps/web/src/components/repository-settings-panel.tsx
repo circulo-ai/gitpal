@@ -16,6 +16,12 @@ import {
 	CardTitle,
 } from "@gitpal/ui/components/card";
 import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "@gitpal/ui/components/empty";
+import {
 	Select,
 	SelectContent,
 	SelectGroup,
@@ -23,19 +29,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@gitpal/ui/components/select";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "@gitpal/ui/components/empty";
 import type { WorkspaceSettings } from "@gitpal/utils";
 import {
 	applyRepositoryPolicyPreset,
 	getRepositoryPolicyPreset,
+	mergeWorkspaceSettings,
+	type RepositoryPolicyPresetId,
 	repositoryPolicyPresets,
 	resolveEffectiveWorkspaceSettings,
-	type RepositoryPolicyPresetId,
 } from "@gitpal/utils";
 import { Alert01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -132,11 +133,25 @@ export function RepositorySettingsPanel({
 			return null;
 		}
 
-		return resolveEffectiveWorkspaceSettings({
+		const baseSettings = resolveEffectiveWorkspaceSettings({
 			organizationSettings: repositorySettingsQuery.data.organizationSettings,
 			repositorySettings: settings,
 			useOrganizationSettings,
 		});
+		const withCentralConfig = repositorySettingsQuery.data
+			.repositoryCentralConfigSettings
+			? mergeWorkspaceSettings(
+					baseSettings,
+					repositorySettingsQuery.data.repositoryCentralConfigSettings,
+				)
+			: baseSettings;
+
+		return repositorySettingsQuery.data.repositoryConfigSettings
+			? mergeWorkspaceSettings(
+					withCentralConfig,
+					repositorySettingsQuery.data.repositoryConfigSettings,
+				)
+			: withCentralConfig;
 	}, [repositorySettingsQuery.data, settings, useOrganizationSettings]);
 	const selectedPreset = getRepositoryPolicyPreset(presetId);
 
@@ -229,6 +244,19 @@ export function RepositorySettingsPanel({
 							<p className="text-muted-foreground text-sm">
 								Overrides are stored per repository inside this workspace.
 							</p>
+							{repositorySettingsQuery.data.repositoryCentralConfigFileName ? (
+								<p className="text-muted-foreground text-xs">
+									Central config file{" "}
+									{repositorySettingsQuery.data.repositoryCentralConfigFileName}{" "}
+									applies before this repository's saved overrides.
+								</p>
+							) : null}
+							{repositorySettingsQuery.data.repositoryConfigFileName ? (
+								<p className="text-muted-foreground text-xs">
+									{repositorySettingsQuery.data.repositoryConfigFileName} from
+									the repository root overrides the saved workspace values.
+								</p>
+							) : null}
 						</div>
 						<Badge variant="outline">
 							{useOrganizationSettings ? "Inherited" : "Custom"}
@@ -238,7 +266,9 @@ export function RepositorySettingsPanel({
 					<div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-4">
 						<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 							<div className="space-y-1">
-								<div className="font-medium text-sm">Repository policy preset</div>
+								<div className="font-medium text-sm">
+									Repository policy preset
+								</div>
 								<p className="text-muted-foreground text-sm">
 									Apply an opinionated starting point, then fine-tune the fields
 									below for this repository.
@@ -286,9 +316,7 @@ export function RepositorySettingsPanel({
 											repositorySettingsQuery.data?.effectiveSettings ??
 											settings;
 										setUseOrganizationSettings(false);
-										setSettings(
-											applyRepositoryPolicyPreset(base, presetId),
-										);
+										setSettings(applyRepositoryPolicyPreset(base, presetId));
 									}}
 								>
 									Apply preset

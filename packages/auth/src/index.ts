@@ -236,6 +236,20 @@ export async function refreshExpiringProviderAccounts() {
 	};
 }
 
+export async function decryptStoredProviderToken(
+	token: string | null | undefined,
+) {
+	if (!token) {
+		return null;
+	}
+
+	const context = (await auth.$context) as unknown as Parameters<
+		typeof decryptOAuthToken
+	>[1];
+
+	return decryptOAuthToken(token, context);
+}
+
 export {
 	decryptSecret,
 	type EnterpriseGitProviderType,

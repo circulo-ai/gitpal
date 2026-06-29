@@ -1,17 +1,35 @@
+import { type GitProviderAdapter, GitProviderRequestError } from "@gitpal/git";
+import { createLogger } from "@gitpal/logger";
 import { type RepositorySettings, repositories } from "@gitpal/repositories";
 import {
 	createDefaultRepositorySettings,
 	createDefaultWorkspaceSettings,
+	gitpalConfigFileNames,
 	normalizeWorkspaceSettings,
+	parseGitPalConfig,
 	type RepositorySettingsRecord,
-	resolveEffectiveWorkspaceSettings,
+	resolveGitPalConfigWorkspaceSettings,
 	type WorkspaceSettings,
 	workspaceSettingsSchema,
 } from "@gitpal/utils";
+import { getAutomationActorForRepository } from "./git-provider-access";
 import { recordAdminActionEvent } from "./observability";
 import { stableId } from "./stable-id";
 
 type RepositorySettingsRow = RepositorySettings;
+
+const log = createLogger("workspace-settings");
+const GITPAL_CENTRAL_CONFIG_REPOSITORY_NAME = "gitpal";
+
+type GitPalConfigResolution = {
+	fileName: string;
+	settings: WorkspaceSettings;
+};
+
+type RepositoryGitPalConfigResolution = {
+	repositoryConfig: GitPalConfigResolution | null;
+	centralConfig: GitPalConfigResolution | null;
+};
 
 function getOrganizationSettingsId(organizationId: string) {
 	return `org_settings_${stableId([organizationId]).slice(0, 32)}`;
@@ -110,6 +128,122 @@ async function getRepositorySettingsRow({
 	);
 }
 
+function getCentralConfigRepositoryPaths(repositoryPath: string) {
+	const segments = repositoryPath.split("/").filter(Boolean);
+	if (segments.length < 2) {
+		return [] as string[];
+	}
+
+	const paths: string[] = [];
+	for (
+		let parentLength = segments.length - 1;
+		parentLength >= 1;
+		parentLength -= 1
+	) {
+		const parentPath = segments.slice(0, parentLength).join("/");
+		const candidatePath = `${parentPath}/${GITPAL_CENTRAL_CONFIG_REPOSITORY_NAME}`;
+		if (candidatePath !== repositoryPath) {
+			paths.push(candidatePath);
+		}
+	}
+
+	return paths;
+}
+
+async function readGitPalConfigFromRepositoryPath({
+	adapter,
+	repositoryId,
+	repositoryPath,
+	providerId,
+	source,
+}: {
+	adapter: GitProviderAdapter;
+	repositoryId: string;
+	repositoryPath: string;
+	providerId: string;
+	source: "repository" | "central";
+}) {
+	for (const fileName of gitpalConfigFileNames) {
+		try {
+			const file = await adapter.getFileContent({
+				repositoryPath,
+				filePath: fileName,
+			});
+			const settings = parseGitPalConfig(file.content);
+			if (settings) {
+				return { fileName, settings };
+			}
+		} catch (error) {
+			if (error instanceof GitProviderRequestError && error.status === 404) {
+				continue;
+			}
+
+			log.debug(
+				{
+					err: error,
+					repositoryId,
+					repositoryPath,
+					providerId,
+					fileName,
+					source,
+				},
+				"Unable to read GitPal config file; continuing without it.",
+			);
+			return null;
+		}
+	}
+
+	return null;
+}
+
+async function loadRepositoryGitPalConfigSettings({
+	repositoryId,
+	repositoryPath,
+	providerId,
+}: {
+	repositoryId: string;
+	repositoryPath: string;
+	providerId: string;
+}): Promise<RepositoryGitPalConfigResolution | null> {
+	const automationActor = await getAutomationActorForRepository({
+		repositoryId,
+		providerId,
+	});
+
+	if (!automationActor) {
+		return null;
+	}
+
+	const repositoryConfig = await readGitPalConfigFromRepositoryPath({
+		adapter: automationActor.adapter,
+		repositoryId,
+		repositoryPath,
+		providerId,
+		source: "repository",
+	});
+
+	let centralConfig: GitPalConfigResolution | null = null;
+	for (const candidateRepositoryPath of getCentralConfigRepositoryPaths(
+		repositoryPath,
+	)) {
+		centralConfig = await readGitPalConfigFromRepositoryPath({
+			adapter: automationActor.adapter,
+			repositoryId,
+			repositoryPath: candidateRepositoryPath,
+			providerId,
+			source: "central",
+		});
+		if (centralConfig) {
+			break;
+		}
+	}
+
+	return {
+		repositoryConfig,
+		centralConfig,
+	};
+}
+
 export async function getRepositoryWorkspaceSettings({
 	organizationId,
 	repositoryId,
@@ -138,6 +272,13 @@ export async function getRepositoryWorkspaceSettings({
 		repositories.organizationSettings.findByOrganizationId(organizationId),
 		getRepositorySettingsRow({ organizationId, repositoryId }),
 	]);
+	const repositoryConfigResolution = await loadRepositoryGitPalConfigSettings({
+		repositoryId: accessRow.repository.id,
+		repositoryPath: accessRow.repository.repositoryPath,
+		providerId: accessRow.repository.providerId,
+	});
+	const repositoryConfigSettings = repositoryConfigResolution?.repositoryConfig;
+	const centralConfigSettings = repositoryConfigResolution?.centralConfig;
 
 	const organizationSettings = toWorkspaceSettings(
 		organizationSettingsRow?.settings as WorkspaceSettings,
@@ -149,10 +290,16 @@ export async function getRepositoryWorkspaceSettings({
 		useOrganizationSettings: repositorySettings.useOrganizationSettings,
 		organizationSettings,
 		repositorySettings: repositorySettings.settings,
-		effectiveSettings: resolveEffectiveWorkspaceSettings({
+		repositoryConfigFileName: repositoryConfigSettings?.fileName ?? null,
+		repositoryConfigSettings: repositoryConfigSettings?.settings ?? null,
+		repositoryCentralConfigFileName: centralConfigSettings?.fileName ?? null,
+		repositoryCentralConfigSettings: centralConfigSettings?.settings ?? null,
+		effectiveSettings: resolveGitPalConfigWorkspaceSettings({
 			organizationSettings,
 			repositorySettings: repositorySettings.settings,
 			useOrganizationSettings: repositorySettings.useOrganizationSettings,
+			centralConfigSettings: centralConfigSettings?.settings ?? null,
+			configSettings: repositoryConfigSettings?.settings ?? null,
 		}),
 	};
 }

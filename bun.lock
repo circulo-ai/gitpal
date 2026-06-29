@@ -323,6 +323,9 @@
     },
     "packages/utils": {
       "name": "@gitpal/utils",
+      "dependencies": {
+        "yaml": "^2.9.0",
+      },
       "devDependencies": {
         "@gitpal/config": "workspace:*",
         "typescript": "catalog:",

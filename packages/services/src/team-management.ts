@@ -497,9 +497,7 @@ export async function updateWorkspaceTeamMemberAccess({
 
 		const currentRole = target.member?.role ?? null;
 		const targetLabel =
-			target.providerMember.login ??
-			target.providerMember.name ??
-			targetUserId;
+			target.providerMember.login ?? target.providerMember.name ?? targetUserId;
 
 		if (currentRole === "owner" && workspaceRole && workspaceRole !== "owner") {
 			const otherOwnersCount = await txRepos.member.countOtherOwners(

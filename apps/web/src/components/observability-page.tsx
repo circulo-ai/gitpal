@@ -17,6 +17,7 @@ import {
 	EmptyTitle,
 } from "@gitpal/ui/components/empty";
 import { Input } from "@gitpal/ui/components/input";
+import { ScrollArea } from "@gitpal/ui/components/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -25,7 +26,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@gitpal/ui/components/select";
-import { ScrollArea } from "@gitpal/ui/components/scroll-area";
 import { Separator } from "@gitpal/ui/components/separator";
 import {
 	Sheet,
@@ -51,14 +51,14 @@ import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow, subDays } from "date-fns";
 import {
 	ActivityIcon,
+	AlertTriangleIcon,
 	BellIcon,
 	BotIcon,
 	BriefcaseBusinessIcon,
 	CreditCardIcon,
 	GitPullRequestIcon,
-	RefreshCcwIcon,
-	AlertTriangleIcon,
 	InfoIcon,
+	RefreshCcwIcon,
 	ShieldCheckIcon,
 	WrenchIcon,
 } from "lucide-react";
@@ -182,17 +182,17 @@ function EventIcon({ kind }: { kind: string }) {
 			? BotIcon
 			: kind === "tool"
 				? WrenchIcon
-			: kind === "review"
-				? GitPullRequestIcon
-			: kind === "webhook"
-				? ActivityIcon
-			: kind === "admin"
-				? ShieldCheckIcon
-			: kind === "billing"
-				? CreditCardIcon
-			: kind === "notification"
-				? BellIcon
-				: BriefcaseBusinessIcon;
+				: kind === "review"
+					? GitPullRequestIcon
+					: kind === "webhook"
+						? ActivityIcon
+						: kind === "admin"
+							? ShieldCheckIcon
+							: kind === "billing"
+								? CreditCardIcon
+								: kind === "notification"
+									? BellIcon
+									: BriefcaseBusinessIcon;
 
 	return <Icon className="text-muted-foreground" />;
 }
@@ -344,7 +344,7 @@ function TimelineSection({
 						))}
 					</div>
 				) : (
-					<Empty className="min-h-40 border border-dashed border-border/60 bg-background">
+					<Empty className="min-h-40 border border-border/60 border-dashed bg-background">
 						<EmptyHeader>
 							<EmptyMedia variant="icon">
 								{emphasis === "error" ? <AlertTriangleIcon /> : <InfoIcon />}
@@ -379,7 +379,9 @@ function DetailFieldsCard({
 			<CardHeader className="space-y-2">
 				<CardTitle className="text-lg">{source.title}</CardTitle>
 				{source.subtitle ? (
-					<CardDescription className="text-sm">{source.subtitle}</CardDescription>
+					<CardDescription className="text-sm">
+						{source.subtitle}
+					</CardDescription>
 				) : null}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
@@ -415,7 +417,7 @@ function DetailFieldsCard({
 							</div>
 						</details>
 					) : (
-						<div className="rounded-lg border border-dashed border-border/60 bg-background px-4 py-3 text-muted-foreground text-sm">
+						<div className="rounded-lg border border-border/60 border-dashed bg-background px-4 py-3 text-muted-foreground text-sm">
 							No raw payload was captured for this source event.
 						</div>
 					)}
@@ -441,7 +443,8 @@ function ObservabilityDetailSheet({
 	});
 
 	const source = detailQuery.data?.source ?? null;
-	const timeline = (detailQuery.data?.timeline ?? []) as ObservabilityTimelineEvent[];
+	const timeline = (detailQuery.data?.timeline ??
+		[]) as ObservabilityTimelineEvent[];
 	const errorTimeline = (detailQuery.data?.errorTimeline ??
 		[]) as ObservabilityTimelineEvent[];
 
@@ -452,7 +455,7 @@ function ObservabilityDetailSheet({
 				onOpenChange(nextOpen);
 			}}
 		>
-			<SheetContent className="w-full p-0 sm:!max-w-4xl" side="right">
+			<SheetContent className="sm:!max-w-4xl w-full p-0" side="right">
 				<div className="flex h-full min-h-0 flex-col">
 					<SheetHeader className="border-border/60 border-b bg-muted/30 px-6 py-5">
 						<div className="flex items-start justify-between gap-4">
@@ -627,7 +630,8 @@ export function ObservabilityPage() {
 	];
 
 	const stats = timelineQuery.data?.stats;
-	const events = (timelineQuery.data?.events ?? []) as ObservabilityTimelineEvent[];
+	const events = (timelineQuery.data?.events ??
+		[]) as ObservabilityTimelineEvent[];
 	const openDetails = (event: ObservabilityTimelineEvent) => {
 		setSelectedEvent(event);
 		setDetailOpen(true);

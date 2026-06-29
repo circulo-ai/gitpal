@@ -39,6 +39,7 @@ import { cn } from "@gitpal/ui/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
+	ArrowRightIcon,
 	Building2Icon,
 	CircleDotIcon,
 	ExternalLinkIcon,
@@ -305,6 +306,19 @@ export function RepositoriesPage() {
 							Install a provider first, then choose a workspace to manage
 							repositories.
 						</CardDescription>
+						<CardAction>
+							<Button
+								type="button"
+								variant="outline"
+								render={(props) => (
+									<Link {...props} href="/repositories/install" />
+								)}
+								nativeButton={false}
+							>
+								Open install wizard
+								<ArrowRightIcon />
+							</Button>
+						</CardAction>
 					</CardHeader>
 					<CardContent>
 						<Empty className="min-h-96">
@@ -329,6 +343,19 @@ export function RepositoriesPage() {
 							Open the provider app settings to update repository visibility, or
 							sync a provider individually when access changes.
 						</CardDescription>
+						<CardAction>
+							<Button
+								type="button"
+								variant="outline"
+								render={(props) => (
+									<Link {...props} href="/repositories/install" />
+								)}
+								nativeButton={false}
+							>
+								Open install wizard
+								<ArrowRightIcon />
+							</Button>
+						</CardAction>
 					</CardHeader>
 					<CardContent className="space-y-3">
 						<div className="flex flex-wrap gap-2">
@@ -410,6 +437,14 @@ export function RepositoriesPage() {
 					</p>
 				</div>
 				<div className="flex gap-2">
+					<Button
+						variant="outline"
+						render={(props) => <Link {...props} href="/repositories/install" />}
+						nativeButton={false}
+					>
+						Open install wizard
+						<ArrowRightIcon />
+					</Button>
 					<ProviderSyncButton
 						target={activeWorkspace}
 						isPending={syncMutation.isPending}
@@ -919,6 +954,17 @@ export function RepositoriesPage() {
 							</EmptyHeader>
 							{!search.trim() ? (
 								<div className="flex flex-wrap justify-center gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										render={(props) => (
+											<Link {...props} href="/repositories/install" />
+										)}
+										nativeButton={false}
+									>
+										Open install wizard
+										<ArrowRightIcon />
+									</Button>
 									<ProviderSyncButton
 										target={activeWorkspace}
 										isPending={syncMutation.isPending}

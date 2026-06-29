@@ -9,8 +9,13 @@ import {
 	providerWebhookJobSchema,
 } from "@gitpal/jobs/inngest/functions/provider-webhooks";
 import { createLogger } from "@gitpal/logger";
-import { projectIssueSnapshot } from "./issue-projection";
 import { getAutomationActorForRepository } from "./git-provider-access";
+import { projectIssueSnapshot } from "./issue-projection";
+import {
+	projectPullRequestSnapshot,
+	recordHumanReviewSignal,
+	recordPullRequestMetricEvents,
+} from "./pr-projection";
 import {
 	createWebhookEnvelopeFromReceipt,
 	findRepositoriesForWebhook,
@@ -19,20 +24,15 @@ import {
 	updateRepositoryWebhookHeartbeat,
 	updateWebhookReceipt,
 } from "./repository-webhook-ingress";
-import { projectPullRequestSnapshot } from "./pr-projection";
-import {
-	recordHumanReviewSignal,
-	recordPullRequestMetricEvents,
-} from "./pr-projection";
 import {
 	extractLabelContext,
 	extractPullRequestContext,
-	resolveWebhookReceiptStatus,
-	resolveWebhookTarget,
-	toDateOrNull,
 	type ProviderType,
 	type ProviderWebhookTarget,
 	type PullRequestEventContext,
+	resolveWebhookReceiptStatus,
+	resolveWebhookTarget,
+	toDateOrNull,
 } from "./repository-webhooks-shared";
 
 const log = createLogger("repository-webhook-receipts");

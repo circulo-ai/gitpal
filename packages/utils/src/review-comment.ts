@@ -310,7 +310,9 @@ function buildSuggestionSection(suggestion: ReviewCommentSuggestion) {
 	}
 
 	if (suggestion.patch?.trim()) {
-		sections.push(`Patch hint:\n${fencedCode("diff", suggestion.patch.trim())}`);
+		sections.push(
+			`Patch hint:\n${fencedCode("diff", suggestion.patch.trim())}`,
+		);
 	}
 
 	if (suggestion.codeSnippet?.trim()) {

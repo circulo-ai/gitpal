@@ -352,7 +352,7 @@ export type DeepPartial<T> =
 		? Array<DeepPartial<U>>
 		: T extends Record<string, unknown>
 			? {
-				[K in keyof T]?: DeepPartial<T[K]>;
+					[K in keyof T]?: DeepPartial<T[K]>;
 				}
 			: T;
 
@@ -369,13 +369,15 @@ export const repositoryPolicyPresets = [
 	{
 		id: "balanced",
 		label: "Balanced",
-		description: "Keep the current workspace defaults and use them as the repo baseline.",
+		description:
+			"Keep the current workspace defaults and use them as the repo baseline.",
 		settings: {},
 	},
 	{
 		id: "guardrails",
 		label: "Guardrails",
-		description: "Bias toward stricter reviews, stronger pre-merge checks, and fewer local overrides.",
+		description:
+			"Bias toward stricter reviews, stronger pre-merge checks, and fewer local overrides.",
 		settings: {
 			reviews: {
 				behavior: {
@@ -407,7 +409,8 @@ export const repositoryPolicyPresets = [
 	{
 		id: "lean",
 		label: "Lean",
-		description: "Trim the ceremony so the repository moves faster with fewer automatic extras.",
+		description:
+			"Trim the ceremony so the repository moves faster with fewer automatic extras.",
 		settings: {
 			reviews: {
 				walkthrough: {
@@ -451,9 +454,7 @@ export const repositoryPolicyPresets = [
 	},
 ] as const satisfies readonly RepositoryPolicyPreset[];
 
-export function getRepositoryPolicyPreset(
-	presetId: RepositoryPolicyPresetId,
-) {
+export function getRepositoryPolicyPreset(presetId: RepositoryPolicyPresetId) {
 	return (
 		repositoryPolicyPresets.find((preset) => preset.id === presetId) ??
 		repositoryPolicyPresets[0]
@@ -464,7 +465,10 @@ export function applyRepositoryPolicyPreset(
 	base: WorkspaceSettings = createDefaultWorkspaceSettings(),
 	presetId: RepositoryPolicyPresetId,
 ) {
-	return mergeWorkspaceSettings(base, getRepositoryPolicyPreset(presetId).settings);
+	return mergeWorkspaceSettings(
+		base,
+		getRepositoryPolicyPreset(presetId).settings,
+	);
 }
 
 export const defaultWorkspaceSettings = {

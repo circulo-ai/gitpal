@@ -419,7 +419,8 @@ function extractGitLabContext(
 			...extractLabelNames(mergeRequest?.labels),
 		],
 		commentBody:
-			asString(objectAttributes?.note) ?? asString(objectAttributes?.description),
+			asString(objectAttributes?.note) ??
+			asString(objectAttributes?.description),
 		// GitLab does not distinguish bot users the same way; default to null.
 		commentAuthorType: null,
 		commentAuthorLogin:

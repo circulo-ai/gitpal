@@ -1,6 +1,9 @@
+import { decryptStoredProviderToken } from "@gitpal/auth";
 import { env } from "@gitpal/env/server";
 import {
+	createGitHubAdapter,
 	createGitHubAppInstallationAdapter,
+	createGitLabAdapter,
 	type GitActor,
 	type GitProviderAdapter,
 	type GitRepository,
@@ -44,6 +47,68 @@ function getCloudGitHubAppConfig() {
 	};
 }
 
+function getProviderType(
+	account: Account,
+	provider?: EnterpriseProvider | null,
+) {
+	if (provider?.type === "github" || provider?.type === "gitlab") {
+		return provider.type;
+	}
+
+	if (account.providerId === "github" || account.providerId === "gitlab") {
+		return account.providerId;
+	}
+
+	return null;
+}
+
+function getProviderName(
+	account: Account,
+	provider?: EnterpriseProvider | null,
+) {
+	if (provider) {
+		return provider.name;
+	}
+
+	if (account.providerId === "github") {
+		return "GitHub";
+	}
+
+	if (account.providerId === "gitlab") {
+		return "GitLab";
+	}
+
+	return account.providerId;
+}
+
+function getProviderBaseUrls(
+	account: Account,
+	provider?: EnterpriseProvider | null,
+) {
+	if (provider?.type === "github" || provider?.type === "gitlab") {
+		return {
+			baseUrl: provider.baseUrl,
+			apiBaseUrl: provider.apiBaseUrl,
+		};
+	}
+
+	if (account.providerId === "github") {
+		return {
+			baseUrl: "https://github.com",
+			apiBaseUrl: "https://api.github.com",
+		};
+	}
+
+	if (account.providerId === "gitlab") {
+		return {
+			baseUrl: "https://gitlab.com",
+			apiBaseUrl: "https://gitlab.com/api/v4",
+		};
+	}
+
+	return null;
+}
+
 export async function getEnterpriseProviderMap() {
 	const enterpriseProviders =
 		await repositories.enterpriseGitProvider.findMany();
@@ -66,6 +131,56 @@ export async function getAccountForProvider({
 	return account ?? null;
 }
 
+async function createOAuthProviderAdapterForAccount({
+	account,
+	provider,
+	webhookSecrets = [],
+	webhookSigningSecrets = [],
+}: {
+	account: Account;
+	provider?: EnterpriseProvider | null;
+	webhookSecrets?: string[];
+	webhookSigningSecrets?: string[];
+}) {
+	const accessToken = await decryptStoredProviderToken(account.accessToken);
+	if (!accessToken) {
+		return null;
+	}
+
+	const providerType = getProviderType(account, provider);
+	const baseUrls = getProviderBaseUrls(account, provider);
+	if (!providerType || !baseUrls) {
+		return null;
+	}
+
+	const label = getProviderName(account, provider);
+	const auth = {
+		type: "token" as const,
+		token: accessToken,
+	};
+
+	if (providerType === "github") {
+		return createGitHubAdapter({
+			providerId: account.providerId,
+			label,
+			authBaseUrl: baseUrls.baseUrl,
+			apiBaseUrl: baseUrls.apiBaseUrl,
+			auth,
+			webhookSecrets,
+		});
+	}
+
+	return createGitLabAdapter({
+		providerId: account.providerId,
+		label,
+		baseUrl: baseUrls.baseUrl,
+		apiBaseUrl: baseUrls.apiBaseUrl,
+		auth,
+		webhookSecrets,
+		webhookSigningSecrets,
+	});
+}
+
 /**
  * Builds a provider adapter for a repository using GitHub App installation
  * credentials only.
@@ -79,7 +194,7 @@ export async function createAppAdapterForRepository({
 	repository,
 	webhookSecrets = [],
 }: {
-	repository: RepositoryRow;
+	repository: Pick<RepositoryRow, "providerId" | "repositoryPath">;
 	webhookSecrets?: string[];
 }): Promise<GitProviderAdapter | null> {
 	if (repository.providerId !== "github") {
@@ -103,6 +218,54 @@ export async function createAppAdapterForRepository({
 	});
 }
 
+export async function createProviderAdapterForAccount({
+	account,
+	repository,
+	repositoryPath,
+	provider,
+	webhookSecrets = [],
+	webhookSigningSecrets = [],
+}: {
+	account: Account;
+	repository?: Pick<RepositoryRow, "providerId" | "repositoryPath"> | null;
+	repositoryPath?: string;
+	provider?: EnterpriseProvider | null;
+	webhookSecrets?: string[];
+	webhookSigningSecrets?: string[];
+}): Promise<GitProviderAdapter | null> {
+	if (
+		account.providerId === "github" &&
+		(repository?.providerId === "github" || repositoryPath)
+	) {
+		const config = getCloudGitHubAppConfig();
+		if (!config) {
+			return null;
+		}
+
+		const targetRepositoryPath =
+			repository?.repositoryPath ?? repositoryPath?.trim() ?? null;
+		if (!targetRepositoryPath) {
+			return null;
+		}
+
+		return createAppAdapterForRepository({
+			repository: {
+				...(repository ?? {}),
+				providerId: "github",
+				repositoryPath: targetRepositoryPath,
+			},
+			webhookSecrets,
+		});
+	}
+
+	return createOAuthProviderAdapterForAccount({
+		account,
+		provider,
+		webhookSecrets,
+		webhookSigningSecrets,
+	});
+}
+
 export async function getAutomationActorForRepository({
 	repositoryId,
 	providerId,
@@ -121,17 +284,28 @@ export async function getAutomationActorForRepository({
 	}
 
 	// We still pick the highest-privilege, most-recently-active member purely for
-	// attribution/auditing. Credentials always come from the GitHub App
-	// installation — the selected account is never exchanged for a token.
+	// attribution/auditing. The resulting adapter may be App-backed for cloud
+	// GitHub or OAuth-backed for other connected providers, but we never fall
+	// back to a different user's credentials.
 	const primaryCandidate = candidates[0];
 	if (!primaryCandidate) {
 		return null;
 	}
 
+	const enterpriseProviders = await getEnterpriseProviderMap();
+	const provider = primaryCandidate.repository.providerId.startsWith(
+		"enterprise-git:",
+	)
+		? enterpriseProviders.get(
+				primaryCandidate.repository.providerId.replace("enterprise-git:", ""),
+			)
+		: null;
 	let appAdapter: GitProviderAdapter | null = null;
 	try {
-		appAdapter = await createAppAdapterForRepository({
+		appAdapter = await createProviderAdapterForAccount({
+			account: primaryCandidate.account,
 			repository: primaryCandidate.repository,
+			provider,
 		});
 	} catch (error) {
 		log.error(
@@ -141,7 +315,7 @@ export async function getAutomationActorForRepository({
 				providerId,
 				repositoryPath: primaryCandidate.repository.repositoryPath,
 			},
-			"Failed to create App-backed provider adapter; automation is disabled. User login credentials are never used as a fallback.",
+			"Failed to create provider adapter; automation is disabled. User login credentials are never used as a fallback.",
 		);
 		return null;
 	}
@@ -153,7 +327,7 @@ export async function getAutomationActorForRepository({
 				providerId,
 				repositoryPath: primaryCandidate.repository.repositoryPath,
 			},
-			"No GitHub App installation adapter available for this repository (GitLab and enterprise providers are unsupported); automation is disabled. User login credentials are never used as a fallback.",
+			"No provider adapter is available for this repository; automation is disabled. User login credentials are never used as a fallback.",
 		);
 		return null;
 	}
@@ -163,7 +337,8 @@ export async function getAutomationActorForRepository({
 		account: primaryCandidate.account,
 		organizationRole: primaryCandidate.organizationRole,
 		adapter: appAdapter,
-		credentialSource: "app" as const,
+		credentialSource:
+			primaryCandidate.account.providerId === "github" ? "app" : "oauth",
 	};
 }
 

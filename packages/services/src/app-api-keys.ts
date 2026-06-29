@@ -191,9 +191,10 @@ export async function updateAppApiKeyForUser({
 		action: "update-api-key",
 		status: enabled === false ? "disabled" : "updated",
 		title: enabled === false ? "API key disabled" : "API key updated",
-		body: enabled === false
-			? `${updated.name} is no longer active.`
-			: `${updated.name} was updated.`,
+		body:
+			enabled === false
+				? `${updated.name} is no longer active.`
+				: `${updated.name} was updated.`,
 		sourceType: "app-api-key",
 		sourceId: updated.id,
 		severity: enabled === false ? "warning" : "success",
@@ -215,7 +216,10 @@ export async function deleteAppApiKeyForUser({
 	userId: string;
 	keyId: string;
 }) {
-	const ownedKey = await repositories.apiKey.findByIdAndReferenceId(keyId, userId);
+	const ownedKey = await repositories.apiKey.findByIdAndReferenceId(
+		keyId,
+		userId,
+	);
 	if (!ownedKey) {
 		return null;
 	}

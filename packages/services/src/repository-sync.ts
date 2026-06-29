@@ -15,7 +15,7 @@ import {
 } from "@gitpal/repositories";
 import { mapWithConcurrency } from "./bounded-concurrency";
 import {
-	createAppAdapterForRepositoryPath,
+	createProviderAdapterForAccount,
 	type EnterpriseProvider,
 	getAccountForProvider,
 	getEnterpriseProviderMap,
@@ -509,16 +509,114 @@ async function cleanupWorkspaceMembershipsForProvider({
 async function refreshRepositoriesForAccount(
 	userId: string,
 	account: Account,
-	_enterpriseProviders: Map<string, EnterpriseProvider>,
+	enterpriseProviders: Map<string, EnterpriseProvider>,
 ) {
-	// App-installation-only discovery. Repositories are enumerated from the
-	// GitHub App installations (App + installation credentials), never from the
-	// OAuth login token the user authenticated to GitPal with. GitLab and
-	// enterprise providers have no GitHub App installation concept, so their
-	// repository discovery is disabled rather than borrowing user credentials.
-	if (account.providerId !== "github") {
+	// Cloud GitHub repository discovery remains App-installation-only. GitLab
+	// and enterprise providers use their own OAuth-backed provider adapters so
+	// they can sync the repositories the connected account can actually reach.
+	if (account.providerId === "github") {
+		try {
+			// Cloud GitHub repositories have no enterprise provider record; provider
+			// naming falls back to the GitHub defaults.
+			const provider = null;
+
+			const repositories = await listAppRepositoriesForAccount(account);
+			const seenRepositoryIds = new Set<string>();
+			const seenWorkspaceIds = new Set<string>();
+
+			const synced = await mapWithConcurrency(
+				repositories,
+				5,
+				async (repository) => {
+					// FIX Bug 1: repos without a workspace ref (e.g. personal repos) were
+					// previously skipped entirely, meaning they never got a repository_access
+					// row, so getAutomationActorForRepository always returned null for them.
+					// Fall back to a synthetic personal workspace derived from the account.
+					const workspaceRef =
+						repository.workspace ??
+						buildPersonalWorkspaceRef(account, repository);
+
+					const organizationId = await upsertWorkspaceForUser({
+						userId,
+						account,
+						provider,
+						workspace: workspaceRef,
+					});
+
+					const repositoryPrimaryId = await upsertRepositoryForUser({
+						userId,
+						account,
+						repository,
+						provider,
+						organizationId,
+					});
+
+					return { organizationId, repositoryPrimaryId };
+				},
+			);
+			for (const { organizationId, repositoryPrimaryId } of synced) {
+				seenWorkspaceIds.add(organizationId);
+				seenRepositoryIds.add(repositoryPrimaryId);
+			}
+
+			await cleanupRepositoryAccessForProvider({
+				userId,
+				providerId: account.providerId,
+				seenRepositoryIds: [...seenRepositoryIds],
+			});
+
+			await cleanupWorkspaceMembershipsForProvider({
+				userId,
+				providerId: account.providerId,
+				seenWorkspaceIds: [...seenWorkspaceIds],
+			});
+
+			log.info("Provider repositories synced.", {
+				providerId: account.providerId,
+				userId,
+				syncedRepositories: seenRepositoryIds.size,
+				syncedWorkspaces: seenWorkspaceIds.size,
+			});
+
+			return {
+				syncedRepositories: seenRepositoryIds.size,
+				workspaceIds: [...seenWorkspaceIds],
+				error: null as string | null,
+				skipped: false,
+			};
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? `${getProviderName(account)}: ${error.message}`
+					: `${getProviderName(account)}: unable to sync repositories`;
+
+			log.error("Provider repository sync failed.", {
+				err: error,
+				providerId: account.providerId,
+				userId,
+			});
+
+			return {
+				syncedRepositories: 0,
+				workspaceIds: [] as string[],
+				error: message,
+				skipped: false,
+			};
+		}
+	}
+
+	const enterpriseProvider = account.providerId.startsWith("enterprise-git:")
+		? enterpriseProviders.get(account.providerId.replace("enterprise-git:", ""))
+		: null;
+
+	const adapter = await createProviderAdapterForAccount({
+		account,
+		provider: enterpriseProvider,
+	});
+
+	if (!adapter) {
 		log.info(
-			"Repository discovery skipped (App installation discovery is only available for cloud GitHub).",
+			"Repository discovery skipped (provider credentials are unavailable for this account).",
 			{ providerId: account.providerId, userId },
 		);
 		return {
@@ -530,11 +628,8 @@ async function refreshRepositoriesForAccount(
 	}
 
 	try {
-		// Cloud GitHub repositories have no enterprise provider record; provider
-		// naming falls back to the GitHub defaults.
-		const provider = null;
-
-		const repositories = await listAppRepositoriesForAccount(account);
+		const provider = enterpriseProvider;
+		const repositories = await adapter.listRepositories();
 		const seenRepositoryIds = new Set<string>();
 		const seenWorkspaceIds = new Set<string>();
 
@@ -542,10 +637,6 @@ async function refreshRepositoriesForAccount(
 			repositories,
 			5,
 			async (repository) => {
-				// FIX Bug 1: repos without a workspace ref (e.g. personal repos) were
-				// previously skipped entirely, meaning they never got a repository_access
-				// row, so getAutomationActorForRepository always returned null for them.
-				// Fall back to a synthetic personal workspace derived from the account.
 				const workspaceRef =
 					repository.workspace ??
 					buildPersonalWorkspaceRef(account, repository);
@@ -1007,18 +1098,15 @@ export async function addRepositoryForUser({
 		? enterpriseProviders.get(account.providerId.replace("enterprise-git:", ""))
 		: null;
 
-	// App-installation-only: resolve the GitHub App installation for this
-	// repository instead of using the OAuth login token of the user. GitLab and
-	// enterprise providers cannot authenticate as a GitHub App, so adding their
-	// repositories this way is disabled.
-	const adapter = await createAppAdapterForRepositoryPath({
-		providerId: account.providerId,
+	const adapter = await createProviderAdapterForAccount({
+		account,
+		provider,
 		repositoryPath,
 	});
 
 	if (!adapter) {
 		log.info(
-			"Repository could not be added (App installation access is unavailable; GitLab and enterprise providers are not supported).",
+			"Repository could not be added (provider access is unavailable for this account).",
 			{ providerId: account.providerId, userId, repositoryPath },
 		);
 		return null;

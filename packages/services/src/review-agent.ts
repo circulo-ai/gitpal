@@ -36,10 +36,7 @@ export const REVIEW_PROMPT_VERSION = "review-v2.0.0";
 
 const reviewSuggestionSchema = z.object({
 	kind: z.enum(["patch_hint", "code_snippet", "note"]),
-	title: z
-		.string()
-		.min(1)
-		.describe("Short title for the remediation idea."),
+	title: z.string().min(1).describe("Short title for the remediation idea."),
 	body: z
 		.string()
 		.min(1)
@@ -286,7 +283,9 @@ function sanitizeReviewOutput(
 				line:
 					finding.line && finding.line > 0 ? Math.round(finding.line) : null,
 				suggestions: finding.suggestions
-					.filter((suggestion) => suggestion.title.trim() && suggestion.body.trim())
+					.filter(
+						(suggestion) => suggestion.title.trim() && suggestion.body.trim(),
+					)
 					.map((suggestion) => ({
 						...suggestion,
 						kind: suggestion.kind,

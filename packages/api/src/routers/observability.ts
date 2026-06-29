@@ -5,8 +5,8 @@ import * as dashboardSchema from "@gitpal/db/schema/dashboard";
 import * as observabilitySchema from "@gitpal/db/schema/observability";
 import { repositories } from "@gitpal/repositories";
 import { listRepositoriesForUser } from "@gitpal/services/repository-sync";
-import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 
@@ -268,7 +268,7 @@ function issuePayload(
 				number: issue.number,
 				title: issue.title,
 				htmlUrl: issue.htmlUrl,
-		}
+			}
 		: null;
 }
 
@@ -512,60 +512,61 @@ export const observabilityRouter = router({
 	detail: protectedProcedure
 		.input(observabilityDetailSchema)
 		.query(async ({ ctx, input }) => {
-			const [eventRows, requestedRepository, requestedPullRequest, requestedIssue] =
-				await Promise.all([
-					db
-						.select({
-							event: observabilitySchema.observabilityEvent,
-							repository: dashboardSchema.repository,
-							pullRequest: dashboardSchema.pullRequest,
-							issue: dashboardSchema.issue,
-						})
-						.from(observabilitySchema.observabilityEvent)
-						.leftJoin(
-							dashboardSchema.repository,
+			const [
+				eventRows,
+				requestedRepository,
+				requestedPullRequest,
+				requestedIssue,
+			] = await Promise.all([
+				db
+					.select({
+						event: observabilitySchema.observabilityEvent,
+						repository: dashboardSchema.repository,
+						pullRequest: dashboardSchema.pullRequest,
+						issue: dashboardSchema.issue,
+					})
+					.from(observabilitySchema.observabilityEvent)
+					.leftJoin(
+						dashboardSchema.repository,
+						eq(
+							observabilitySchema.observabilityEvent.repositoryId,
+							dashboardSchema.repository.id,
+						),
+					)
+					.leftJoin(
+						dashboardSchema.pullRequest,
+						eq(
+							observabilitySchema.observabilityEvent.pullRequestId,
+							dashboardSchema.pullRequest.id,
+						),
+					)
+					.leftJoin(
+						dashboardSchema.issue,
+						eq(
+							observabilitySchema.observabilityEvent.issueId,
+							dashboardSchema.issue.id,
+						),
+					)
+					.where(
+						and(
+							eq(observabilitySchema.observabilityEvent.id, input.id),
 							eq(
-								observabilitySchema.observabilityEvent.repositoryId,
-								dashboardSchema.repository.id,
+								observabilitySchema.observabilityEvent.userId,
+								ctx.session.user.id,
 							),
-						)
-						.leftJoin(
-							dashboardSchema.pullRequest,
-							eq(
-								observabilitySchema.observabilityEvent.pullRequestId,
-								dashboardSchema.pullRequest.id,
-							),
-						)
-						.leftJoin(
-							dashboardSchema.issue,
-							eq(
-								observabilitySchema.observabilityEvent.issueId,
-								dashboardSchema.issue.id,
-							),
-						)
-						.where(
-							and(
-								eq(
-									observabilitySchema.observabilityEvent.id,
-									input.id,
-								),
-								eq(
-									observabilitySchema.observabilityEvent.userId,
-									ctx.session.user.id,
-								),
-							),
-						)
-						.limit(1),
-					input.repositoryId
-						? repositories.repository.findById(input.repositoryId)
-						: Promise.resolve(null),
-					input.pullRequestId
-						? repositories.pullRequest.findById(input.pullRequestId)
-						: Promise.resolve(null),
-					input.issueId
-						? repositories.issue.findById(input.issueId)
-						: Promise.resolve(null),
-				]);
+						),
+					)
+					.limit(1),
+				input.repositoryId
+					? repositories.repository.findById(input.repositoryId)
+					: Promise.resolve(null),
+				input.pullRequestId
+					? repositories.pullRequest.findById(input.pullRequestId)
+					: Promise.resolve(null),
+				input.issueId
+					? repositories.issue.findById(input.issueId)
+					: Promise.resolve(null),
+			]);
 
 			const eventRow = eventRows[0] ?? null;
 			const sourceType = input.sourceType ?? eventRow?.event.sourceType ?? null;
@@ -615,19 +616,25 @@ export const observabilityRouter = router({
 						break;
 					}
 
-					const [reviewRepository, reviewPullRequest, reviewIssue, reviewSteps] =
-						await Promise.all([
-							repositories.repository.findById(reviewRun.repositoryId),
-							reviewRun.pullRequestId
-								? repositories.pullRequest.findById(reviewRun.pullRequestId)
-								: Promise.resolve(null),
-							reviewRun.issueId
-								? repositories.issue.findById(reviewRun.issueId)
-								: Promise.resolve(null),
-							repositories.reviewRunStep.listByReviewRun(reviewRun.id),
-						]);
+					const [
+						reviewRepository,
+						reviewPullRequest,
+						reviewIssue,
+						reviewSteps,
+					] = await Promise.all([
+						repositories.repository.findById(reviewRun.repositoryId),
+						reviewRun.pullRequestId
+							? repositories.pullRequest.findById(reviewRun.pullRequestId)
+							: Promise.resolve(null),
+						reviewRun.issueId
+							? repositories.issue.findById(reviewRun.issueId)
+							: Promise.resolve(null),
+						repositories.reviewRunStep.listByReviewRun(reviewRun.id),
+					]);
 
-					repository = repositoryPayload(reviewRepository ?? requestedRepository);
+					repository = repositoryPayload(
+						reviewRepository ?? requestedRepository,
+					);
 					pullRequest = pullRequestPayload(
 						reviewPullRequest ?? requestedPullRequest,
 					);
@@ -683,10 +690,7 @@ export const observabilityRouter = router({
 							buildDetailField("Review template", reviewRun.reviewTemplate),
 							buildDetailField("Started at", reviewRun.startedAt),
 							buildDetailField("Completed at", reviewRun.completedAt),
-							buildDetailField(
-								"Step count",
-								reviewSteps.length,
-							),
+							buildDetailField("Step count", reviewSteps.length),
 						],
 						raw: toRecord(reviewRun.result),
 					});
@@ -736,7 +740,9 @@ export const observabilityRouter = router({
 					const relatedIssue = relatedRun?.issueId
 						? await repositories.issue.findById(relatedRun.issueId)
 						: null;
-					repository = repositoryPayload(relatedRepository ?? requestedRepository);
+					repository = repositoryPayload(
+						relatedRepository ?? requestedRepository,
+					);
 					pullRequest = pullRequestPayload(
 						relatedPullRequest ?? requestedPullRequest,
 					);
@@ -793,9 +799,8 @@ export const observabilityRouter = router({
 						raw: toRecord(receipt.payload),
 					});
 					if (relatedRun) {
-						const relatedSteps = await repositories.reviewRunStep.listByReviewRun(
-							relatedRun.id,
-						);
+						const relatedSteps =
+							await repositories.reviewRunStep.listByReviewRun(relatedRun.id);
 						traceEvents.push(
 							...relatedSteps.map((step) =>
 								buildReviewStepEvent(step, {
@@ -886,13 +891,19 @@ export const observabilityRouter = router({
 							buildDetailField("Billing mode", generation.billingMode),
 							buildDetailField("Model", generation.modelId),
 							buildDetailField("Provider", generation.providerLabel),
-							buildDetailField("Route", generation.routeLabel ?? generation.routeId),
+							buildDetailField(
+								"Route",
+								generation.routeLabel ?? generation.routeId,
+							),
 							buildDetailField("Input tokens", generation.inputTokens),
 							buildDetailField("Output tokens", generation.outputTokens),
 							buildDetailField("Total tokens", generation.totalTokens),
 							buildDetailField("Actual cost", costCents),
 							buildDetailField("Wallet debit", generation.walletDebitCents),
-							buildDetailField("Provider generation ID", generation.providerGenerationId),
+							buildDetailField(
+								"Provider generation ID",
+								generation.providerGenerationId,
+							),
 							buildDetailField("Error", generation.errorMessage),
 						],
 						raw: {

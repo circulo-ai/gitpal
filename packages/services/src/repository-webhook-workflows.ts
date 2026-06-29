@@ -1,8 +1,5 @@
 import type * as dashboardSchema from "@gitpal/db/schema/dashboard";
-import {
-	type GitRepositoryLabel,
-	type GitWebhookEnvelope,
-} from "@gitpal/git";
+import type { GitRepositoryLabel, GitWebhookEnvelope } from "@gitpal/git";
 import {
 	type RepositoryLabelerRunJobData,
 	type RepositoryReviewRunJobData,
@@ -17,14 +14,6 @@ import { runRepositoryLabeler } from "./labeler";
 import { sendUserNotification } from "./notifications";
 import { recordObservabilityEvent } from "./observability";
 import { projectPullRequestSnapshot } from "./pr-projection";
-import { runRepositoryReview } from "./review-agent";
-import { failActiveReviewRun } from "./review-runs";
-import {
-	finishRunStep,
-	recordCompletedRunStep,
-	startRunStep,
-} from "./run-trace";
-import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 import { getRepositoryById } from "./repository-webhook-ingress";
 import { loadDurableAiWebhookContext } from "./repository-webhook-receipts";
 import {
@@ -34,11 +23,17 @@ import {
 	createReviewRun,
 	finalizeReviewRun,
 	finalizeUnstartedManualRun,
+	listSuggestedReviewersForRepository,
 	maybePublishSummaryComment,
 	requestProviderNativeReviewers,
 	toGitRepository,
-	listSuggestedReviewersForRepository,
 } from "./repository-webhooks";
+import {
+	type LabelDispatch,
+	type ReviewDispatch,
+	resolveLabelDispatch,
+	resolveReviewDispatch,
+} from "./repository-webhooks-dispatch";
 import {
 	extractLabelContext,
 	extractPullRequestContext,
@@ -46,12 +41,14 @@ import {
 	type ProviderType,
 	type PullRequestEventContext,
 } from "./repository-webhooks-shared";
+import { runRepositoryReview } from "./review-agent";
+import { failActiveReviewRun } from "./review-runs";
 import {
-	type LabelDispatch,
-	type ReviewDispatch,
-	resolveLabelDispatch,
-	resolveReviewDispatch,
-} from "./repository-webhooks-dispatch";
+	finishRunStep,
+	recordCompletedRunStep,
+	startRunStep,
+} from "./run-trace";
+import { getRepositoryWorkspaceSettings } from "./workspace-settings";
 
 const log = createLogger("repository-webhook-workflows");
 

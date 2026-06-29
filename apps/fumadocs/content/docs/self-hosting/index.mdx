@@ -22,6 +22,13 @@ GitPal is intentionally self-host friendly. The main difference is that a few cl
 - Leave `BETTER_AUTH_COOKIE_DOMAIN` unset unless the app and API need to share cookies across sibling subdomains for server-side auth sharing.
 - Set `GITPAL_WEBHOOK_BASE_URL` when GitHub or GitLab cannot reach the API through the normal app URL.
 
+## Database Admin
+
+- Production Compose now includes `drizzle-gateway` for database inspection and schema work.
+- Set `MASTERPASS` to a strong password before bringing the stack up.
+- The gateway reuses the same Postgres credential defaults that back `DATABASE_URL`, so one credential set controls the app, migrations, and the admin surface.
+- Keep the service internal unless you intentionally publish it behind a protected proxy or dashboard route.
+
 ## Auth and cookies
 
 - Better Auth uses host-only cookies by default when `BETTER_AUTH_COOKIE_DOMAIN` is empty.

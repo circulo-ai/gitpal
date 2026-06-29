@@ -44,7 +44,7 @@ Core server variables:
 
 | Variable                 | Purpose                                                       |
 | ------------------------ | ------------------------------------------------------------- |
-| `DATABASE_URL`           | PostgreSQL connection string used by `@gitpal/db`.            |
+| `DATABASE_URL`           | PostgreSQL connection string used by `@gitpal/db`. In Compose it defaults to the Postgres service credentials unless you override it. |
 | `BETTER_AUTH_SECRET`     | Better Auth secret, at least 32 characters.                   |
 | `BETTER_AUTH_URL`        | Public auth/server URL.                                       |
 | `BETTER_AUTH_COOKIE_DOMAIN` | Optional shared cookie domain for sibling-subdomain deployments. GitPal falls back to a client-side session check when the web origin cannot see the auth cookie, but a shared domain keeps the first workspace render server-side. Cookies remain `SameSite=Lax`; leave unset for single-origin or localhost setups. |
@@ -54,6 +54,15 @@ Core server variables:
 | `LOG_LEVEL`              | `fatal`, `error`, `warn`, `info`, `debug`, or `trace`.        |
 | `TRUST_PROXY_HEADERS`    | Enable when the server is behind a trusted reverse proxy.     |
 | `GITPAL_CLOUD_BILLING_ENABLED` | Set to `true` only for the cloud edition when wallet top-ups should be available. |
+
+Compose database variables:
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `POSTGRES_DB` | `gitpal` | Database name used by the production Postgres service and the derived Compose `DATABASE_URL`. |
+| `POSTGRES_USER` | `postgres` | Database user used by the production Postgres service and the derived Compose `DATABASE_URL`. |
+| `POSTGRES_PASSWORD` | `postgres` | Database password used by the production Postgres service and the derived Compose `DATABASE_URL`. Replace it before production. |
+| `MASTERPASS` | required | Drizzle Gateway login password for the production compose admin service. |
 
 Database pool variables:
 
@@ -129,9 +138,12 @@ The Compose stack includes:
 - `web` - Next.js frontend.
 - `server` - Hono API, tRPC, Better Auth, provider webhooks, and the Inngest SDK route.
 - `postgres` and `redis` - GitPal application data and queue/cache infrastructure.
+- `drizzle-gateway` - internal Drizzle Gateway access for database inspection and admin tasks.
 - `inngest` - self-hosted Inngest runtime.
 - `postgres-inngest` and `redis-inngest` - Inngest runtime state.
 - `inngest-sync` - one-shot internal schema sync that calls `PUT http://server:3000/api/inngest` after `server` and `inngest` are healthy.
+
+The Compose stack derives the default `DATABASE_URL` from `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`, so the app, migrations, and Drizzle Gateway all use the same credential set unless you intentionally override it for an external database. Set `MASTERPASS` to protect the gateway login.
 
 The Inngest SDK route does not need to be internet reachable in this deployment. It only needs to be reachable from the Inngest service through the Compose network. Keep `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` identical between `server` and `inngest`.
 

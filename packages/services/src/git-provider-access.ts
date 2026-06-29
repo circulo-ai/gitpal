@@ -7,6 +7,7 @@ import {
 	type GitActor,
 	type GitProviderAdapter,
 	type GitRepository,
+	type GitWorkspaceRef,
 	listGitHubAppInstallationRepositories,
 	listGitHubAppInstallations,
 } from "@gitpal/git";
@@ -19,10 +20,20 @@ import {
 } from "@gitpal/repositories";
 
 const log = createLogger("git-provider-access");
+const GITHUB_APP_INSTALLATIONS_CACHE_TTL_MS = 2 * 60 * 1000;
 
 export type GitAccount = Account;
 export type EnterpriseProvider = EnterpriseGitProvider;
 type RepositoryRow = Repository;
+type GitHubAppInstallationsCacheEntry = {
+	expiresAt: number;
+	installations: Awaited<ReturnType<typeof listGitHubAppInstallations>>;
+};
+
+const githubAppInstallationsCache = new Map<
+	string,
+	GitHubAppInstallationsCacheEntry
+>();
 
 function normalizePemSecret(value: string) {
 	const trimmed = value.trim().replace(/\\n/g, "\n");
@@ -45,6 +56,90 @@ function getCloudGitHubAppConfig() {
 		appId: env.GITHUB_APP_ID,
 		privateKey: normalizePemSecret(env.GITHUB_APP_PRIVATE_KEY),
 	};
+}
+
+function getGitHubAppInstallationsCacheKey({
+	appId,
+	apiBaseUrl,
+	userAgent,
+}: {
+	appId: string;
+	apiBaseUrl?: string;
+	userAgent?: string;
+}) {
+	return [
+		appId,
+		apiBaseUrl ?? "https://api.github.com",
+		userAgent ?? "GitPal",
+	].join("|");
+}
+
+async function listGitHubAppInstallationsCached({
+	appId,
+	privateKey,
+	apiBaseUrl,
+	userAgent,
+}: {
+	appId: string;
+	privateKey: string;
+	apiBaseUrl?: string;
+	userAgent?: string;
+}) {
+	const cacheKey = getGitHubAppInstallationsCacheKey({
+		appId,
+		apiBaseUrl,
+		userAgent,
+	});
+	const cached = githubAppInstallationsCache.get(cacheKey);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.installations;
+	}
+
+	const installations = await listGitHubAppInstallations({
+		appId,
+		privateKey,
+		apiBaseUrl,
+		userAgent,
+	});
+	githubAppInstallationsCache.set(cacheKey, {
+		expiresAt: Date.now() + GITHUB_APP_INSTALLATIONS_CACHE_TTL_MS,
+		installations,
+	});
+
+	return installations;
+}
+
+async function findGitHubAppInstallationForOwner({
+	ownerId,
+	ownerPath,
+}: {
+	ownerId: string;
+	ownerPath: string;
+}) {
+	const config = getCloudGitHubAppConfig();
+	if (!config) {
+		return null;
+	}
+
+	const installations = await listGitHubAppInstallationsCached({
+		appId: config.appId,
+		privateKey: config.privateKey,
+	});
+
+	const normalizedPath = ownerPath.trim().toLowerCase();
+	return (
+		installations.find((installation) => {
+			const account = installation.account;
+			if (!account) {
+				return false;
+			}
+			if (ownerId && account.id === ownerId) {
+				return true;
+			}
+			const login = account.login?.trim().toLowerCase();
+			return Boolean(login && normalizedPath && login === normalizedPath);
+		}) ?? null
+	);
 }
 
 function getProviderType(
@@ -342,6 +437,45 @@ export async function getAutomationActorForRepository({
 	};
 }
 
+/**
+ * Builds the provider adapter that owns a workspace, preferring installation
+ * credentials when the workspace comes from cloud GitHub and falling back to
+ * scoped OAuth credentials for GitLab and enterprise hosts.
+ */
+export async function createProviderAdapterForWorkspace({
+	account,
+	provider,
+	workspace,
+	webhookSecrets = [],
+	webhookSigningSecrets = [],
+}: {
+	account: Account;
+	provider?: EnterpriseProvider | null;
+	workspace: Pick<GitWorkspaceRef, "providerOwnerId" | "providerOwnerPath">;
+	webhookSecrets?: string[];
+	webhookSigningSecrets?: string[];
+}): Promise<GitProviderAdapter | null> {
+	if (account.providerId === "github") {
+		const installation = await findGitHubAppInstallationForOwner({
+			ownerId: workspace.providerOwnerId,
+			ownerPath: workspace.providerOwnerPath,
+		});
+
+		if (!installation) {
+			return null;
+		}
+
+		return createAppInstallationAdapterById(installation.installationId);
+	}
+
+	return createOAuthProviderAdapterForAccount({
+		account,
+		provider,
+		webhookSecrets,
+		webhookSigningSecrets,
+	});
+}
+
 export type AppInstallationDiscovery = {
 	installationId: number;
 	account: GitActor | null;
@@ -369,7 +503,7 @@ export async function listAppInstallationsForDiscovery(): Promise<
 		return [];
 	}
 
-	const installations = await listGitHubAppInstallations({
+	const installations = await listGitHubAppInstallationsCached({
 		appId: config.appId,
 		privateKey: config.privateKey,
 	});
@@ -535,22 +669,9 @@ export async function createAppInstallationAdapterForOwner({
 		return null;
 	}
 
-	const installations = await listGitHubAppInstallations({
-		appId: config.appId,
-		privateKey: config.privateKey,
-	});
-
-	const normalizedPath = ownerPath.trim().toLowerCase();
-	const match = installations.find((installation) => {
-		const account = installation.account;
-		if (!account) {
-			return false;
-		}
-		if (ownerId && account.id === ownerId) {
-			return true;
-		}
-		const login = account.login?.trim().toLowerCase();
-		return Boolean(login && normalizedPath && login === normalizedPath);
+	const match = await findGitHubAppInstallationForOwner({
+		ownerId,
+		ownerPath,
 	});
 
 	if (!match) {

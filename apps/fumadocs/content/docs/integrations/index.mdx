@@ -34,7 +34,19 @@ GitPal supports GitHub and GitLab, including self-hosted variants. The app keeps
 | GitHub Enterprise Server | Enterprise host OAuth plus a GitHub App when available | Use a personal token only for a short-lived diagnostic. |
 | Self-managed GitLab | Enterprise host OAuth | Confirm the host token lifetime and refresh-token policy with the instance administrator. |
 
-The install wizard validates the host, explains the callback URL, and keeps cloud and enterprise credentials separate. Repository cards then show the next required action: enable automation, connect the webhook, run the first sync, or open the review queue.
+The provider install flow validates the host, explains the callback URL, and keeps cloud and enterprise credentials separate. Repository cards then show the next required action: enable automation, connect the webhook, run the first sync, or open the review queue.
+
+## Repository install wizard
+
+![Repository install wizard](/screenshots/repository-install-wizard.svg)
+
+- Open the wizard from the Repositories page when you want to add a single repository or project explicitly.
+- Choose the provider first, then enter the repository path that should be synced.
+- GitHub repositories resolve through the App installation that owns the workspace.
+- GitLab repositories stay tied to the connected OAuth account, but the repository path is still selected one at a time.
+- After install, GitPal queues the first sync and exposes the repository-specific next step instead of hiding it behind a generic refresh action.
+
+See [Configuration](/docs/configuration) for `.gitpal.yaml`, `.gitpal.yml`, and the shared `gitpal` repository convention.
 
 ## Webhooks
 

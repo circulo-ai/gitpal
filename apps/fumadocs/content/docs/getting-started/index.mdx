@@ -13,6 +13,8 @@ GitPal is designed to get from install to a useful review path quickly, while st
 
 ![GitPal workspace overview](/screenshots/workspace-overview.svg)
 
+![GitPal repository install wizard](/screenshots/repository-install-wizard.svg)
+
 ## 1. Start the local stack
 
 - Run `bun run docker:dev:up` to start Postgres and Redis.
@@ -20,16 +22,18 @@ GitPal is designed to get from install to a useful review path quickly, while st
 - Run `bun run dev:inngest` in a second terminal for the local Inngest dev server.
 - Run `bun run db:push` or `bun run db:migrate` once the database is reachable.
 
-## 2. Connect a provider
+## 2. Open the repository install wizard
 
-- Sign in with GitHub or GitLab.
-- Connect the repository account that should create comments, request reviewers, and apply labels.
-- Make sure the repository access mapping includes the people who should receive native reviewer requests.
+- Open the repository install wizard from the Repositories page.
+- Choose the provider first, then add the exact repository or project path.
+- GitHub uses the App installation path, while GitLab keeps the OAuth connection and scopes the repository explicitly.
+- The wizard queues the first sync after install so webhook setup and repository discovery stay visible.
 
-## 3. Open the workspace settings
+## 3. Open configuration
 
+- Use the configuration page or the repository settings panel to tune review behavior.
 - Choose the review model, walkthrough model, labeler model, and fun model from curated selects.
-- Use the custom override path only when you intentionally need an unlisted model ID.
+- Use `.gitpal.yaml` or `.gitpal.yml` only when the repository needs a source-controlled override.
 - Keep the settings preview open while you tune the workflow so you can see the final comment format.
 
 ## 4. Verify webhook delivery

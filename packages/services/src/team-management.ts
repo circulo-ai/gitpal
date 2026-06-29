@@ -7,7 +7,7 @@ import {
 	repositories,
 } from "@gitpal/repositories";
 import {
-	createAppInstallationAdapterForOwner,
+	createProviderAdapterForWorkspace,
 	getAccountForProvider,
 	getEnterpriseProviderMap,
 } from "./git-provider-access";
@@ -254,10 +254,11 @@ export async function syncWorkspaceTeamMembersForUser({
 		};
 	}
 
-	const { metadata, account } = await getProviderWorkspaceContext({
-		userId,
-		organizationId,
-	});
+	const { metadata, account, enterpriseProviders } =
+		await getProviderWorkspaceContext({
+			userId,
+			organizationId,
+		});
 
 	if (!metadata) {
 		return {
@@ -280,15 +281,16 @@ export async function syncWorkspaceTeamMembersForUser({
 	}
 
 	try {
-		// App-installation-only: provider access is authenticated as the GitHub
-		// App installation that owns this workspace. We never fall back to the
-		// OAuth login token the user authenticated to GitPal with. GitLab and
-		// enterprise workspaces cannot authenticate as a GitHub App, so their
-		// team-member sync is disabled rather than borrowing user credentials.
-		const adapter = await createAppInstallationAdapterForOwner({
-			providerId: metadata.providerId,
-			ownerId: metadata.ownerId,
-			ownerPath: metadata.ownerPath,
+		// Team-member sync reuses the same workspace-scoped provider adapter that
+		// repository sync uses. GitHub workspaces resolve to the matching App
+		// installation; GitLab and enterprise workspaces use the connected OAuth
+		// account for the provider that owns the workspace.
+		const adapter = await createProviderAdapterForWorkspace({
+			account,
+			provider: enterpriseProviders.get(
+				metadata.providerId.replace("enterprise-git:", ""),
+			),
+			workspace: toGitWorkspaceRef(metadata),
 		});
 
 		if (!adapter) {
@@ -298,7 +300,7 @@ export async function syncWorkspaceTeamMembersForUser({
 				count: 0,
 				lastSyncedAt: latestSyncAt?.toISOString() ?? null,
 				error:
-					"No GitHub App installation is available for this workspace; team-member sync is disabled (GitLab and enterprise providers are not supported).",
+					"No provider adapter is available for this workspace; team-member sync is disabled until the connected installation or account can be resolved.",
 			};
 		}
 

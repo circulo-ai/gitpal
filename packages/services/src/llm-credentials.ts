@@ -387,7 +387,13 @@ function createRouterModel({
 	if (routerId === "ollama") {
 		const ollama = createOllama({
 			baseURL: env.OLLAMA_BASE_URL,
-			// TODO: Implement api key into headers in future
+			...(env.OLLAMA_API_KEY
+				? {
+						headers: {
+							Authorization: `Bearer ${env.OLLAMA_API_KEY}`,
+						},
+					}
+				: {}),
 		});
 		return ollama(modelId);
 	}

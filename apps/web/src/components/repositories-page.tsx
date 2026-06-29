@@ -114,20 +114,30 @@ function getRepositoryNextAction(repository: {
 	reconcileState: string;
 	nextRetryAt: string | null;
 	retryHint: string | null;
-}): { title: string; description: string; href: Route | null } {
+}): {
+	badge: string;
+	title: string;
+	description: string;
+	href: Route | null;
+	ctaLabel: string;
+} {
 	if (!repository.enabled) {
 		return {
+			badge: "Paused",
 			title: "Enable AI workflows",
 			description:
 				"Turn automation on when this repository is ready for reviews.",
 			href: `/repositories/${repository.id}/settings` as Route,
+			ctaLabel: "Open settings",
 		};
 	}
 	if (!repository.webhookConnected) {
 		return {
+			badge: "Webhook missing",
 			title: "Connect the webhook",
 			description: "Open settings to create and verify the provider webhook.",
 			href: `/repositories/${repository.id}/settings` as Route,
+			ctaLabel: "Open settings",
 		};
 	}
 	if (!repository.lastReconciledAt || repository.reconcileState === "failed") {
@@ -135,6 +145,8 @@ function getRepositoryNextAction(repository: {
 			? ` Automatic retry ${formatDistanceToNow(new Date(repository.nextRetryAt), { addSuffix: true })}.`
 			: "";
 		return {
+			badge:
+				repository.reconcileState === "failed" ? "Sync failed" : "Sync needed",
 			title:
 				repository.reconcileState === "failed"
 					? "Retry repository sync"
@@ -144,13 +156,17 @@ function getRepositoryNextAction(repository: {
 					"Import pull requests and issues, then confirm sync health.") +
 				retryAt,
 			href: null,
+			ctaLabel:
+				repository.reconcileState === "failed" ? "Retry sync" : "Queue sync",
 		};
 	}
 	return {
-		title: "Ready for reviews",
+		badge: "Ready",
+		title: "Review queue ready",
 		description:
-			"Open a pull request or tune repository-specific review settings.",
+			"Open pull requests to review, or tune repository-specific review settings.",
 		href: `/pull-requests?repositoryId=${encodeURIComponent(repository.id)}`,
+		ctaLabel: "Open pull requests",
 	};
 }
 
@@ -163,21 +179,47 @@ function RepositoryOnboardingCard({
 }) {
 	const action = getRepositoryNextAction(repository);
 	return (
-		<div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-			<div className="font-medium text-sm">Next: {action.title}</div>
-			<p className="mt-1 text-muted-foreground text-xs">{action.description}</p>
-			<div className="mt-3">
+		<div
+			className={cn(
+				"rounded-2xl border p-4 shadow-sm",
+				action.href
+					? "border-emerald-500/20 bg-emerald-500/[0.03]"
+					: "border-border/60 bg-muted/20",
+			)}
+		>
+			<div className="flex items-start justify-between gap-3">
+				<div className="space-y-2">
+					<Badge
+						variant={action.href ? "secondary" : "outline"}
+						className="w-fit rounded-full px-2.5"
+					>
+						{action.badge}
+					</Badge>
+					<div className="space-y-1">
+						<div className="font-medium text-sm">{action.title}</div>
+						<p className="text-muted-foreground text-xs leading-5">
+							{action.description}
+						</p>
+					</div>
+				</div>
+				<ArrowRightIcon className="mt-1 size-4 shrink-0 text-muted-foreground" />
+			</div>
+			<div className="mt-4">
 				{action.href ? (
 					<Link
 						href={action.href}
-						className={buttonVariants({ variant: "outline", size: "sm" })}
+						className={buttonVariants({
+							variant: "outline",
+							size: "sm",
+						})}
 					>
-						{action.title}
+						{action.ctaLabel}
+						<ArrowRightIcon />
 					</Link>
 				) : (
 					<Button type="button" variant="outline" size="sm" onClick={onSync}>
 						<RefreshCcwIcon />
-						Sync Repository
+						{action.ctaLabel}
 					</Button>
 				)}
 			</div>

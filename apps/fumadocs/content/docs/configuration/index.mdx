@@ -1,0 +1,68 @@
+---
+title: Configuration
+description: Workspace settings, repository YAML, and central config precedence.
+---
+
+GitPal has two configuration layers that work together:
+
+- UI-managed workspace and repository settings.
+- File-based repository configuration via `.gitpal.yaml` or `.gitpal.yml`.
+
+![GitPal repository install wizard](/screenshots/repository-install-wizard.svg)
+
+## Workspace settings
+
+Workspace settings are the primary source for review policy, model routing, tool access, and automation defaults.
+
+- Organization settings apply to every repository in the workspace when repository overrides are enabled.
+- Repository settings can inherit from the workspace or keep a custom override set.
+- The repository settings panel now shows which config files were discovered and how they affected the preview.
+
+## Repository YAML
+
+Put `.gitpal.yaml` or `.gitpal.yml` in the repository root when you want repo-specific policy in source control.
+
+GitPal normalizes either of these shapes into the same settings model:
+
+```yaml
+version: 1
+settings:
+  general:
+    language: en-US
+  reviews:
+    behavior:
+      profile: chill
+      autoReview:
+        onOpen: true
+        onPush: true
+```
+
+You can also write the raw settings object directly if you prefer to keep the file shorter.
+
+## Central config
+
+GitPal also looks for a shared `gitpal` repository above the repository path.
+
+- GitHub: `<org>/gitpal`
+- GitLab: `<group>/gitpal`
+- Nested GitLab groups: `<group>/<subgroup>/gitpal`
+
+That central repository can hold a `.gitpal.yaml` or `.gitpal.yml` file that applies before the repository-local file.
+
+## Precedence
+
+From lowest to highest priority, GitPal applies:
+
+1. GitPal defaults.
+2. Workspace settings.
+3. Central `gitpal` repository config, when present.
+4. Repository-local `.gitpal.yaml` or `.gitpal.yml`.
+
+The UI preview reflects the same merge order so what you see in settings matches what the background jobs will use.
+
+## Practical workflow
+
+1. Tune organization defaults in the workspace settings page.
+2. Add or update the central `gitpal` repository when several repos share the same policy.
+3. Use repository-local YAML only for the repos that need a specific override.
+4. Open the repository settings panel to confirm the merged preview before you rely on it.

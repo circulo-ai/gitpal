@@ -93,11 +93,11 @@ function getProviderHint(provider: {
 	label: string;
 }) {
 	if (provider.providerId === "github") {
-		return "Choose all repositories or selected repositories in the GitHub App installation, then refresh GitPal.";
+		return "Choose all repositories or selected repositories in the GitHub App installation, then queue the first sync in GitPal.";
 	}
 
 	if (provider.type === "gitlab") {
-		return "Use your GitLab OAuth connection to sync the project or group paths you add below.";
+		return "Use your GitLab OAuth connection and add the exact project or group paths you want GitPal to sync.";
 	}
 
 	return "Use the connected host settings to confirm the repositories GitPal should sync.";

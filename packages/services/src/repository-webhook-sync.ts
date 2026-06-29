@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
 	enqueueRepositoryWebhookSyncJob,
 	type RepositoryWebhookSyncJobData,
@@ -187,5 +188,3 @@ export async function queueRepositoryWebhookSyncForUser(
 		};
 	}
 }
-
-import { randomUUID } from "node:crypto";

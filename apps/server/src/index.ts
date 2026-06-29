@@ -23,13 +23,13 @@ import {
 import { processRepositorySyncJob } from "@gitpal/services/repository-sync";
 import { processRepositoryWebhookSyncJob } from "@gitpal/services/repository-webhook-sync";
 import {
-	processProviderWebhookFailure,
-	processProviderWebhookReceiptJob,
 	processRepositoryLabelerRunJob,
 	processRepositoryReviewRunJob,
+	processProviderWebhookFailure,
+	processProviderWebhookReceiptJob,
 	receiveProviderWebhook,
-} from "@gitpal/services/repository-webhooks";
-import { failActiveReviewRun } from "@gitpal/services/review-runs";
+	failActiveReviewRun,
+} from "@gitpal/services";
 import { handleNowPaymentsWebhook } from "@gitpal/services/wallet";
 import { trpcServer } from "@hono/trpc-server";
 import { type Context, Hono } from "hono";

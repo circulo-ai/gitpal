@@ -7,7 +7,7 @@ process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
 process.env.CORS_ORIGIN ??= "http://localhost:3000";
 process.env.NEXT_PUBLIC_SERVER_URL ??= "http://localhost:3000";
 
-const repositoryWebhooksModulePromise = import("./repository-webhooks");
+const repositoryWebhooksModulePromise = import("./repository-webhooks-shared");
 
 describe("repository webhook access errors", () => {
 	test("detects GitHub webhook permission errors", async () => {

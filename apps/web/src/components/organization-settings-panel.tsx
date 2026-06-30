@@ -22,6 +22,12 @@ import { queryClient, trpc } from "@/utils/trpc";
 
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { SettingsChangeDock } from "./settings-change-dock";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 import { WorkspaceSettingsForm } from "./workspace-settings-form";
 import { formatWorkspaceSlug } from "./workspace-slug";
 
@@ -72,14 +78,13 @@ export function OrganizationSettingsPanel() {
 
 	if (!activeWorkspace) {
 		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Workspace defaults</CardTitle>
-					<CardDescription>
-						Sync and select a workspace before editing shared defaults.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
+			<div className="flex flex-col gap-6">
+				<PageHeader
+					eyebrow="Workspace defaults"
+					title="Choose a workspace first"
+					description="Shared review defaults live at the workspace level, so GitPal needs an active workspace before this page can load."
+				/>
+				<PageSectionCard contentClassName="pt-0">
 					<Empty className="min-h-64">
 						<EmptyHeader>
 							<EmptyTitle>No active workspace</EmptyTitle>
@@ -88,22 +93,23 @@ export function OrganizationSettingsPanel() {
 							</EmptyDescription>
 						</EmptyHeader>
 					</Empty>
-				</CardContent>
-			</Card>
+				</PageSectionCard>
+			</div>
 		);
 	}
 
 	if (!settings) {
 		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>{activeWorkspace.name}</CardTitle>
-					<CardDescription>Loading workspace defaults...</CardDescription>
-				</CardHeader>
-				<CardContent>
+			<div className="flex flex-col gap-6">
+				<PageHeader
+					eyebrow="Workspace defaults"
+					title={`Loading ${activeWorkspace.name}`}
+					description="GitPal is loading the shared review policy that repositories inherit from this workspace."
+				/>
+				<PageSectionCard contentClassName="pt-0">
 					<div className="h-96 rounded-2xl border border-border/60 bg-muted/10" />
-				</CardContent>
-			</Card>
+				</PageSectionCard>
+			</div>
 		);
 	}
 
@@ -112,31 +118,48 @@ export function OrganizationSettingsPanel() {
 		JSON.stringify(settings) !== JSON.stringify(savedSettings);
 
 	return (
-		<div className="relative pb-24">
-			<Card className="overflow-hidden">
-				<CardHeader className="gap-3">
-					<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-						<div className="space-y-1">
-							<CardTitle>{activeWorkspace.name}</CardTitle>
-							<CardDescription>
-								Workspace defaults for repositories that inherit shared review
-								behavior.
-							</CardDescription>
-						</div>
-						<Badge variant="outline" className="w-fit">
-							{formatWorkspaceSlug(activeWorkspace.slug)}
-						</Badge>
-					</div>
-				</CardHeader>
-				<CardContent>
-					<WorkspaceSettingsForm
-						value={settings}
-						onChange={setSettings}
-						previewSettings={settings}
-						previewWorkspaceName={activeWorkspace.name}
-					/>
-				</CardContent>
-			</Card>
+		<div className="relative space-y-6 pb-24">
+			<PageHeader
+				eyebrow="Workspace defaults"
+				title={activeWorkspace.name}
+				description="Define the baseline review policy for repositories in this workspace, then let individual repositories opt into overrides only when they truly need them."
+				badges={
+					<Badge variant="outline" className="w-fit">
+						{formatWorkspaceSlug(activeWorkspace.slug)}
+					</Badge>
+				}
+			/>
+
+			<PageStatGrid className="xl:grid-cols-3">
+				<PageStatCard
+					label="Scope"
+					value="Workspace-wide"
+					meta="Inherited by repositories that do not enable repository-specific overrides."
+				/>
+				<PageStatCard
+					label="Workspace slug"
+					value={formatWorkspaceSlug(activeWorkspace.slug)}
+					meta="Stable identifier used across workspace-scoped routes and settings."
+				/>
+				<PageStatCard
+					label="Override model"
+					value="Repository opt-in"
+					meta="Teams can keep one default policy and only customize the exceptions."
+				/>
+			</PageStatGrid>
+
+			<PageSectionCard
+				title="Shared review policy"
+				description="These defaults shape repository behavior across the workspace unless a repository explicitly saves its own overrides."
+				contentClassName="pt-0"
+			>
+				<WorkspaceSettingsForm
+					value={settings}
+					onChange={setSettings}
+					previewSettings={settings}
+					previewWorkspaceName={activeWorkspace.name}
+				/>
+			</PageSectionCard>
 			<SettingsChangeDock
 				open={isDirty}
 				title="Workspace defaults changed"

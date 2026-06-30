@@ -66,6 +66,12 @@ import Link from "next/link";
 import * as React from "react";
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 
 const kindFilters = [
 	{ label: "All", value: "all" },
@@ -646,49 +652,48 @@ export function ObservabilityPage() {
 	if (!activeWorkspace) {
 		return (
 			<main className="flex flex-col gap-6">
-				<div className="flex flex-col gap-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						Observability
-					</h1>
-				</div>
-				<Card>
-					<CardContent className="pt-6">
-						<Empty className="min-h-96">
-							<EmptyHeader>
-								<EmptyMedia variant="icon">
-									<ActivityIcon />
-								</EmptyMedia>
-								<EmptyTitle>No active workspace</EmptyTitle>
-								<EmptyDescription>
-									Sync provider access and pick a workspace.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
-					</CardContent>
-				</Card>
+				<PageHeader
+					eyebrow="Observability"
+					title="System activity and AI traces"
+					description="Trace AI calls, tools, jobs, and webhooks once a synced workspace is active."
+				/>
+				<PageSectionCard
+					title="No active workspace"
+					description="Sync provider access and pick a workspace."
+					contentClassName="pt-0"
+				>
+					<Empty className="min-h-80">
+						<EmptyHeader>
+							<EmptyMedia variant="icon">
+								<ActivityIcon />
+							</EmptyMedia>
+							<EmptyTitle>Select a workspace</EmptyTitle>
+							<EmptyDescription>
+								Observability is scoped to the active provider workspace so the
+								event timeline stays relevant and readable.
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
+				</PageSectionCard>
 			</main>
 		);
 	}
 
 	return (
 		<main className="flex flex-col gap-6">
-			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-				<div className="flex flex-col gap-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						Observability
-					</h1>
-					<p className="max-w-3xl text-muted-foreground text-sm">
-						Trace AI calls, tool activity, webhooks, billing, admin actions,
-						jobs, and inbox events across {activeWorkspace.name}.
-					</p>
-				</div>
-				<Badge variant="outline">
-					Updated{" "}
-					{timelineQuery.data?.updatedAt
-						? format(new Date(timelineQuery.data.updatedAt), "MMM d, HH:mm")
-						: format(now, "MMM d, HH:mm")}
-				</Badge>
-			</div>
+			<PageHeader
+				eyebrow="Observability"
+				title={`${activeWorkspace.name} activity timeline`}
+				description={`Trace AI calls, tool activity, webhooks, billing, admin actions, jobs, and inbox events across ${activeWorkspace.name}.`}
+				badges={
+					<Badge variant="outline">
+						Updated{" "}
+						{timelineQuery.data?.updatedAt
+							? format(new Date(timelineQuery.data.updatedAt), "MMM d, HH:mm")
+							: format(now, "MMM d, HH:mm")}
+					</Badge>
+				}
+			/>
 
 			<div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 xl:flex-row xl:items-center xl:justify-between">
 				<div className="flex flex-wrap items-center gap-2">
@@ -824,40 +829,28 @@ export function ObservabilityPage() {
 				/>
 			</div>
 
-			<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Total events</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{stats ? stats.totalEvents : "0"}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Failures</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{stats ? stats.failedEvents : "0"}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Running</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{stats ? stats.runningEvents : "0"}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>AI cost</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{stats ? formatUsd(stats.aiCostCents) : "$0.00"}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-			</div>
+			<PageStatGrid>
+				<PageStatCard
+					label="Total events"
+					value={stats ? stats.totalEvents : "0"}
+					meta="All events inside the current filter range."
+				/>
+				<PageStatCard
+					label="Failures"
+					value={stats ? stats.failedEvents : "0"}
+					meta="Events that completed with warnings or errors."
+				/>
+				<PageStatCard
+					label="Running"
+					value={stats ? stats.runningEvents : "0"}
+					meta="In-flight jobs and long-running traces."
+				/>
+				<PageStatCard
+					label="AI cost"
+					value={stats ? formatUsd(stats.aiCostCents) : "$0.00"}
+					meta="Cloud-routed AI cost inside the selected range."
+				/>
+			</PageStatGrid>
 
 			<Card>
 				<CardHeader>

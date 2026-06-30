@@ -74,6 +74,12 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { MultiSelectField } from "./multi-select-field";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 
 const statusFilters = [
 	{ label: "Active", value: "active" },
@@ -479,6 +485,7 @@ export function NotificationsPage() {
 	const unreadCount = notifications.filter(
 		(notification) => notification.status === "unread",
 	).length;
+	const activeChannelCount = channels.filter((channel) => channel.enabled).length;
 
 	function handleSaveChannel(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -574,17 +581,35 @@ export function NotificationsPage() {
 
 	return (
 		<main className="flex flex-col gap-6">
-			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-				<div className="flex flex-col gap-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						Notifications
-					</h1>
-					<p className="max-w-3xl text-muted-foreground text-sm">
-						Review product events and route the right ones into external
-						channels.
-					</p>
-				</div>
-			</div>
+			<PageHeader
+				eyebrow="Notifications"
+				title="Inbox and delivery channels"
+				description="Review product events, clear the important ones quickly, and route the right categories into external channels without drowning the page in controls."
+				badges={
+					<>
+						<Badge variant="secondary">{unreadCount} unread</Badge>
+						<Badge variant="outline">{activeChannelCount} active channels</Badge>
+					</>
+				}
+			/>
+
+			<PageStatGrid className="xl:grid-cols-3">
+				<PageStatCard
+					label="Inbox events"
+					value={notifications.length}
+					meta="Notifications visible in the current filter set."
+				/>
+				<PageStatCard
+					label="Unread"
+					value={unreadCount}
+					meta="Items that still need attention."
+				/>
+				<PageStatCard
+					label="Channels"
+					value={channels.length}
+					meta="Configured external delivery endpoints."
+				/>
+			</PageStatGrid>
 
 			<Tabs
 				value={tab}
@@ -594,20 +619,16 @@ export function NotificationsPage() {
 					}
 				}}
 			>
-				<TabsList>
+				<TabsList variant="line" className="w-full max-w-full overflow-x-auto pb-1">
 					<TabsTrigger value="inbox">Inbox</TabsTrigger>
 					<TabsTrigger value="channels">Channels</TabsTrigger>
 				</TabsList>
 
 				<TabsContent value="inbox" className="flex flex-col gap-4">
-					<Card>
-						<CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
-							<div className="flex flex-col gap-1">
-								<CardTitle>Inbox</CardTitle>
-								<CardDescription>
-									Filter the stream by status and work through items in order.
-								</CardDescription>
-							</div>
+					<PageSectionCard
+						title="Inbox"
+						description="Filter the stream by status and work through items in order."
+						action={
 							<div className="flex flex-wrap items-center gap-2">
 								<ToggleGroup
 									value={[status]}
@@ -643,8 +664,8 @@ export function NotificationsPage() {
 									</Button>
 								) : null}
 							</div>
-						</CardHeader>
-						<CardContent>
+						}
+					>
 							{notificationsQuery.isLoading ? (
 								<div className="flex flex-col gap-3">
 									{Array.from({ length: 6 }).map((_, index) => (
@@ -773,8 +794,7 @@ export function NotificationsPage() {
 									</EmptyHeader>
 								</Empty>
 							)}
-						</CardContent>
-					</Card>
+					</PageSectionCard>
 				</TabsContent>
 
 				<TabsContent value="channels" className="flex flex-col gap-4">

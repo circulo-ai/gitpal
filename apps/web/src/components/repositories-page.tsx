@@ -4,11 +4,7 @@ import { Badge } from "@gitpal/ui/components/badge";
 import { Button, buttonVariants } from "@gitpal/ui/components/button";
 import {
 	Card,
-	CardAction,
 	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
 } from "@gitpal/ui/components/card";
 import {
 	Empty,
@@ -59,6 +55,12 @@ import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { ProviderSyncButton } from "./provider-sync-button";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 
 const PAGE_SIZE_OPTIONS = ["10", "25", "50", "100"].map((size) => ({
 	label: size,
@@ -341,65 +343,58 @@ export function RepositoriesPage() {
 	if (!activeWorkspace) {
 		return (
 			<main className="flex flex-col gap-6">
-				<Card>
-					<CardHeader>
-						<CardTitle>Repositories</CardTitle>
-						<CardDescription>
-							Install a provider first, then choose a workspace to manage
-							repositories.
-						</CardDescription>
-						<CardAction>
-							<Button
-								type="button"
-								variant="outline"
-								render={(props) => (
-									<Link {...props} href="/repositories/install" />
-								)}
-								nativeButton={false}
-							>
-								Open install wizard
-								<ArrowRightIcon />
-							</Button>
-						</CardAction>
-					</CardHeader>
-					<CardContent>
-						<Empty className="min-h-96">
-							<EmptyHeader>
-								<EmptyMedia variant="icon">
-									<Building2Icon />
-								</EmptyMedia>
-								<EmptyTitle>No active workspace</EmptyTitle>
-								<EmptyDescription>
-									Repository management is now scoped to synced provider
-									workspaces instead of manually created organizations.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
-					</CardContent>
-				</Card>
+				<PageHeader
+					eyebrow="Repositories"
+					title="Provider-scoped repository catalog"
+					description="Repository management starts once GitPal has synced provider workspaces. Connect access first, then come back here to manage what is visible."
+					actions={
+						<Button
+							type="button"
+							variant="outline"
+							render={(props) => <Link {...props} href="/repositories/install" />}
+							nativeButton={false}
+						>
+							Open install wizard
+							<ArrowRightIcon />
+						</Button>
+					}
+				/>
 
-				<Card>
-					<CardHeader>
-						<CardTitle>Provider access</CardTitle>
-						<CardDescription>
-							Open the provider app settings to update repository visibility, or
-							sync a provider individually when access changes.
-						</CardDescription>
-						<CardAction>
-							<Button
-								type="button"
-								variant="outline"
-								render={(props) => (
-									<Link {...props} href="/repositories/install" />
-								)}
-								nativeButton={false}
-							>
-								Open install wizard
-								<ArrowRightIcon />
-							</Button>
-						</CardAction>
-					</CardHeader>
-					<CardContent className="space-y-3">
+				<PageSectionCard
+					title="No active workspace"
+					description="Repository management is scoped to synced provider workspaces instead of manually created organizations."
+					contentClassName="pt-0"
+				>
+					<Empty className="min-h-80">
+						<EmptyHeader>
+							<EmptyMedia variant="icon">
+								<Building2Icon />
+							</EmptyMedia>
+							<EmptyTitle>Pick or sync a workspace first</EmptyTitle>
+							<EmptyDescription>
+								Once GitPal can see a provider workspace, the repository
+								catalog and automation controls become available here.
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
+				</PageSectionCard>
+
+				<PageSectionCard
+					title="Provider access"
+					description="Open the provider app settings to update repository visibility, or sync a provider individually when access changes."
+					action={
+						<Button
+							type="button"
+							variant="outline"
+							render={(props) => <Link {...props} href="/repositories/install" />}
+							nativeButton={false}
+						>
+							Open install wizard
+							<ArrowRightIcon />
+						</Button>
+					}
+					contentClassName="space-y-3"
+				>
 						<div className="flex flex-wrap gap-2">
 							<Link
 								href="/account/team-management"
@@ -456,29 +451,25 @@ export function RepositoriesPage() {
 								))}
 							</div>
 						) : null}
-					</CardContent>
-				</Card>
+				</PageSectionCard>
 			</main>
 		);
 	}
 
 	return (
 		<main className="flex flex-col gap-6">
-			<div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-				<div className="flex flex-col gap-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						Repositories{" "}
-						<span className="text-muted-foreground text-sm italic">
-							{activeWorkspace.name}
-						</span>
-					</h1>
-					<p className="max-w-3xl text-muted-foreground text-sm">
-						Manage repository sync, visibility, and overrides inside the active
-						provider-synced workspace. Provider sync and webhook reconciliation
-						run in the background.
-					</p>
-				</div>
-				<div className="flex gap-2">
+			<PageHeader
+				eyebrow="Repositories"
+				title={`${activeWorkspace.name} repository catalog`}
+				description="Manage sync, visibility, and automation inside the active provider workspace without burying the next step under crowded controls."
+				badges={
+					<>
+						<Badge variant="secondary">{activeWorkspace.providerName}</Badge>
+						<Badge variant="outline">{activeWorkspace.repositoryCount} repos</Badge>
+					</>
+				}
+				actions={
+					<>
 					<Button
 						variant="outline"
 						render={(props) => <Link {...props} href="/repositories/install" />}
@@ -510,105 +501,43 @@ export function RepositoriesPage() {
 					>
 						<ShieldCheckIcon />
 					</Button>
-				</div>
-			</div>
+					</>
+				}
+			/>
 
-			<div className="grid gap-3 md:grid-cols-4">
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Total synced</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{repositories.length}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Enabled for analytics</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{enabledCount}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Webhook connected</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{webhookConnectedCount}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Sync needs attention</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{reconcileFailureCount}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-			</div>
+			<PageStatGrid>
+				<PageStatCard
+					label="Total synced"
+					value={repositories.length}
+					meta="Repositories currently visible in this workspace."
+				/>
+				<PageStatCard
+					label="AI enabled"
+					value={enabledCount}
+					meta="Repositories with GitPal automation enabled."
+				/>
+				<PageStatCard
+					label="Webhook connected"
+					value={webhookConnectedCount}
+					meta="Repositories receiving webhook deliveries."
+				/>
+				<PageStatCard
+					label="Needs attention"
+					value={reconcileFailureCount}
+					meta="Repositories with failed reconciliation health."
+				/>
+			</PageStatGrid>
 
-			{/* <Card>
-				<CardHeader>
-					<CardTitle>Workspace scope</CardTitle>
-					<CardDescription>
-						<span className="font-bold">{activeWorkspace.ownerPath}</span> is
-						synced with{" "}
-						{formatWorkspaceScope(activeWorkspace.scope).toLowerCase()} scope
-						from {activeWorkspace.providerName}.
-					</CardDescription>
-					<CardAction>
-						<div className="flex flex-wrap gap-2">
-							<Badge variant="outline">
-								{formatWorkspaceScope(activeWorkspace.scope)}
-							</Badge>
-							<Badge variant="secondary">{activeWorkspace.role}</Badge>
-						</div>
-					</CardAction>
-				</CardHeader>
-				<CardContent className="grid gap-3 md:grid-cols-2">
-					{providers.map((provider) => (
-						<div
-							key={provider.providerId}
-							className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/20 p-4"
-						>
-							<div className="space-y-1">
-								<div className="font-medium">{provider.label}</div>
-								<div className="text-muted-foreground text-sm">
-									Update the app installation scope, then queue a refresh.
-								</div>
-							</div>
-							{provider.settingsUrl ? (
-								<a
-									href={provider.settingsUrl}
-									target="_blank"
-									rel="noreferrer noopener"
-									className={buttonVariants({ variant: "outline" })}
-								>
-									<ExternalLinkIcon />
-									Manage access
-								</a>
-							) : (
-								<Badge variant="outline">No settings link</Badge>
-							)}
-						</div>
-					))}
-				</CardContent>
-			</Card> */}
-
-			<Card>
-				<CardHeader>
-					<CardTitle>Repository catalog</CardTitle>
-					<CardDescription>
-						Filter by repository name, provider, or path.
-					</CardDescription>
-					<CardAction>
-						<Badge variant="outline">
-							{filteredRepositories.length} / {repositories.length}
-						</Badge>
-					</CardAction>
-				</CardHeader>
-				<CardContent className="space-y-4">
+			<PageSectionCard
+				title="Repository catalog"
+				description="Filter by repository name, provider, or path."
+				action={
+					<Badge variant="outline">
+						{filteredRepositories.length} / {repositories.length}
+					</Badge>
+				}
+				contentClassName="space-y-4"
+			>
 					<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 						<div className="relative w-full md:max-w-md">
 							<SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1021,8 +950,7 @@ export function RepositoriesPage() {
 							) : null}
 						</Empty>
 					)}
-				</CardContent>
-			</Card>
+			</PageSectionCard>
 		</main>
 	);
 }

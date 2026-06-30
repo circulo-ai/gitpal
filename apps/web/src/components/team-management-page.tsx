@@ -54,6 +54,12 @@ import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { ProviderSyncButton } from "./provider-sync-button";
 import { invalidateRepositoryData } from "./repository-sync-helpers";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 import { formatWorkspaceScope } from "./workspace-scope";
 
 function getScopeBuckets(
@@ -225,18 +231,19 @@ export function TeamManagementPage() {
 
 	return (
 		<main className="flex flex-col gap-6">
-			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-				<div className="space-y-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						Workspaces
-					</h1>
-					<p className="max-w-3xl text-muted-foreground text-sm">
-						GitPal mirrors the repository access granted by your Git providers.
-						Personal repos and organization or group repos are synced
-						automatically, and provider member sync runs in the background.
-					</p>
-				</div>
-				<div className="flex flex-wrap gap-2">
+			<PageHeader
+				eyebrow="Workspaces"
+				title="Provider-scoped teams and access"
+				description="GitPal mirrors the repository access granted by your Git providers. Personal repos and organization or group repos are synced automatically, and provider member sync runs in the background."
+				badges={
+					activeWorkspace ? (
+						<>
+							<Badge variant="secondary">{activeWorkspace.providerName}</Badge>
+							<Badge variant="outline">{activeWorkspace.name}</Badge>
+						</>
+					) : null
+				}
+				actions={
 					<ProviderSyncButton
 						target={activeWorkspace}
 						isPending={syncMutation.isPending}
@@ -251,54 +258,36 @@ export function TeamManagementPage() {
 							});
 						}}
 					/>
-				</div>
-			</div>
+				}
+			/>
 
-			<div className="grid gap-3 md:grid-cols-4">
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Total workspaces</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{workspaces.length}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Personal scopes</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{buckets.personal.length}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Shared scopes</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{buckets.shared.length}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-				<Card size="sm">
-					<CardHeader>
-						<CardDescription>Registered members</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{teamData?.summary.registeredMembers ?? 0}
-						</CardTitle>
-					</CardHeader>
-				</Card>
-			</div>
+			<PageStatGrid>
+				<PageStatCard
+					label="Total workspaces"
+					value={workspaces.length}
+					meta="Every provider-backed scope available to your account."
+				/>
+				<PageStatCard
+					label="Personal scopes"
+					value={buckets.personal.length}
+					meta="User-owned repository scopes."
+				/>
+				<PageStatCard
+					label="Shared scopes"
+					value={buckets.shared.length}
+					meta="Organization and group workspaces."
+				/>
+				<PageStatCard
+					label="Registered members"
+					value={teamData?.summary.registeredMembers ?? 0}
+					meta="Provider members already mapped to GitPal users."
+				/>
+			</PageStatGrid>
 
-			<Card>
-				<CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
-					<div className="space-y-1">
-						<CardTitle>Team members</CardTitle>
-						<CardDescription>
-							Provider members synced from{" "}
-							{activeWorkspace?.providerName ?? "your Git provider"}. Registered
-							users can be granted GitPal workspace and repository access.
-						</CardDescription>
-					</div>
+			<PageSectionCard
+				title="Team members"
+				description={`Provider members synced from ${activeWorkspace?.providerName ?? "your Git provider"}. Registered users can be granted GitPal workspace and repository access.`}
+				action={
 					<div className="flex flex-wrap items-center gap-2">
 						{teamData?.lastSyncedAt ? (
 							<Badge variant="outline">
@@ -331,8 +320,8 @@ export function TeamManagementPage() {
 							Sync members
 						</Button>
 					</div>
-				</CardHeader>
-				<CardContent>
+				}
+			>
 					{teamData?.sync?.error ? (
 						<div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-700 text-sm dark:text-amber-300">
 							{teamData.sync.error}
@@ -536,19 +525,13 @@ export function TeamManagementPage() {
 							</Table>
 						</div>
 					)}
-				</CardContent>
-			</Card>
+			</PageSectionCard>
 
 			<div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-				<Card>
-					<CardHeader>
-						<CardTitle>Workspaces</CardTitle>
-						<CardDescription>
-							Switch between user-level repositories and organization or group
-							scopes.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
+				<PageSectionCard
+					title="Workspaces"
+					description="Switch between user-level repositories and organization or group scopes."
+				>
 						{workspaces.length === 0 ? (
 							<Empty className="min-h-72">
 								<EmptyHeader>
@@ -627,19 +610,14 @@ export function TeamManagementPage() {
 								})}
 							</div>
 						)}
-					</CardContent>
-				</Card>
+				</PageSectionCard>
 
 				<div className="space-y-6">
-					<Card>
-						<CardHeader>
-							<CardTitle>Provider access</CardTitle>
-							<CardDescription>
-								Use your provider's app settings to widen or reduce repository
-								access.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-3">
+					<PageSectionCard
+						title="Provider access"
+						description="Use your provider's app settings to widen or reduce repository access."
+						contentClassName="space-y-3"
+					>
 							{providers.length === 0 ? (
 								<Empty className="min-h-48">
 									<EmptyHeader>
@@ -684,14 +662,13 @@ export function TeamManagementPage() {
 									</div>
 								))
 							)}
-						</CardContent>
-					</Card>
+					</PageSectionCard>
 
-					<Card>
-						<CardHeader>
-							<CardTitle>How this works</CardTitle>
-						</CardHeader>
-						<CardContent className="space-y-2 text-muted-foreground text-sm">
+					<PageSectionCard
+						title="How this works"
+						description="A simpler mental model for how provider scope turns into GitPal workspace access."
+						contentClassName="space-y-2 text-muted-foreground text-sm"
+					>
 							<p>Personal repositories land in personal workspaces.</p>
 							<p>
 								GitHub organizations and GitLab groups land in shared
@@ -701,8 +678,7 @@ export function TeamManagementPage() {
 								Removing repository access in the provider removes it from
 								GitPal on the next sync.
 							</p>
-						</CardContent>
-					</Card>
+					</PageSectionCard>
 				</div>
 			</div>
 		</main>

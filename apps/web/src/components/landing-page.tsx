@@ -19,6 +19,7 @@ import {
 	FlashIcon,
 	GitBranchIcon,
 	GithubIcon,
+	GitlabIcon,
 	LockIcon,
 	Shield01Icon,
 	SparklesIcon,
@@ -34,6 +35,12 @@ type HugeIcon = typeof FlashIcon;
 
 type Feature = { icon: HugeIcon; title: string; description: string };
 type WorkflowStep = { icon: HugeIcon; title: string; description: string };
+type IntegrationSurface = {
+	icon: HugeIcon;
+	title: string;
+	description: string;
+	eyebrow: string;
+};
 
 const DOCS_URL = env.NEXT_PUBLIC_DOCS_URL ?? "http://localhost:4000";
 
@@ -47,19 +54,19 @@ const navLinks: NavLink[] = [
 	{
 		label: "Features",
 		href: {
-			hash: "#features",
+			hash: "features",
 		},
 	},
 	{
 		label: "Workflow",
 		href: {
-			hash: "#workflow",
+			hash: "workflow",
 		},
 	},
 	{
 		label: "Integrations",
 		href: {
-			hash: "Integrations",
+			hash: "integrations",
 		},
 	},
 	{
@@ -115,6 +122,30 @@ const workflowSteps: WorkflowStep[] = [
 		title: "Merge with confidence",
 		description:
 			"Ship higher quality code, faster, with your standards intact.",
+	},
+];
+
+const integrationSurfaces: IntegrationSurface[] = [
+	{
+		icon: GithubIcon,
+		eyebrow: "GitHub",
+		title: "GitHub App installs that match repository access",
+		description:
+			"Connect GitHub once, then widen the App installation when a repository is missing instead of guessing why the sync feels incomplete.",
+	},
+	{
+		icon: GitlabIcon,
+		eyebrow: "GitLab",
+		title: "Group and subgroup paths that stay explicit",
+		description:
+			"GitLab projects keep their full path, so teams can add nested groups without losing the context that matters during setup.",
+	},
+	{
+		icon: LockIcon,
+		eyebrow: "Self-hosted",
+		title: "Cloud and enterprise entry points from the same flow",
+		description:
+			"Teams can sign into hosted or self-managed GitHub and GitLab without switching products or relearning the onboarding path.",
 	},
 ];
 
@@ -219,6 +250,34 @@ function WorkflowCard({ step, index }: { step: WorkflowStep; index: number }) {
 				</p>
 			</div>
 		</div>
+	);
+}
+
+function IntegrationCard({
+	surface,
+}: {
+	surface: IntegrationSurface;
+}) {
+	const Icon = surface.icon;
+	return (
+		<Card className="h-full border-border/70 bg-card/70 shadow-sm">
+			<CardHeader className="gap-4">
+				<Badge variant="outline" className="w-fit rounded-full px-3">
+					{surface.eyebrow}
+				</Badge>
+				<div className="flex size-12 items-center justify-center rounded-2xl border border-border/70 bg-background shadow-sm">
+					<HugeiconsIcon icon={Icon} className="size-5 text-primary" />
+				</div>
+				<div className="space-y-2">
+					<CardTitle className="text-[1.1rem] tracking-[-0.03em]">
+						{surface.title}
+					</CardTitle>
+					<CardDescription className="text-[0.92rem] leading-6">
+						{surface.description}
+					</CardDescription>
+				</div>
+			</CardHeader>
+		</Card>
 	);
 }
 
@@ -417,6 +476,26 @@ export default function LandingPage({
 							</Reveal>
 						))}
 					</div>
+				</div>
+			</section>
+
+			<section
+				id="integrations"
+				className="mx-auto max-w-7xl px-6 pt-16 pb-8 sm:px-8 lg:px-10 lg:pt-20"
+			>
+				<Reveal>
+					<SectionHeading
+						eyebrow="Integrations"
+						title="Repository setup should feel obvious"
+						description="GitPal works best when the provider connection, repository visibility, and install step are easy to understand at a glance."
+					/>
+				</Reveal>
+				<div className="mt-12 grid gap-6 md:grid-cols-3">
+					{integrationSurfaces.map((surface, index) => (
+						<Reveal key={surface.title} delay={index * 120}>
+							<IntegrationCard surface={surface} />
+						</Reveal>
+					))}
 				</div>
 			</section>
 

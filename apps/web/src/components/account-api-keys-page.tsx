@@ -48,6 +48,7 @@ import { queryClient, trpc } from "@/utils/trpc";
 import { buildCuratedModelGroups, ModelIdPicker } from "./model-id-picker";
 import { MultiSelectField } from "./multi-select-field";
 import { SettingsChangeDock } from "./settings-change-dock";
+import { PageHeader } from "./workspace-page";
 
 function formatDate(value: string | null) {
 	if (!value) {
@@ -261,19 +262,12 @@ export function AccountApiKeysPage() {
 
 	return (
 		<main className="flex flex-col gap-6 pb-28">
-			<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-				<div className="space-y-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						API Keys
-					</h1>
-					<p className="max-w-3xl text-muted-foreground text-sm">
-						Create GitPal API keys for app access, then manage
-						bring-your-own-provider keys that can route model calls directly and
-						bypass wallet spend.
-					</p>
-				</div>
-				<Badge variant="outline">Secure storage enabled</Badge>
-			</div>
+			<PageHeader
+				eyebrow="API Keys"
+				title="Access keys and BYOK routing"
+				description="Create GitPal API keys for app access, then manage bring-your-own-provider keys that can route model calls directly and bypass wallet spend."
+				badges={<Badge variant="outline">Secure storage enabled</Badge>}
+			/>
 
 			<Tabs defaultValue="gitpal">
 				<TabsList

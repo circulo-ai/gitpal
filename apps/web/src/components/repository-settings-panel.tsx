@@ -46,6 +46,12 @@ import { toast } from "sonner";
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
 import { SettingsChangeDock } from "./settings-change-dock";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 import { WorkspaceSettingsForm } from "./workspace-settings-form";
 
 type RepositorySettingsPanelProps = {
@@ -157,14 +163,13 @@ export function RepositorySettingsPanel({
 
 	if (!activeWorkspace) {
 		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Repository settings</CardTitle>
-					<CardDescription>
-						Select a workspace before editing repository overrides.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
+			<div className="flex flex-col gap-6">
+				<PageHeader
+					eyebrow="Repository settings"
+					title="Choose a workspace first"
+					description="Repository overrides live inside a workspace, so GitPal needs an active workspace before this page can load the saved settings."
+				/>
+				<PageSectionCard contentClassName="pt-0">
 					<Empty className="min-h-64">
 						<EmptyHeader>
 							<EmptyTitle>No active workspace</EmptyTitle>
@@ -173,45 +178,93 @@ export function RepositorySettingsPanel({
 							</EmptyDescription>
 						</EmptyHeader>
 					</Empty>
-				</CardContent>
-			</Card>
+				</PageSectionCard>
+			</div>
 		);
 	}
 
 	if (!repositorySettingsQuery.data || !settings) {
 		return (
-			<Card>
-				<CardHeader>
-					<CardTitle>Repository settings</CardTitle>
-					<CardDescription>Loading repository settings…</CardDescription>
-				</CardHeader>
-				<CardContent>
+			<div className="flex flex-col gap-6">
+				<PageHeader
+					eyebrow="Repository settings"
+					title="Loading repository settings"
+					description="GitPal is resolving the saved workspace defaults, repository overrides, and any config files that affect this repository."
+				/>
+				<PageSectionCard contentClassName="pt-0">
 					<div className="h-96 rounded-2xl border border-border/60 bg-muted/10" />
-				</CardContent>
-			</Card>
+				</PageSectionCard>
+			</div>
 		);
 	}
 
+	const repository = repositorySettingsQuery.data.repository;
+	const hasCentralConfig = Boolean(
+		repositorySettingsQuery.data.repositoryCentralConfigFileName,
+	);
+	const hasRepositoryConfig = Boolean(
+		repositorySettingsQuery.data.repositoryConfigFileName,
+	);
+
 	return (
-		<div className="space-y-4 pb-24">
-			<Card className="overflow-hidden">
-				<CardHeader className="gap-3">
-					<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-						<div className="space-y-1">
-							<CardTitle>
-								{repositorySettingsQuery.data.repository.fullName}
-							</CardTitle>
-							<CardDescription>
-								Repository-specific overrides for this project.
-							</CardDescription>
-						</div>
+		<div className="space-y-6 pb-24">
+			<PageHeader
+				eyebrow="Repository settings"
+				title={repository.fullName}
+				description="Set repository-specific review behavior without losing sight of which values come from the workspace, saved overrides, or checked-in config files."
+				badges={
+					<>
 						<Badge variant={useOrganizationSettings ? "secondary" : "outline"}>
 							{useOrganizationSettings
 								? "Using workspace settings"
 								: "Repository overrides enabled"}
 						</Badge>
-					</div>
-					<Alert className="rounded-2xl border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50">
+						{hasCentralConfig ? (
+							<Badge variant="outline">Central config detected</Badge>
+						) : null}
+						{hasRepositoryConfig ? (
+							<Badge variant="outline">Repository config detected</Badge>
+						) : null}
+					</>
+				}
+			/>
+
+			<PageStatGrid className="xl:grid-cols-3">
+				<PageStatCard
+					label="Current source"
+					value={useOrganizationSettings ? "Inherited" : "Repository"}
+					meta={
+						useOrganizationSettings
+							? "This repository currently follows workspace defaults."
+							: "Saved overrides are active before checked-in config files are merged."
+					}
+				/>
+				<PageStatCard
+					label="Central config"
+					value={hasCentralConfig ? "Present" : "None"}
+					meta={
+						repositorySettingsQuery.data.repositoryCentralConfigFileName
+							? repositorySettingsQuery.data.repositoryCentralConfigFileName
+							: "No shared repository config file was found."
+					}
+				/>
+				<PageStatCard
+					label="Repository config"
+					value={hasRepositoryConfig ? "Present" : "None"}
+					meta={
+						repositorySettingsQuery.data.repositoryConfigFileName
+							? `${repositorySettingsQuery.data.repositoryConfigFileName} overrides saved values from the repository root.`
+							: "No repo-level config file is overriding the saved settings."
+					}
+				/>
+			</PageStatGrid>
+
+			<PageSectionCard
+				title="Settings source"
+				description="Choose whether this repository inherits workspace defaults or keeps its own saved policy."
+				contentClassName="flex flex-col gap-4"
+			>
+				<Alert className="rounded-2xl border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50">
 						<HugeiconsIcon icon={Alert01Icon} />
 						<AlertTitle>
 							{useOrganizationSettings
@@ -236,117 +289,113 @@ export function RepositorySettingsPanel({
 						</AlertAction>
 					</Alert>
 
-					<div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 md:flex-row md:items-center md:justify-between">
-						<div className="space-y-1">
-							<div className="font-medium text-sm">
-								Repository-specific controls
-							</div>
-							<p className="text-muted-foreground text-sm">
-								Overrides are stored per repository inside this workspace.
+				<div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-4 md:flex-row md:items-center md:justify-between">
+					<div className="space-y-1">
+						<div className="font-medium text-sm">
+							Repository-specific controls
+						</div>
+						<p className="text-muted-foreground text-sm">
+							Overrides are stored per repository inside this workspace.
+						</p>
+						{repositorySettingsQuery.data.repositoryCentralConfigFileName ? (
+							<p className="text-muted-foreground text-xs">
+								Central config file{" "}
+								{repositorySettingsQuery.data.repositoryCentralConfigFileName}{" "}
+								applies before this repository's saved overrides.
 							</p>
-							{repositorySettingsQuery.data.repositoryCentralConfigFileName ? (
-								<p className="text-muted-foreground text-xs">
-									Central config file{" "}
-									{repositorySettingsQuery.data.repositoryCentralConfigFileName}{" "}
-									applies before this repository's saved overrides.
-								</p>
-							) : null}
-							{repositorySettingsQuery.data.repositoryConfigFileName ? (
-								<p className="text-muted-foreground text-xs">
-									{repositorySettingsQuery.data.repositoryConfigFileName} from
-									the repository root overrides the saved workspace values.
-								</p>
-							) : null}
-						</div>
-						<Badge variant="outline">
-							{useOrganizationSettings ? "Inherited" : "Custom"}
-						</Badge>
+						) : null}
+						{repositorySettingsQuery.data.repositoryConfigFileName ? (
+							<p className="text-muted-foreground text-xs">
+								{repositorySettingsQuery.data.repositoryConfigFileName} from the
+								repository root overrides the saved workspace values.
+							</p>
+						) : null}
 					</div>
+					<Badge variant="outline">
+						{useOrganizationSettings ? "Inherited" : "Custom"}
+					</Badge>
+				</div>
+			</PageSectionCard>
 
-					<div className="rounded-2xl border border-border/60 bg-background/80 px-4 py-4">
-						<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-							<div className="space-y-1">
-								<div className="font-medium text-sm">
-									Repository policy preset
-								</div>
-								<p className="text-muted-foreground text-sm">
-									Apply an opinionated starting point, then fine-tune the fields
-									below for this repository.
-								</p>
-								<p className="text-muted-foreground text-xs">
-									{selectedPreset.description}
-								</p>
-							</div>
-							<div className="flex flex-col gap-2 sm:min-w-96 sm:flex-row sm:items-center">
-								<Select
-									items={repositoryPolicyPresets.map((preset) => ({
-										label: preset.label,
-										value: preset.id,
-									}))}
-									value={presetId}
-									onValueChange={(value) => {
-										if (value) {
-											setPresetId(value as RepositoryPolicyPresetId);
-										}
-									}}
-								>
-									<SelectTrigger className="w-full sm:w-56">
-										<SelectValue placeholder="Preset" />
-									</SelectTrigger>
-									<SelectContent align="end">
-										<SelectGroup>
-											{repositoryPolicyPresets.map((preset) => (
-												<SelectItem key={preset.id} value={preset.id}>
-													{preset.label}
-												</SelectItem>
-											))}
-										</SelectGroup>
-									</SelectContent>
-								</Select>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => {
-										if (!settings) {
-											return;
-										}
-
-										const base =
-											previewSettings ??
-											repositorySettingsQuery.data?.effectiveSettings ??
-											settings;
-										setUseOrganizationSettings(false);
-										setSettings(applyRepositoryPolicyPreset(base, presetId));
-									}}
-								>
-									Apply preset
-								</Button>
-							</div>
-						</div>
+			<PageSectionCard
+				title="Repository policy preset"
+				description="Apply an opinionated starting point, then fine-tune the settings below for this repository."
+				contentClassName="flex flex-col gap-4"
+			>
+				<div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-background/80 px-4 py-4 md:flex-row md:items-center md:justify-between">
+					<div className="space-y-1">
+						<div className="font-medium text-sm">{selectedPreset.label}</div>
+						<p className="text-muted-foreground text-sm">
+							{selectedPreset.description}
+						</p>
 					</div>
-				</CardHeader>
-			</Card>
+					<div className="flex flex-col gap-2 sm:min-w-96 sm:flex-row sm:items-center">
+						<Select
+							items={repositoryPolicyPresets.map((preset) => ({
+								label: preset.label,
+								value: preset.id,
+							}))}
+							value={presetId}
+							onValueChange={(value) => {
+								if (value) {
+									setPresetId(value as RepositoryPolicyPresetId);
+								}
+							}}
+						>
+							<SelectTrigger className="w-full sm:w-56">
+								<SelectValue placeholder="Preset" />
+							</SelectTrigger>
+							<SelectContent align="end">
+								<SelectGroup>
+									{repositoryPolicyPresets.map((preset) => (
+										<SelectItem key={preset.id} value={preset.id}>
+											{preset.label}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => {
+								if (!settings) {
+									return;
+								}
 
-			<Card className={useOrganizationSettings ? "opacity-80" : undefined}>
-				<CardContent className="pt-6">
-					<WorkspaceSettingsForm
-						value={settings}
-						onChange={setSettings}
-						disabled={useOrganizationSettings}
-						previewSettings={
-							previewSettings ?? repositorySettingsQuery.data.effectiveSettings
-						}
-						previewRepositoryFullName={
-							repositorySettingsQuery.data.repository.fullName
-						}
-						previewRepositoryDescription={
-							repositorySettingsQuery.data.repository.description
-						}
-						previewWorkspaceName={activeWorkspace.name}
-						toolSettingsLocked={toolSettingsLocked}
-					/>
-				</CardContent>
-			</Card>
+								const base =
+									previewSettings ??
+									repositorySettingsQuery.data?.effectiveSettings ??
+									settings;
+								setUseOrganizationSettings(false);
+								setSettings(applyRepositoryPolicyPreset(base, presetId));
+							}}
+						>
+							Apply preset
+						</Button>
+					</div>
+				</div>
+			</PageSectionCard>
+
+			<PageSectionCard
+				title="Effective repository policy"
+				description="Adjust the repository behavior here. Disabled controls mean this repository is currently inheriting workspace settings."
+				className={useOrganizationSettings ? "opacity-85" : undefined}
+				contentClassName="pt-0"
+			>
+				<WorkspaceSettingsForm
+					value={settings}
+					onChange={setSettings}
+					disabled={useOrganizationSettings}
+					previewSettings={
+						previewSettings ?? repositorySettingsQuery.data.effectiveSettings
+					}
+					previewRepositoryFullName={repository.fullName}
+					previewRepositoryDescription={repository.description}
+					previewWorkspaceName={activeWorkspace.name}
+					toolSettingsLocked={toolSettingsLocked}
+				/>
+			</PageSectionCard>
 			<SettingsChangeDock
 				open={isDirty}
 				title="Repository overrides changed"

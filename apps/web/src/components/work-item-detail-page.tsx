@@ -37,13 +37,6 @@ import {
 	CardTitle,
 } from "@gitpal/ui/components/card";
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuGroup,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@gitpal/ui/components/dropdown-menu";
-import {
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
@@ -81,7 +74,6 @@ import {
 	GitBranchIcon,
 	GitPullRequestIcon,
 	LoaderCircleIcon,
-	MoreHorizontalIcon,
 	PlayIcon,
 	RefreshCcwIcon,
 	RotateCcwIcon,
@@ -94,6 +86,12 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type Detail = RouterOutputs["workItems"]["detail"];
@@ -352,7 +350,7 @@ function ContextRail({
 	const item = detail.item;
 	return (
 		<aside className="flex flex-col gap-4 xl:sticky xl:top-4 xl:self-start">
-			<Card size="sm">
+			<Card size="sm" className="border-border/60 shadow-sm">
 				<CardHeader>
 					<CardTitle>
 						{detail.kind === "pull_request" ? "PR" : "Issue"} details
@@ -389,7 +387,7 @@ function ContextRail({
 				</CardContent>
 			</Card>
 			{run ? (
-				<Card size="sm">
+				<Card size="sm" className="border-border/60 shadow-sm">
 					<CardHeader>
 						<CardTitle>Selected run</CardTitle>
 						<CardDescription>
@@ -452,7 +450,7 @@ function ContextRail({
 					</CardContent>
 				</Card>
 			) : null}
-			<Card size="sm">
+			<Card size="sm" className="border-border/60 shadow-sm">
 				<CardHeader>
 					<CardTitle>Previous runs</CardTitle>
 				</CardHeader>
@@ -631,6 +629,10 @@ export function WorkItemDetailPage({
 		runMutation.isPending ||
 		retryMutation.isPending;
 	const activeRun = detail.runs.some((run) => ACTIVE_STATUSES.has(run.status));
+	const branchSummary =
+		isPullRequest && "sourceBranch" in item
+			? `${item.sourceBranch} into ${item.targetBranch}`
+			: null;
 	const executeConfirm = () => {
 		if (confirmAction?.type === "retry" && confirmAction.runId)
 			retryMutation.mutate({ ...queryInput, runId: confirmAction.runId });
@@ -677,71 +679,91 @@ export function WorkItemDetailPage({
 					<span>/</span>
 					<span>#{item.number}</span>
 				</div>
-				<div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-					<div className="min-w-0">
-						<div className="flex flex-wrap items-center gap-2">
-							<StatusBadge status={item.state} />
-							<span className="text-muted-foreground text-sm">
-								{isPullRequest ? "PR" : "Issue"} #{item.number}
+				<PageHeader
+					eyebrow={isPullRequest ? "Pull request detail" : "Issue detail"}
+					title={`#${item.number} ${item.title}`}
+					description={
+						<span className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+							<span className="inline-flex items-center gap-2">
+								<Avatar className="size-6">
+									<AvatarImage src={item.authorAvatarUrl ?? undefined} />
+									<AvatarFallback>
+										{initials(item.authorName ?? item.authorLogin)}
+									</AvatarFallback>
+								</Avatar>
+								{item.authorLogin ?? item.authorName ?? "Unknown"}
 							</span>
-						</div>
-						<h1 className="mt-2 break-words font-heading font-medium text-2xl tracking-tight md:text-3xl">
-							{item.title}
-						</h1>
-						<div className="mt-3 flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
-							<Avatar className="size-6">
-								<AvatarImage src={item.authorAvatarUrl ?? undefined} />
-								<AvatarFallback>
-									{initials(item.authorName ?? item.authorLogin)}
-								</AvatarFallback>
-							</Avatar>
-							<span>{item.authorLogin ?? item.authorName ?? "Unknown"}</span>
-							<span>·</span>
 							<span>
 								opened{" "}
 								{formatDistanceToNow(new Date(item.createdAt), {
 									addSuffix: true,
 								})}
 							</span>
-						</div>
-					</div>
-					<div className="hidden shrink-0 gap-2 md:flex">{actionButtons}</div>
-					<div className="md:hidden">
-						<DropdownMenu>
-							<DropdownMenuTrigger render={<Button variant="outline" />}>
-								<MoreHorizontalIcon data-icon="inline-start" />
-								Actions
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">
-								<DropdownMenuGroup>
-									<DropdownMenuItem
-										disabled={isBusy}
-										onClick={() => refreshMutation.mutate(queryInput)}
-									>
-										<RefreshCcwIcon />
-										Refresh from provider
-									</DropdownMenuItem>
-									<DropdownMenuItem
-										disabled={isBusy || activeRun}
-										onClick={() => setConfirmAction({ type: "run" })}
-									>
-										<PlayIcon />
-										{isPullRequest ? "Run new review" : "Run AI labeler"}
-									</DropdownMenuItem>
-								</DropdownMenuGroup>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					</div>
-				</div>
-				{isPullRequest && "sourceBranch" in item ? (
-					<div className="flex flex-wrap items-center gap-2 text-sm">
-						<GitBranchIcon className="size-4 text-muted-foreground" />
-						<Badge variant="outline">{item.sourceBranch}</Badge>
-						<span className="text-muted-foreground">into</span>
-						<Badge variant="outline">{item.targetBranch}</Badge>
-					</div>
-				) : null}
+							<span>
+								updated{" "}
+								{formatDistanceToNow(new Date(item.updatedAt), {
+									addSuffix: true,
+								})}
+							</span>
+							{branchSummary ? (
+								<span className="inline-flex items-center gap-2">
+									<GitBranchIcon className="size-4" />
+									{branchSummary}
+								</span>
+							) : null}
+						</span>
+					}
+					badges={
+						<>
+							<StatusBadge status={item.state} />
+							<Badge variant="outline">
+								{isPullRequest ? "PR" : "Issue"} #{item.number}
+							</Badge>
+							<Badge variant="outline">{detail.repository.fullName}</Badge>
+						</>
+					}
+					actions={actionButtons}
+				/>
 			</div>
+
+			<PageStatGrid>
+				<PageStatCard
+					label={isPullRequest ? "AI runs" : "Labeler runs"}
+					value={detail.runs.length}
+					meta={
+						detail.runs.length
+							? `${detail.runs.filter((run) => ACTIVE_STATUSES.has(run.status)).length} currently active.`
+							: "No runs have been queued yet."
+					}
+				/>
+				<PageStatCard
+					label={isPullRequest ? "Findings" : "Provider labels"}
+					value={isPullRequest ? selectedComments.length : providerLabels.length}
+					meta={
+						isPullRequest
+							? "Comments persisted for the selected run."
+							: "Labels already visible on the provider issue."
+					}
+				/>
+				<PageStatCard
+					label={isPullRequest ? "Checks" : "Suggested labels"}
+					value={isPullRequest ? selectedChecks.length : suggestedLabels.length}
+					meta={
+						isPullRequest
+							? "Checks associated with the selected run."
+							: "Suggested labels from the selected AI run."
+					}
+				/>
+				<PageStatCard
+					label="Selected run"
+					value={selectedRun ? selectedRun.status.replaceAll("_", " ") : "None"}
+					meta={
+						selectedRun
+							? `${format(new Date(selectedRun.createdAt), "MMM d, yyyy · HH:mm")}`
+							: "Select or queue a run to inspect execution details."
+					}
+				/>
+			</PageStatGrid>
 
 			<div className="xl:hidden">
 				<Accordion multiple defaultValue={["work-item-context"]}>
@@ -791,19 +813,20 @@ export function WorkItemDetailPage({
 						</div>
 						<TabsContent value="overview" className="mt-5 flex flex-col gap-4">
 							{isPullRequest ? (
-								<Card>
-									<CardHeader>
-										<CardTitle className="flex items-center gap-2">
+								<PageSectionCard
+									title={
+										<span className="flex items-center gap-2">
 											<BotIcon className="size-5" />
 											AI review
-										</CardTitle>
-										<CardDescription>
-											{selectedRun?.summary ??
-												"Run a review to generate a GitPal assessment."}
-										</CardDescription>
-									</CardHeader>
+										</span>
+									}
+									description={
+										selectedRun?.summary ??
+										"Run a review to generate a GitPal assessment."
+									}
+								>
 									{selectedRun ? (
-										<CardContent className="space-y-4">
+										<div className="space-y-4">
 											<UsageSummary run={selectedRun} />
 											{selectedRun.confidenceSummary ? (
 												<div className="rounded-xl border border-border/60 bg-muted/20 p-4">
@@ -838,31 +861,23 @@ export function WorkItemDetailPage({
 													</p>
 												</div>
 											) : null}
-										</CardContent>
+										</div>
 									) : null}
-								</Card>
+								</PageSectionCard>
 							) : (
 								<div className="grid gap-4 lg:grid-cols-2">
-									<Card>
-										<CardHeader>
-											<CardTitle>Issue description</CardTitle>
-										</CardHeader>
-										<CardContent>
+									<PageSectionCard title="Issue description">
 											<p className="whitespace-pre-wrap text-sm leading-relaxed">
 												{"body" in item && item.body
 													? item.body
 													: "No issue description provided."}
 											</p>
-										</CardContent>
-									</Card>
-									<Card>
-										<CardHeader>
-											<CardTitle>AI labeler result</CardTitle>
-											<CardDescription>
-												{selectedRun?.summary ?? "No labeler result yet."}
-											</CardDescription>
-										</CardHeader>
-										<CardContent className="flex flex-col gap-3">
+									</PageSectionCard>
+									<PageSectionCard
+										title="AI labeler result"
+										description={selectedRun?.summary ?? "No labeler result yet."}
+										contentClassName="flex flex-col gap-3"
+									>
 											<div>
 												<div className="text-muted-foreground text-xs">
 													Provider labels
@@ -917,48 +932,36 @@ export function WorkItemDetailPage({
 													)}
 												</div>
 											</div>
-										</CardContent>
-									</Card>
+									</PageSectionCard>
 								</div>
 							)}
-							<Card>
-								<CardHeader>
-									<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-										<div>
-											<CardTitle>Execution trace</CardTitle>
-											<CardDescription>
-												Step-by-step diagnostics for the selected run.
-											</CardDescription>
-										</div>
-										{detail.runs.length ? (
-											<Select
-												items={runSelectItems}
-												value={selectedRun?.id ?? ""}
-												onValueChange={(value) =>
-													setSelectedRunId(value ?? null)
-												}
-											>
-												<SelectTrigger className="w-full sm:w-56">
-													<SelectValue placeholder="Select run" />
-												</SelectTrigger>
-												<SelectContent>
-													<SelectGroup>
-														{detail.runs.map((run) => (
-															<SelectItem key={run.id} value={run.id}>
-																{format(
-																	new Date(run.createdAt),
-																	"MMM d, HH:mm",
-																)}{" "}
-																· {run.status}
-															</SelectItem>
-														))}
-													</SelectGroup>
-												</SelectContent>
-											</Select>
-										) : null}
-									</div>
-								</CardHeader>
-								<CardContent>
+							<PageSectionCard
+								title="Execution trace"
+								description="Step-by-step diagnostics for the selected run."
+								action={
+									detail.runs.length ? (
+										<Select
+											items={runSelectItems}
+											value={selectedRun?.id ?? ""}
+											onValueChange={(value) => setSelectedRunId(value ?? null)}
+										>
+											<SelectTrigger className="w-full sm:w-56">
+												<SelectValue placeholder="Select run" />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectGroup>
+													{detail.runs.map((run) => (
+														<SelectItem key={run.id} value={run.id}>
+															{format(new Date(run.createdAt), "MMM d, HH:mm")} ·{" "}
+															{run.status}
+														</SelectItem>
+													))}
+												</SelectGroup>
+											</SelectContent>
+										</Select>
+									) : null
+								}
+							>
 									{selectedRun ? (
 										<RunTrace run={selectedRun} />
 									) : (
@@ -978,19 +981,14 @@ export function WorkItemDetailPage({
 											</EmptyHeader>
 										</Empty>
 									)}
-								</CardContent>
-							</Card>
+							</PageSectionCard>
 						</TabsContent>
 						<TabsContent value="runs" className="mt-5">
-							<Card>
-								<CardHeader>
-									<CardTitle>Run history</CardTitle>
-									<CardDescription>
-										Every run remains independently addressable with its final
-										outcome.
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="flex flex-col gap-3">
+							<PageSectionCard
+								title="Run history"
+								description="Every run remains independently addressable with its final outcome."
+								contentClassName="flex flex-col gap-3"
+							>
 									{detail.runs.map((run) => (
 										<button
 											type="button"
@@ -1021,19 +1019,15 @@ export function WorkItemDetailPage({
 											No GitPal runs yet.
 										</p>
 									) : null}
-								</CardContent>
-							</Card>
+							</PageSectionCard>
 						</TabsContent>
 						{isPullRequest ? (
 							<TabsContent value="findings" className="mt-5">
-								<Card>
-									<CardHeader>
-										<CardTitle>Findings</CardTitle>
-										<CardDescription>
-											AI comments persisted by GitPal.
-										</CardDescription>
-									</CardHeader>
-									<CardContent className="flex flex-col gap-3">
+								<PageSectionCard
+									title="Findings"
+									description="AI comments persisted by GitPal."
+									contentClassName="flex flex-col gap-3"
+								>
 										{selectedComments.length ? (
 											selectedComments.map((comment) => (
 												<div key={comment.id} className="rounded-xl border p-4">
@@ -1059,20 +1053,16 @@ export function WorkItemDetailPage({
 												No findings recorded.
 											</p>
 										)}
-									</CardContent>
-								</Card>
+								</PageSectionCard>
 							</TabsContent>
 						) : null}
 						{isPullRequest ? (
 							<TabsContent value="checks" className="mt-5">
-								<Card>
-									<CardHeader>
-										<CardTitle>Checks</CardTitle>
-										<CardDescription>
-											Pre-merge checks associated with this pull request.
-										</CardDescription>
-									</CardHeader>
-									<CardContent className="flex flex-col gap-2">
+								<PageSectionCard
+									title="Checks"
+									description="Pre-merge checks associated with this pull request."
+									contentClassName="flex flex-col gap-2"
+								>
 										{selectedChecks.length ? (
 											selectedChecks.map((check) => (
 												<div
@@ -1091,19 +1081,15 @@ export function WorkItemDetailPage({
 												No checks recorded.
 											</p>
 										)}
-									</CardContent>
-								</Card>
+								</PageSectionCard>
 							</TabsContent>
 						) : null}
 						<TabsContent value="activity" className="mt-5">
-							<Card>
-								<CardHeader>
-									<CardTitle>Activity</CardTitle>
-									<CardDescription>
-										Safe GitPal events associated with the selected run.
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="flex flex-col gap-3">
+							<PageSectionCard
+								title="Activity"
+								description="Safe GitPal events associated with the selected run."
+								contentClassName="flex flex-col gap-3"
+							>
 									{selectedRun?.events.length ? (
 										selectedRun.events.map((event) => (
 											<div
@@ -1131,10 +1117,9 @@ export function WorkItemDetailPage({
 									) : (
 										<p className="text-muted-foreground text-sm">
 											No activity recorded for this run.
-										</p>
-									)}
-								</CardContent>
-							</Card>
+											</p>
+										)}
+							</PageSectionCard>
 						</TabsContent>
 					</Tabs>
 				</div>

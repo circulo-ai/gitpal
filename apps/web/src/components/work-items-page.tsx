@@ -54,6 +54,7 @@ import * as React from "react";
 
 import { trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import { PageHeader, PageSectionCard } from "./workspace-page";
 
 type WorkItemKind = "pull_request" | "issue";
 
@@ -168,28 +169,17 @@ export function WorkItemsPage({
 
 	return (
 		<main className="flex flex-col gap-6">
-			<div className="flex flex-col gap-1">
-				<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-					{title}{" "}
-					<span className="text-muted-foreground text-sm italic">
-						{activeWorkspace.name}
-					</span>
-				</h1>
-				<p className="max-w-3xl text-muted-foreground text-sm">
-					Trace provider state, filter by repository, and follow every GitPal AI
-					run from request to result.
-				</p>
-			</div>
+			<PageHeader
+				eyebrow={title}
+				title={`${activeWorkspace.name} ${title.toLowerCase()}`}
+				description="Trace provider state, filter by repository, and follow every GitPal AI run from request to result without crowding the listing."
+			/>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>{title}</CardTitle>
-					<CardDescription>
-						Search by title or author, filter by repository, and narrow by
-						provider state.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-4">
+			<PageSectionCard
+				title={title}
+				description="Search by title or author, filter by repository, and narrow by provider state."
+				contentClassName="flex flex-col gap-4"
+			>
 					<div className="flex flex-col gap-3 lg:flex-row lg:items-center">
 						<div className="relative min-w-0 flex-1">
 							<SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -385,8 +375,7 @@ export function WorkItemsPage({
 							</EmptyHeader>
 						</Empty>
 					)}
-				</CardContent>
-			</Card>
+			</PageSectionCard>
 		</main>
 	);
 }

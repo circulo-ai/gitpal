@@ -217,7 +217,11 @@ export function WorkspaceSidebar({ user }: WorkspaceSidebarProps) {
 	}, [pathname]);
 
 	return (
-		<Sidebar collapsible="icon" variant="inset">
+		<Sidebar
+			collapsible="icon"
+			variant="inset"
+			className="border-r border-sidebar-border/60 bg-sidebar/96 backdrop-blur"
+		>
 			<SidebarHeader>
 				<WorkspaceSwitcher />
 			</SidebarHeader>

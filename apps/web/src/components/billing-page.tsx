@@ -34,6 +34,7 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import { PageHeader, PageSectionCard, PageStatCard, PageStatGrid } from "./workspace-page";
 
 function formatUsd(cents: number) {
 	return new Intl.NumberFormat("en-US", {
@@ -121,18 +122,18 @@ export function BillingPage() {
 	if (!canManageBilling) {
 		return (
 			<main className="flex flex-col gap-6">
-				<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-					Billing
-				</h1>
-				<Card>
-					<CardHeader>
-						<CardTitle>Restricted settings</CardTitle>
-						<CardDescription>
-							Only workspace owners and admins can view wallet details or change
-							spend controls.
-						</CardDescription>
-					</CardHeader>
-				</Card>
+				<PageHeader
+					eyebrow="Billing"
+					title="Workspace wallet and spend controls"
+					description="Only owners and admins can view wallet details or change spend controls."
+				/>
+				<PageSectionCard
+					title="Restricted settings"
+					description="Only workspace owners and admins can view wallet details or change spend controls."
+					contentClassName="hidden"
+				>
+					<div />
+				</PageSectionCard>
 			</main>
 		);
 	}
@@ -140,54 +141,35 @@ export function BillingPage() {
 	return (
 		<TooltipProvider>
 			<main className="flex flex-col gap-6">
-				<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-					<div className="space-y-1">
-						<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-							Billing
-						</h1>
-						<p className="max-w-3xl text-muted-foreground text-sm">
-							Each user has a USD wallet. Top up with crypto, keep the credited
-							balance for agent usage, and only pay from the wallet when GitPal
-							routes requests through our gateway.
-						</p>
-					</div>
-					<Badge variant="outline">{cloudBillingLabel}</Badge>
-				</div>
+				<PageHeader
+					eyebrow="Billing"
+					title="Wallet, top-ups, and spend limits"
+					description="Each user has a USD wallet. Top up with crypto, keep the credited balance for agent usage, and only pay from the wallet when GitPal routes requests through our gateway."
+					badges={<Badge variant="outline">{cloudBillingLabel}</Badge>}
+				/>
 
-				<div className="grid gap-3 md:grid-cols-4">
-					<Card size="sm">
-						<CardHeader>
-							<CardDescription>Available balance</CardDescription>
-							<CardTitle className="text-3xl tabular-nums">
-								{summary ? formatUsd(summary.availableBalanceCents) : "$0.00"}
-							</CardTitle>
-						</CardHeader>
-					</Card>
-					<Card size="sm">
-						<CardHeader>
-							<CardDescription>Total credited</CardDescription>
-							<CardTitle className="text-3xl tabular-nums">
-								{summary ? formatUsd(summary.totalCreditedCents) : "$0.00"}
-							</CardTitle>
-						</CardHeader>
-					</Card>
-					<Card size="sm">
-						<CardHeader>
-							<CardDescription>Total spent</CardDescription>
-							<CardTitle className="text-3xl tabular-nums">
-								{summary ? formatUsd(summary.totalSpentCents) : "$0.00"}
-							</CardTitle>
-						</CardHeader>
-					</Card>
-					<Card size="sm">
-						<CardHeader>
-							<CardDescription>Platform share</CardDescription>
-							<CardTitle className="text-3xl tabular-nums">
-								{summary ? `${summary.revenueSharePercent}%` : "5%"}
-							</CardTitle>
-						</CardHeader>
-					</Card>
-				</div>
+				<PageStatGrid>
+					<PageStatCard
+						label="Available balance"
+						value={summary ? formatUsd(summary.availableBalanceCents) : "$0.00"}
+						meta="Remaining shared wallet balance."
+					/>
+					<PageStatCard
+						label="Total credited"
+						value={summary ? formatUsd(summary.totalCreditedCents) : "$0.00"}
+						meta="All successful top-ups so far."
+					/>
+					<PageStatCard
+						label="Total spent"
+						value={summary ? formatUsd(summary.totalSpentCents) : "$0.00"}
+						meta="Shared gateway spend drawn from the wallet."
+					/>
+					<PageStatCard
+						label="Platform share"
+						value={summary ? `${summary.revenueSharePercent}%` : "5%"}
+						meta="Revenue share applied to GitPal-routed usage."
+					/>
+				</PageStatGrid>
 
 				<Card>
 					<CardHeader>

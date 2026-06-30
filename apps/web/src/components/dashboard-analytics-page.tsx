@@ -81,6 +81,7 @@ import { toast } from "sonner";
 import { queryClient, trpc } from "@/utils/trpc";
 // ─── Internal imports ─────────────────────────────────────────────────────────
 import { useActiveWorkspace } from "./active-workspace-provider";
+import { PageHeader, PageStatCard, PageStatGrid } from "./workspace-page";
 import type { DashboardView } from "./workspace-nav";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -266,19 +267,18 @@ function DashboardHeader({
 	updatedAt,
 }: DashboardHeaderProps) {
 	return (
-		<div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-			<div className="flex flex-col gap-1">
-				<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-					{title}
-				</h1>
-				<p className="max-w-3xl text-muted-foreground text-sm">{description}</p>
-			</div>
-			{updatedAt && (
-				<Badge variant="outline">
-					Updated {format(new Date(updatedAt), "MMM d, HH:mm")}
-				</Badge>
-			)}
-		</div>
+		<PageHeader
+			eyebrow="Dashboard"
+			title={title}
+			description={description}
+			badges={
+				updatedAt ? (
+					<Badge variant="outline">
+						Updated {format(new Date(updatedAt), "MMM d, HH:mm")}
+					</Badge>
+				) : null
+			}
+		/>
 	);
 }
 
@@ -459,7 +459,7 @@ interface MetricCardsProps {
 function MetricCards({ stats, isLoading }: MetricCardsProps) {
 	if (isLoading) {
 		return (
-			<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+			<PageStatGrid>
 				{Array.from({ length: SKELETON_CARD_COUNT }).map((_, i) => (
 					<Card key={i}>
 						<CardHeader>
@@ -468,30 +468,23 @@ function MetricCards({ stats, isLoading }: MetricCardsProps) {
 						</CardHeader>
 					</Card>
 				))}
-			</div>
+			</PageStatGrid>
 		);
 	}
 
 	if (!stats?.length) return null;
 
 	return (
-		<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+		<PageStatGrid>
 			{stats.map((stat) => (
-				<Card key={stat.label} size="sm">
-					<CardHeader>
-						<CardDescription>{stat.label}</CardDescription>
-						<CardTitle className="text-3xl tabular-nums">
-							{stat.value}
-						</CardTitle>
-					</CardHeader>
-					{stat.description && (
-						<CardFooter className="text-muted-foreground text-xs">
-							{stat.description}
-						</CardFooter>
-					)}
-				</Card>
+				<PageStatCard
+					key={stat.label}
+					label={stat.label}
+					value={stat.value}
+					meta={stat.description}
+				/>
 			))}
-		</div>
+		</PageStatGrid>
 	);
 }
 

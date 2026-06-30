@@ -76,6 +76,12 @@ import { toast } from "sonner";
 
 import { queryClient, trpc } from "@/utils/trpc";
 import { useActiveWorkspace } from "./active-workspace-provider";
+import {
+	PageHeader,
+	PageSectionCard,
+	PageStatCard,
+	PageStatGrid,
+} from "./workspace-page";
 
 const connectorTypes = ["mcp", "issue_tracking", "ci_cd"] as const;
 
@@ -423,67 +429,65 @@ export function IntegrationsPage() {
 	if (!activeWorkspace || !activeWorkspaceId) {
 		return (
 			<main className="flex flex-col gap-6">
-				<Card>
-					<CardHeader>
-						<CardTitle>Integrations</CardTitle>
-						<CardDescription>
-							Select a synced workspace before connecting external services.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<Empty className="min-h-96">
-							<EmptyHeader>
-								<EmptyMedia variant="icon">
-									<Building2Icon />
-								</EmptyMedia>
-								<EmptyTitle>No active workspace</EmptyTitle>
-								<EmptyDescription>
-									Workspace-scoped integrations need a provider workspace.
-								</EmptyDescription>
-							</EmptyHeader>
-						</Empty>
-					</CardContent>
-				</Card>
+				<PageHeader
+					eyebrow="Integrations"
+					title="Workspace-scoped external context"
+					description="External tools, MCP servers, and issue trackers attach to a synced workspace. Pick a workspace first so GitPal knows where those credentials belong."
+				/>
+				<PageSectionCard
+					title="No active workspace"
+					description="Workspace-scoped integrations need a provider workspace."
+					contentClassName="pt-0"
+				>
+					<Empty className="min-h-80">
+						<EmptyHeader>
+							<EmptyMedia variant="icon">
+								<Building2Icon />
+							</EmptyMedia>
+							<EmptyTitle>Select a synced workspace</EmptyTitle>
+							<EmptyDescription>
+								Once a workspace is active, integrations can be configured with
+								clear ownership and less credential sprawl.
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
+				</PageSectionCard>
 			</main>
 		);
 	}
 
 	return (
 		<main className="flex flex-col gap-6">
-			<div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-				<div className="flex flex-col gap-1">
-					<h1 className="font-heading font-medium text-2xl tracking-tight md:text-3xl">
-						Integrations{" "}
-						<span className="text-muted-foreground text-sm italic">
-							{activeWorkspace.name}
-						</span>
-					</h1>
-					<p className="max-w-3xl text-muted-foreground text-sm">
-						Connect MCP servers, issue trackers, and CI/CD systems for review
-						workflows.
-					</p>
-				</div>
-				<div className="grid grid-cols-3 gap-2 text-center md:w-80">
-					<div className="rounded-lg border bg-card p-3">
-						<div className="font-medium text-lg tabular-nums">
-							{connections.length}
-						</div>
-						<div className="text-muted-foreground text-xs">Configured</div>
-					</div>
-					<div className="rounded-lg border bg-card p-3">
-						<div className="font-medium text-lg tabular-nums">
-							{connectedCount}
-						</div>
-						<div className="text-muted-foreground text-xs">Active</div>
-					</div>
-					<div className="rounded-lg border bg-card p-3">
-						<div className="font-medium text-lg tabular-nums">
-							{pendingCount}
-						</div>
-						<div className="text-muted-foreground text-xs">Pending</div>
-					</div>
-				</div>
-			</div>
+			<PageHeader
+				eyebrow="Integrations"
+				title={`${activeWorkspace.name} external context`}
+				description="Connect MCP servers, issue trackers, and CI/CD systems without overcrowding the setup flow or hiding credential state."
+				badges={
+					<>
+						<Badge variant="secondary">{activeWorkspace.providerName}</Badge>
+						<Badge variant="outline">
+							{connectorTypeLabels[selectedType]}
+						</Badge>
+					</>
+				}
+			/>
+			<PageStatGrid className="xl:grid-cols-3">
+				<PageStatCard
+					label="Configured"
+					value={connections.length}
+					meta="Saved integration connections for this category."
+				/>
+				<PageStatCard
+					label="Active"
+					value={connectedCount}
+					meta="Enabled and connected integrations."
+				/>
+				<PageStatCard
+					label="Pending"
+					value={pendingCount}
+					meta="Connections waiting on OAuth or follow-up."
+				/>
+			</PageStatGrid>
 			{!canManageIntegrations ? (
 				<Alert>
 					<AlertTitle>Read-only integration access</AlertTitle>
